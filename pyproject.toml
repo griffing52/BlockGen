@@ -1,0 +1,14 @@
+[project]
+name = "blockgen"
+version = "0.1.0"
+description = "Generative AI for Voxel and Brick Structures (such as Minecraft or Lego)"
+authors = [
+    { name="Griffin Galimi", email="emailgriffinnow@gmail.com" }
+]
+license = { text = "GNU General Public License v3.0" }
+readme = "README.md"
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

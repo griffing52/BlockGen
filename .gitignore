@@ -5,3 +5,5 @@ data/Schematics.zip
 **/__pycache__
 *.pyc
 *.pyo
+
+blockgen/blockgen.egg-info
