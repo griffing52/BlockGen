@@ -1,4 +1,4 @@
-from src.utils.data_loader import load_schematic
+from blockgen.utils.data_loader import load_schematic
 
 # def tokenize_schematic(schematic_file):
 #     # Tokenize the schematic file into a sequence of blocks
