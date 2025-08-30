@@ -1,0 +1,31 @@
+Air(minecraft:air)
+Stone(minecraft:stone)
+Grass(minecraft:grass)
+Dirt(minecraft:dirt)
+Cobblestone(minecraft:cobblestone)
+Oak Wood Plank(minecraft:planks)
+Sand(minecraft:sand)
+Gravel(minecraft:gravel)
+Oak Wood(minecraft:log)
+Sandstone(minecraft:sandstone)
+Grass(minecraft:tallgrass)
+Dandelion(minecraft:yellow_flower)
+Poppy(minecraft:red_flower)
+Double Stone Slab(minecraft:double_stone_slab)
+Stone Slab(minecraft:stone_slab)
+Torch(minecraft:torch):1
+Torch(minecraft:torch):2
+Torch(minecraft:torch):3
+Torch(minecraft:torch):4
+Torch(minecraft:torch):5
+Crafting Table(minecraft:crafting_table)
+Ladder(minecraft:ladder):2
+Ladder(minecraft:ladder):3
+Ladder(minecraft:ladder):4
+Cobblestone Stairs(minecraft:stone_stairs):1
+Cobblestone Stairs(minecraft:stone_stairs)
+Wall-mounted Sign Block(minecraft:wall_sign):3
+Wall-mounted Sign Block(minecraft:wall_sign):4
+Wall-mounted Sign Block(minecraft:wall_sign):5
+Oak Fence(minecraft:fence)
+Netherrack(minecraft:netherrack)

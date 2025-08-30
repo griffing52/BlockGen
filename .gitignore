@@ -7,3 +7,4 @@ data/Schematics.zip
 *.pyo
 
 blockgen/blockgen.egg-info
+blockgen.egg-info/
