@@ -1,7 +1,6 @@
 from blockgen.utils.data_loader import load_schematic
 from blockgen.tokenizers.standard_vocab import STANDARD_VOCAB
 import numpy as np
-import json
 
 # def tokenize_schematic(schematic_file):
 #     # Tokenize the schematic file into a sequence of blocks
@@ -11,7 +10,7 @@ import json
 
 def check_vocab(file_list):
     vocab = set()
-    for file in file_list:
+    for file in file_list: 
         schematic = load_schematic(file)
         blocks = schematic.blocks.astype(int)
         data = schematic.data.astype(int)
@@ -28,10 +27,11 @@ def token_to_block_name(token):
     a,b = token.split(":") if ":" in token else (token, "0")
     return STANDARD_VOCAB.get(token, STANDARD_VOCAB.get(a, "Unknown Block")+f":{b}")
 
-def bpe(vocab, X):
+def bpe(vocab, file_list):
     # Implement Byte Pair Encoding (BPE)
-    pass
-
+    vocab = set()
+    
+    return vocab
 
 def block2vec():
     pass
