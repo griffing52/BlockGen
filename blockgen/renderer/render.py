@@ -50,8 +50,11 @@ def render_schem(
     if max_dim is not None:
         structure = structure.downsample(max_dim=max_dim)
 
-    occupancy = structure.occupied_mask
-    facecolors = structure.facecolors()
+    # Structure uses XYZ (Minecraft: X horizontal, Y up, Z horizontal).
+    # Matplotlib voxels interprets dimensions as plot X/Y/Z, so remap to XZY
+    # to place Minecraft Y on rendered Z (vertical) axis.
+    occupancy = structure.occupied_mask.transpose(0, 2, 1)
+    facecolors = structure.facecolors().transpose(0, 2, 1, 3)
 
     created_axis = ax is None
     if created_axis:
@@ -67,9 +70,9 @@ def render_schem(
 
     sx, sy, sz = structure.shape
     ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_box_aspect((sx, sy, sz))
+    ax.set_ylabel("Z")
+    ax.set_zlabel("Y")
+    ax.set_box_aspect((sx, sz, sy))
     ax.view_init(elev=elev, azim=azim)
     title = "Minecraft Structure"
     if structure.source_path:
