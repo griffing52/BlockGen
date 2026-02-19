@@ -39,7 +39,59 @@ def parse_data(path):
 # TODO pad minecraft structures with End Of Block block (air). 
 
 def schemToGraph(schem):
-    pass
+    from blockgen.utils.data import Structure
+    from blockgen.utils.graph_data import structure_to_pyg_data
+
+    structure = Structure.from_schematic(schem)
+    return structure_to_pyg_data(structure)
+
+
+def load_schematic_graph(path, *, include_air=False, crop_non_air=True, max_dim=None):
+    """Load one schematic and convert it to a torch_geometric Data graph."""
+    from blockgen.utils.data import Structure
+    from blockgen.utils.graph_data import GraphBuildConfig, structure_to_pyg_data
+
+    schematic = load_schematic(path)
+    structure = Structure.from_schematic(schematic, source_path=path)
+
+    config = GraphBuildConfig(
+        include_air=include_air,
+        crop_non_air=crop_non_air,
+        max_dim=max_dim,
+    )
+    if config.crop_non_air:
+        structure = structure.crop_to_non_air()
+    if config.max_dim is not None:
+        structure = structure.downsample(max_dim=config.max_dim)
+
+    return structure_to_pyg_data(structure, include_air=config.include_air)
+
+
+def make_graph_dataset(
+    path,
+    *,
+    from_list_file=False,
+    include_air=False,
+    crop_non_air=True,
+    max_dim=None,
+):
+    """Create a simple graph dataset from a directory or a list file."""
+    from blockgen.utils.graph_data import dataset_from_directory, dataset_from_list_file
+
+    if from_list_file:
+        return dataset_from_list_file(
+            path,
+            include_air=include_air,
+            crop_non_air=crop_non_air,
+            max_dim=max_dim,
+        )
+
+    return dataset_from_directory(
+        path,
+        include_air=include_air,
+        crop_non_air=crop_non_air,
+        max_dim=max_dim,
+    )
 
 # def load_litematic(path):
 #     schem = Schematic.load(path)

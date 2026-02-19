@@ -9,6 +9,12 @@ license = { text = "GNU General Public License v3.0" }
 readme = "README.md"
 requires-python = ">=3.8"
 
+[project.optional-dependencies]
+gnn = [
+    "torch>=2.1",
+    "torch-geometric>=2.4",
+]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
