@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import importlib
 from typing import Optional
+import numpy as np
 
 from blockgen.utils.data import Structure
+
+try:
+    plt = importlib.import_module("matplotlib.pyplot")
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "matplotlib is required for rendering. Install it with `pip install matplotlib`."
+    ) from exc
 
 
 def _to_structure(schem) -> Structure:
@@ -36,13 +44,6 @@ def render_schem(
     max_dim:
         Optional maximum dimension for display downsampling to keep rendering fast.
     """
-
-    try:
-        plt = importlib.import_module("matplotlib.pyplot")
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
-            "matplotlib is required for render_schem. Install it with `pip install matplotlib`."
-        ) from exc
 
     structure = _to_structure(schem)
     if crop_non_air:
@@ -84,3 +85,46 @@ def render_schem(
         plt.show()
 
     return ax
+
+def render_schem_to_array(
+    schem,
+    crop_non_air: bool = True,
+    max_dim: int | None = 96,
+    elev: float = 28,
+    azim: float = 42,
+    figsize=(4, 4),
+):
+    """
+    Render schematic to a NumPy RGB image array instead of displaying it.
+    """
+
+    # Create off-screen figure
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Reuse your existing renderer
+    render_schem(
+        schem,
+        ax=ax,
+        crop_non_air=crop_non_air,
+        max_dim=max_dim,
+        elev=elev,
+        azim=azim,
+        show=False,
+    )
+
+    # Remove extra padding for tight image
+    plt.tight_layout(pad=0)
+
+    # Draw canvas
+    fig.canvas.draw()
+
+    # Convert to numpy array
+    width, height = fig.canvas.get_width_height()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape((height, width, 3))
+
+    # Clean up (VERY important for large grids)
+    plt.close(fig)
+
+    return img
