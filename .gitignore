@@ -1,5 +1,7 @@
 data/raw/
 data/Schematics.zip
+data/more
+data/buildings
 
 # pychache 
 **/__pycache__
