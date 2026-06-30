@@ -7,6 +7,29 @@ def load_schematic(path):
 
     return schematic_file
 
+
+def safe_load_schematic(path):
+    """Load a schematic, returning None for unreadable/wrong-format files.
+
+    Roughly 1-2% of the scraped ``data/raw`` files are not classic MCEdit
+    schematics (newer Sponge/.schem layouts saved under a ``.schematic`` name,
+    truncated downloads, zip archives, etc.). Those raise ``KeyError: 'Blocks'``,
+    ``gzip.BadGzipFile``, ``EOFError`` and friends. Callers that sweep the whole
+    directory should skip them instead of crashing.
+
+    Returns the loaded ``SchematicFile`` on success, or ``None`` on any failure.
+    We touch ``.blocks``/``.data`` here so format problems surface now rather
+    than later in ``Structure.from_schematic``.
+    """
+    try:
+        schematic = SchematicFile.load(path)
+        # Force the lazy NBT lookups that actually validate the format.
+        _ = schematic.blocks
+        _ = schematic.data
+        return schematic
+    except Exception:
+        return None
+
     # print(f"Schematic shape: {schematic_file.shape}")
     # print(f"Number of blocks: {schematic_file.blocks.size}")
 

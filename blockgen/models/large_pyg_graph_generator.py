@@ -119,7 +119,7 @@ class LargePyGGraphGenerator(nn.Module):
             residual = h
             h = conv(h, data.edge_index, edge_attr=edge_attr)
             h = norm(h + residual)
-            h = torch.gelu(h)
+            h = nn.functional.gelu(h)
 
         pooled = torch.cat(
             [
