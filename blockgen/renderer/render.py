@@ -119,10 +119,11 @@ def render_schem_to_array(
     # Draw canvas
     fig.canvas.draw()
 
-    # Convert to numpy array
+    # Convert to numpy array. matplotlib >=3.10 removed tostring_rgb(); use the
+    # RGBA buffer and drop the alpha channel.
     width, height = fig.canvas.get_width_height()
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    img = img.reshape((height, width, 3))
+    buf = np.asarray(fig.canvas.buffer_rgba(), dtype=np.uint8)
+    img = buf.reshape((height, width, 4))[..., :3].copy()
 
     # Clean up (VERY important for large grids)
     plt.close(fig)

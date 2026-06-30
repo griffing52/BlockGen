@@ -40,9 +40,11 @@ class VoxelTransformerAR(nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size)
 
     def _causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        mask = torch.full((seq_len, seq_len), float("-inf"), device=device)
-        mask = torch.triu(mask, diagonal=1)
-        return mask
+        # Boolean mask (True == not allowed to attend) so it matches the dtype of
+        # the boolean src_key_padding_mask and avoids the mixed-mask deprecation.
+        return torch.triu(
+            torch.ones(seq_len, seq_len, dtype=torch.bool, device=device), diagonal=1
+        )
 
     def forward(self, input_ids: torch.Tensor, pad_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         if input_ids.ndim != 2:
@@ -51,6 +53,17 @@ class VoxelTransformerAR(nn.Module):
         batch_size, seq_len = input_ids.shape
         if seq_len > self.max_seq_len:
             raise ValueError(f"seq_len ({seq_len}) exceeds max_seq_len ({self.max_seq_len})")
+
+        # Guard against out-of-range token ids, which otherwise surface as an
+        # opaque CUDA device-side assert inside the embedding lookup.
+        if input_ids.numel() > 0:
+            max_id = int(input_ids.max())
+            min_id = int(input_ids.min())
+            if min_id < 0 or max_id >= self.vocab_size:
+                raise ValueError(
+                    f"token id out of range [0,{self.vocab_size}): "
+                    f"min={min_id}, max={max_id}"
+                )
 
         positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, seq_len)
         hidden = self.token_embedding(input_ids) + self.position_embedding(positions)
