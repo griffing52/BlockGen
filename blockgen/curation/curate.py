@@ -40,6 +40,13 @@ from blockgen.data.build_cache import DEFAULT_CACHE_DIR, load_cached_structures
 from blockgen.utils.data import Structure, _resource_location_for
 from blockgen.utils.serialize import BlockVocab, build_block_vocab
 
+# Metadata feature keys attached to every row (defaults when a structure has none).
+_META_DEFAULTS = {
+    "title": "", "category": "", "tags": (), "description": "", "user": "",
+    "views": 0, "downloads": 0, "diamonds": 0, "favorites": 0, "comments": 0,
+    "has_metadata": False,
+}
+
 
 _NEIGHBORS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
@@ -95,8 +102,13 @@ def compute_features(structures: Sequence[Structure]) -> List[dict]:
             max(names.items(), key=lambda kv: kv[1]) if names else ("minecraft:air", 0)
         )
         n_components, largest_frac = _connected_components(occ)
+        # Exact (id, data) palette: distinguishes material/color variations of the
+        # same shape (e.g. oak vs spruce planks share a resource name but differ here).
+        palette_sig = frozenset(
+            (int(bid), int(bdata)) for bid, bdata in zip(ids.tolist(), datas.tolist())
+        )
 
-        rows.append({
+        row = {
             "index": i,
             "path": os.path.basename(s.source_path) if s.source_path else f"#{i}",
             "source_path": s.source_path or "",
@@ -112,8 +124,36 @@ def compute_features(structures: Sequence[Structure]) -> List[dict]:
             "dominant_frac": round(dominant_count / n_blocks, 3) if n_blocks else 0.0,
             "n_components": n_components,
             "largest_component_frac": round(largest_frac, 3),
-        })
+            "palette_sig": palette_sig,
+        }
+        row.update(_META_DEFAULTS)
+        rows.append(row)
     return rows
+
+
+def attach_metadata(features: List[dict], meta_by_url: Dict[str, dict]) -> int:
+    """Fill metadata fields on feature rows from a url->record map (keyed by source_path).
+
+    Returns the number of rows that got metadata. ``subtitle`` becomes ``category``.
+    """
+    n = 0
+    for r in features:
+        m = meta_by_url.get(r["source_path"])
+        if not m:
+            continue
+        n += 1
+        r["title"] = m.get("title", "") or ""
+        r["category"] = m.get("subtitle", "") or ""
+        r["description"] = m.get("description", "") or ""
+        r["user"] = m.get("user", "") or ""
+        r["tags"] = tuple(m.get("tags", []) or ())
+        r["views"] = int(m.get("views", 0) or 0)
+        r["downloads"] = int(m.get("downloads", 0) or 0)
+        r["diamonds"] = int(m.get("diamondCount", 0) or 0)
+        r["favorites"] = int(m.get("favorites", 0) or 0)
+        r["comments"] = int(m.get("comments", 0) or 0)
+        r["has_metadata"] = True
+    return n
 
 
 # --- union-find for grouping -----------------------------------------------
@@ -153,6 +193,7 @@ class Curator:
     indices: List[int] = field(default_factory=list)
     decisions: Dict[str, dict] = field(default_factory=dict)
     vocab: Optional[BlockVocab] = None
+    metadata: Dict[str, dict] = field(default_factory=dict)
     _grid_cache: Optional[np.ndarray] = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -167,10 +208,38 @@ class Curator:
         return cls(structures=structures, features=compute_features(structures), vocab=vocab)
 
     @classmethod
-    def from_structures(cls, structures: Sequence[Structure], max_dim: int = 24) -> "Curator":
+    def from_labeled_cache(cls, max_dim: int = 24, cache_dir: str = DEFAULT_CACHE_DIR) -> "Curator":
+        """Load the metadata-labeled tfrecord cache (titles, categories, tags, popularity)."""
+        from blockgen.data.tfrecord_dataset import load_labeled_structures
+        structures, meta = load_labeled_structures(max_dim=max_dim, cache_dir=cache_dir)
+        vocab = build_block_vocab(structures, max_dim=max_dim)
+        features = compute_features(structures)
+        n = attach_metadata(features, meta)
+        print(f"loaded {len(structures)} structures, {n} with metadata "
+              f"({100 * n / max(1, len(structures)):.0f}%)")
+        return cls(structures=structures, features=features, vocab=vocab, metadata=meta)
+
+    @classmethod
+    def from_grabcraft_cache(cls, max_dim: int = 24, cache_dir: str = DEFAULT_CACHE_DIR) -> "Curator":
+        """Load the scraped-GrabCraft cache (titles, subcategory, tags, views)."""
+        from blockgen.data.grabcraft_dataset import load_grabcraft_structures
+        structures, meta = load_grabcraft_structures(max_dim=max_dim, cache_dir=cache_dir)
+        vocab = build_block_vocab(structures, max_dim=max_dim)
+        features = compute_features(structures)
+        n = attach_metadata(features, meta)
+        print(f"loaded {len(structures)} structures, {n} with metadata "
+              f"({100 * n / max(1, len(structures)):.0f}%)")
+        return cls(structures=structures, features=features, vocab=vocab, metadata=meta)
+
+    @classmethod
+    def from_structures(cls, structures: Sequence[Structure], max_dim: int = 24,
+                        metadata: Optional[Dict[str, dict]] = None) -> "Curator":
         structs = list(structures)
         vocab = build_block_vocab(structs, max_dim=max_dim)
-        return cls(structures=structs, features=compute_features(structs), vocab=vocab)
+        features = compute_features(structs)
+        if metadata:
+            attach_metadata(features, metadata)
+        return cls(structures=structs, features=features, vocab=vocab, metadata=metadata or {})
 
     def _view(self, indices: Sequence[int]) -> "Curator":
         """A child view sharing the same structures, vocab, and decisions dict."""
@@ -180,6 +249,7 @@ class Curator:
             indices=list(indices),
             decisions=self.decisions,  # shared by reference so flags persist
             vocab=self.vocab,
+            metadata=self.metadata,
             _grid_cache=self._grid_cache,
         )
         return child
@@ -207,6 +277,12 @@ class Curator:
         from collections import Counter
         dom = Counter(r["dominant_block"] for r in rows).most_common(8)
         print("  top dominant materials:", ", ".join(f"{name.split(':')[-1]}({c})" for name, c in dom))
+        # metadata, if present
+        n_meta = sum(1 for r in rows if r["has_metadata"])
+        if n_meta:
+            print(f"  with metadata: {n_meta}/{n}")
+            cats = Counter(r["category"] for r in rows if r["category"]).most_common(8)
+            print("  top categories:", ", ".join(f"{c}({n})" for c, n in cats))
         n_dec = sum(1 for r in rows if r["source_path"] in self.decisions)
         print(f"  flagged so far: {n_dec}  (remove={len(self.remove_list())}, keep={len(self.keep_list())})")
 
@@ -249,9 +325,20 @@ class Curator:
         min_largest_component_frac: Optional[float] = None,
         dominant_in: Optional[Sequence[str]] = None,     # keep if dominant material matches any substring
         contains_block: Optional[str] = None,            # substring match on dominant material
+        # --- metadata criteria (require from_labeled_cache) ---
+        category_in: Optional[Sequence[str]] = None,     # exact category (subtitle) match, any of
+        title_contains: Optional[str] = None,            # case-insensitive substring of the title
+        tag_contains: Optional[str] = None,              # case-insensitive substring of any tag
+        min_downloads: Optional[int] = None,
+        min_diamonds: Optional[int] = None,
+        min_views: Optional[int] = None,
+        has_metadata: Optional[bool] = None,
         predicate=None,                                  # custom: fn(feature_row) -> bool
     ) -> "Curator":
         """Return a filtered view. All criteria are ANDed; None means 'no constraint'."""
+        tl = title_contains.lower() if title_contains else None
+        gl = tag_contains.lower() if tag_contains else None
+        cats = set(category_in) if category_in else None
         keep: List[int] = []
         for i in self.indices:
             r = self.features[i]
@@ -267,8 +354,26 @@ class Curator:
             if min_largest_component_frac is not None and r["largest_component_frac"] < min_largest_component_frac: continue
             if dominant_in is not None and not any(d in r["dominant_block"] for d in dominant_in): continue
             if contains_block is not None and contains_block not in r["dominant_block"]: continue
+            if cats is not None and r["category"] not in cats: continue
+            if tl is not None and tl not in r["title"].lower(): continue
+            if gl is not None and not any(gl in t.lower() for t in r["tags"]): continue
+            if min_downloads is not None and r["downloads"] < min_downloads: continue
+            if min_diamonds is not None and r["diamonds"] < min_diamonds: continue
+            if min_views is not None and r["views"] < min_views: continue
+            if has_metadata is not None and r["has_metadata"] != has_metadata: continue
             if predicate is not None and not predicate(r): continue
             keep.append(i)
+        return self._view(keep)
+
+    def search(self, text: str) -> "Curator":
+        """Full-text view: case-insensitive match across title, description, and tags."""
+        q = text.lower()
+        keep = [
+            i for i in self.indices
+            if q in self.features[i]["title"].lower()
+            or q in self.features[i]["description"].lower()
+            or any(q in t.lower() for t in self.features[i]["tags"])
+        ]
         return self._view(keep)
 
     def sort(self, key: str, reverse: bool = True) -> "Curator":
@@ -322,6 +427,58 @@ class Curator:
         """Near-duplicate groups (high IoU). Returns only groups with >1 member."""
         return [g for g in self.group_by_similarity(iou_threshold, grid) if len(g) > 1]
 
+    def _split_by_palette(self, group: Sequence[int]) -> List[List[int]]:
+        """Split a shape group into sub-groups that share an identical (id,data) palette."""
+        buckets: Dict[frozenset, List[int]] = {}
+        for i in group:
+            buckets.setdefault(self.features[i]["palette_sig"], []).append(i)
+        return list(buckets.values())
+
+    def find_exact_duplicates(self, iou_threshold: float = 0.95, grid: int = 24) -> List[List[int]]:
+        """Same shape AND identical material palette — true copies, safe to drop extras.
+
+        Returns sub-groups (size > 1) whose members share both occupancy (IoU >=
+        threshold) and the exact same set of (block_id, data) materials.
+        """
+        out: List[List[int]] = []
+        for g in self.group_by_similarity(iou_threshold, grid):
+            if len(g) < 2:
+                continue
+            for sub in self._split_by_palette(g):
+                if len(sub) > 1:
+                    out.append(sub)
+        out.sort(key=len, reverse=True)
+        return out
+
+    def find_variant_groups(self, iou_threshold: float = 0.9, grid: int = 24) -> List[List[int]]:
+        """Same shape, DIFFERENT materials — color/wood variations worth KEEPING.
+
+        Returns shape groups that contain at least two distinct material palettes
+        (e.g. the same build in oak, spruce, and birch, or recolored wool).
+        """
+        out: List[List[int]] = []
+        for g in self.group_by_similarity(iou_threshold, grid):
+            if len(g) < 2:
+                continue
+            if len({self.features[i]["palette_sig"] for i in g}) > 1:
+                out.append(g)
+        out.sort(key=len, reverse=True)
+        return out
+
+    def dedupe_keep_variants(self, iou_threshold: float = 0.95, grid: int = 24,
+                             reason: str = "exact-duplicate") -> int:
+        """Flag exact-duplicate extras for removal while preserving material variants.
+
+        Within each shape group, keeps one structure per distinct palette (so every
+        color/wood variation survives) and marks the remaining true copies 'remove'.
+        Returns the number flagged.
+        """
+        to_remove: List[int] = []
+        for sub in self.find_exact_duplicates(iou_threshold, grid):
+            to_remove.extend(sub[1:])  # keep the first of each identical-palette copy
+        self.mark_remove(to_remove, reason=reason)
+        return len(to_remove)
+
     def cluster_features(self, k: int = 8, seed: int = 0, iters: int = 50) -> List[List[int]]:
         """K-means over standardized features. Returns k groups of ORIGINAL indices."""
         idx = self.indices
@@ -354,6 +511,31 @@ class Curator:
             path = self.structures[i].source_path or f"#{i}"
             self.decisions[path] = {"decision": decision, "reason": reason,
                                     "tags": list(tags or [])}
+
+    def auto_mark_reliable(self, min_diamonds: int = 5, min_downloads: int = 50,
+                           require_both: bool = False, reason: str = "popular") -> int:
+        """Mark popular builds 'keep' as a likely-good seed subset.
+
+        Popularity (diamonds / downloads) is a crowd-sourced quality signal: highly
+        favorited builds are usually clean, complete, and well-formed. Marks the
+        matching structures 'keep' and returns the count. With ``require_both`` the
+        structure must clear *both* thresholds; otherwise *either* qualifies.
+        """
+        hits: List[int] = []
+        for i in self.indices:
+            r = self.features[i]
+            d_ok = r["diamonds"] >= min_diamonds
+            dl_ok = r["downloads"] >= min_downloads
+            if (d_ok and dl_ok) if require_both else (d_ok or dl_ok):
+                hits.append(i)
+        self.mark_keep(hits, reason=reason)
+        return len(hits)
+
+    def categories(self) -> List[tuple]:
+        """(category, count) over the current view, most common first."""
+        from collections import Counter
+        c = Counter(self.features[i]["category"] for i in self.indices if self.features[i]["category"])
+        return c.most_common()
 
     def mark_remove(self, indices: Sequence[int], reason: str = "") -> None:
         self.mark(indices, "remove", reason)
@@ -426,6 +608,9 @@ class Curator:
             r = self.features[i]
             decision = self.decisions.get(self.structures[i].source_path or f"#{i}", {}).get("decision", "")
             label = " ".join(str(r[k]) for k in label_keys)
+            if r["title"]:
+                title = r["title"][:28] + ("…" if len(r["title"]) > 28 else "")
+                label = f"{title}\n{label}"
             if decision:
                 label += f" [{decision}]"
             ax.set_title(label, fontsize=8)
@@ -438,16 +623,18 @@ class Curator:
 
 def _suggest_removals(cur: Curator) -> None:
     """Print rule-of-thumb removal candidates for a quick first pass."""
-    dups = cur.find_duplicates(0.95)
-    n_dup_extra = sum(len(g) - 1 for g in dups)
+    exact = cur.find_exact_duplicates(0.95)
+    n_exact_extra = sum(len(g) - 1 for g in exact)
+    variants = cur.find_variant_groups(0.9)
     tiny = len(cur.filter(max_blocks=8).indices)
     monotype = len(cur.filter(max_block_types=1).indices)
     fragmented = len(cur.filter(predicate=lambda r: r["n_components"] >= 5 and r["largest_component_frac"] < 0.4).indices)
     print("removal candidates (rules of thumb):")
-    print(f"  near-duplicate extras (IoU>=0.95) : {n_dup_extra}  ({len(dups)} groups)")
-    print(f"  tiny (<=8 blocks)                 : {tiny}")
-    print(f"  single material type              : {monotype}")
-    print(f"  fragmented (>=5 comps, largest<40%): {fragmented}")
+    print(f"  exact-duplicate extras (same shape+palette): {n_exact_extra}  ({len(exact)} groups)")
+    print(f"  material/color VARIANT groups (KEEP these) : {len(variants)}  ({sum(len(g) for g in variants)} structures)")
+    print(f"  tiny (<=8 blocks)                          : {tiny}")
+    print(f"  single material type                       : {monotype}")
+    print(f"  fragmented (>=5 comps, largest<40%)        : {fragmented}")
 
 
 def main() -> None:
@@ -455,8 +642,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Curate the cached structure dataset.")
     parser.add_argument("--max-dim", type=int, default=24)
     parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR)
+    parser.add_argument("--labeled", action="store_true",
+                        help="use the metadata-labeled tfrecord cache (tf_small_<dim>.npz)")
     args = parser.parse_args()
-    cur = Curator.from_cache(max_dim=args.max_dim, cache_dir=args.cache_dir)
+    if args.labeled:
+        cur = Curator.from_labeled_cache(max_dim=args.max_dim, cache_dir=args.cache_dir)
+    else:
+        cur = Curator.from_cache(max_dim=args.max_dim, cache_dir=args.cache_dir)
     cur.summary()
     print()
     _suggest_removals(cur)

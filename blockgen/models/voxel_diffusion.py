@@ -122,7 +122,8 @@ def sample_grids(
     temperature: float = 1.0,
     gumbel_scale: float = 1.0,
     air_bias: float = 0.0,
-) -> torch.Tensor:
+    return_trajectory: bool = False,
+):
     """Iterative MaskGIT-style *stochastic* decoding from an all-MASK grid.
 
     At each step we sample a class per masked voxel from the predicted
@@ -135,11 +136,14 @@ def sample_grids(
     directly control output density — raise it if samples come out near-empty,
     lower it (or go negative) if they come out as dense blobs.
 
-    Returns a (num_samples, grid, grid, grid) long tensor of class indices.
+    Returns a (num_samples, grid, grid, grid) long tensor of class indices. With
+    ``return_trajectory`` also returns a list of per-step grid snapshots (mask
+    token mapped to 0) for visualizing the generation process.
     """
     model.eval()
     n_vox = grid ** 3
     x = torch.full((num_samples, grid, grid, grid), model.mask_token, dtype=torch.long, device=device)
+    traj = []
 
     for step in range(steps):
         progress = (step + 1) / steps
@@ -176,5 +180,65 @@ def sample_grids(
             flat_x[chosen] = flat_pred[chosen]
             x[b] = flat_x.reshape(grid, grid, grid)
 
+        if return_trajectory:
+            snap = x.clone()
+            snap[snap == model.mask_token] = 0
+            traj.append(snap)
+
     x[x == model.mask_token] = 0  # any leftover masks -> air
-    return x
+    return (x, traj) if return_trajectory else x
+
+
+@torch.no_grad()
+def sample_grids_flow(
+    model: VoxelUNet3D,
+    grid: int,
+    num_samples: int,
+    steps: int = 12,
+    device: str = "cuda",
+    temperature: float = 1.0,
+    air_bias: float = 0.0,
+    return_trajectory: bool = False,
+):
+    """Continuous-time **discrete flow-matching** sampler over the same trained net.
+
+    The masked-diffusion network is an ``x_0``-predictor: given a partially
+    revealed grid it predicts the clean class distribution. Absorbing-state
+    discrete flow matching reveals tokens along a linear path from the all-MASK
+    source (t=0) to data (t=1). At each step the reverse unmasking *rate* for the
+    linear schedule is ``dt / (1 - t)``, so a masked voxel is revealed with
+    probability ``1 / (steps - step)`` and filled with a freshly sampled class.
+
+    Contrast with MaskGIT (`sample_grids`): unmasking here is **rate-driven and
+    stochastic** rather than confidence-ranked top-k — a genuinely different
+    inference rule on identical weights, so it is a fair sampler ablation.
+    """
+    model.eval()
+    x = torch.full((num_samples, grid, grid, grid), model.mask_token, dtype=torch.long, device=device)
+    traj = []
+
+    for step in range(steps):
+        progress = (step + 1) / steps
+        t = torch.full((num_samples,), 1.0 - progress, device=device)
+        logits = model(x, t) / max(temperature, 1e-5)
+        if air_bias != 0.0:
+            logits[:, 0] = logits[:, 0] - air_bias
+        probs = torch.softmax(logits, dim=1)
+
+        flat_probs = probs.permute(0, 2, 3, 4, 1).reshape(-1, probs.size(1))
+        sampled = torch.multinomial(flat_probs, 1).reshape(num_samples, grid, grid, grid)
+
+        # Linear-schedule reverse rate: reveal 1/(steps-step) of the still-masked
+        # voxels this step (forced to reveal everything on the final step).
+        unmask_prob = 1.0 if step == steps - 1 else 1.0 / (steps - step)
+        masked = x == model.mask_token
+        reveal = masked & (torch.rand_like(x, dtype=torch.float) < unmask_prob)
+        x[reveal] = sampled[reveal]
+
+        if return_trajectory:
+            snap = x.clone()
+            snap[snap == model.mask_token] = 0
+            traj.append(snap)
+
+    x[x == model.mask_token] = 0
+    return (x, traj) if return_trajectory else x
