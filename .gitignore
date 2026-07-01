@@ -3,6 +3,7 @@ data/Schematics.zip
 data/more
 data/buildings
 data/cache/
+data/grabcraft
 
 # pychache 
 **/__pycache__
@@ -11,3 +12,5 @@ data/cache/
 
 blockgen/blockgen.egg-info
 blockgen.egg-info/
+outputs/
+site/
