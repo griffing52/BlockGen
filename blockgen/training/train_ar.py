@@ -41,6 +41,13 @@ class ARTrainConfig:
     lr: float = 3e-4
     device: str = "cuda"
     log_every: int = 5
+    # Throughput knobs. `amp` is bf16 autocast (no GradScaler needed); it changes
+    # numerics slightly, so flip it off to reproduce pre-2026-07-15 runs exactly.
+    # `num_workers` is usually a no-op here: sequences are pre-tokenized in memory
+    # and _collate is trivial, so worker IPC can cost more than it saves.
+    amp: bool = True
+    num_workers: int = 0
+    pin_memory: bool = True
 
 
 class _TokenDataset(Dataset):
@@ -98,7 +105,10 @@ def train_ar(
 
     dataset = _TokenDataset(sequences)
     loader = DataLoader(
-        dataset, batch_size=config.batch_size, shuffle=True, collate_fn=_collate
+        dataset, batch_size=config.batch_size, shuffle=True, collate_fn=_collate,
+        num_workers=config.num_workers,
+        pin_memory=config.pin_memory and device != "cpu",
+        persistent_workers=config.num_workers > 0,
     )
 
     model = VoxelTransformerAR(
@@ -114,30 +124,36 @@ def train_ar(
     opt = torch.optim.AdamW(model.parameters(), lr=config.lr)
     history = {"loss": []}
 
+    use_amp = config.amp and device != "cpu" and torch.cuda.is_bf16_supported()
+
     model.train()
     for epoch in range(config.epochs):
-        total, n_tok = 0.0, 0
+        # Accumulate on-device: a per-step .item() would sync the GPU every
+        # iteration and serialize the pipeline. One sync per epoch instead.
+        total = torch.zeros((), device=device, dtype=torch.float32)
+        n_tok = torch.zeros((), device=device, dtype=torch.float32)
         for input_ids, targets, pad_mask in loader:
-            input_ids = input_ids.to(device)
-            targets = targets.to(device)
-            pad_mask = pad_mask.to(device)
+            input_ids = input_ids.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            pad_mask = pad_mask.to(device, non_blocking=True)
 
-            logits = model(input_ids, pad_mask=pad_mask)
-            loss = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)),
-                targets.reshape(-1),
-                ignore_index=PAD_TOKEN,
-            )
-            opt.zero_grad()
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
+                logits = model(input_ids, pad_mask=pad_mask)
+                loss = F.cross_entropy(
+                    logits.reshape(-1, logits.size(-1)),
+                    targets.reshape(-1),
+                    ignore_index=PAD_TOKEN,
+                )
+            opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
 
-            n = int((targets != PAD_TOKEN).sum())
-            total += loss.item() * n
+            n = (targets != PAD_TOKEN).sum()
+            total += loss.detach().float() * n
             n_tok += n
 
-        avg = total / max(n_tok, 1)
+        avg = float(total / n_tok.clamp(min=1))
         history["loss"].append(avg)
         if epoch % config.log_every == 0 or epoch == config.epochs - 1:
             print(f"[AR] epoch {epoch:3d}  loss {avg:.4f}  (n_seq={len(sequences)})")
