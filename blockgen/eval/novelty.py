@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
+from scipy import ndimage
 
 from blockgen.utils.data import Structure
 from blockgen.utils.serialize import BlockVocab, structure_to_grid
@@ -57,28 +58,34 @@ class NoveltyReport:
     mean_nn_iou: float
     diversity: float             # 1 - mean pairwise IoU among generated samples
     validity_rate: float         # fraction non-empty & single connected component
+    train_validity_rate: float   # SAME measure on the real training builds (the ceiling)
     block_agreement: np.ndarray  # [N] block-class agreement with the NN-1 neighbor
+
+    @property
+    def validity_vs_train(self) -> float:
+        """validity_rate as a fraction of what real training builds achieve.
+
+        Reading validity against an implied 1.0 is wrong: the training target is
+        not itself connected. At canon-16 only ~43% of curated houses are a single
+        6-connected component (~28% among the builds the downsampler decimates),
+        so a raw 0.375 is near-faithful reproduction, not a failure. This mirrors
+        `val_baseline_nn_iou`: score against real data, not against perfection.
+        """
+        if self.train_validity_rate <= 0:
+            return float("nan")
+        return float(self.validity_rate / self.train_validity_rate)
+
+
+_STRUCT6 = ndimage.generate_binary_structure(3, 1)  # 6-connectivity
 
 
 def _connected_single_component(occ_row: np.ndarray, grid: int) -> bool:
     """True if occupied voxels form exactly one 6-connected component (non-empty)."""
     vol = occ_row.reshape(grid, grid, grid)
-    occupied = np.argwhere(vol)
-    if occupied.shape[0] == 0:
+    if not vol.any():
         return False
-    occ_set = set(map(tuple, occupied.tolist()))
-    start = tuple(occupied[0].tolist())
-    seen = {start}
-    stack = [start]
-    nbrs = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
-    while stack:
-        x, y, z = stack.pop()
-        for dx, dy, dz in nbrs:
-            p = (x + dx, y + dy, z + dz)
-            if p in occ_set and p not in seen:
-                seen.add(p)
-                stack.append(p)
-    return len(seen) == len(occ_set)
+    _, n = ndimage.label(vol, structure=_STRUCT6)
+    return int(n) == 1
 
 
 def evaluate_novelty(
@@ -117,6 +124,9 @@ def evaluate_novelty(
         diversity = float("nan")
 
     validity = np.mean([_connected_single_component(gen_occ[i], grid) for i in range(len(generated))])
+    # The achievable ceiling: real builds, same measure, same voxelization.
+    train_validity = np.mean([_connected_single_component(train_occ[i], grid)
+                              for i in range(train_occ.shape[0])])
 
     return NoveltyReport(
         nn_iou=nn_iou,
@@ -126,6 +136,7 @@ def evaluate_novelty(
         mean_nn_iou=float(np.mean(nn_iou)),
         diversity=diversity,
         validity_rate=float(validity),
+        train_validity_rate=float(train_validity),
         block_agreement=block_agreement,
     )
 
@@ -138,6 +149,8 @@ def summary_row(name: str, report: NoveltyReport) -> dict:
         "duplicate_rate": round(report.duplicate_rate, 3),
         "diversity": round(report.diversity, 3),
         "validity_rate": round(report.validity_rate, 3),
+        "train_validity_rate": round(report.train_validity_rate, 3),
+        "validity_vs_train": round(report.validity_vs_train, 3),
         "mean_block_agreement": round(float(np.mean(report.block_agreement)), 3),
     }
 
