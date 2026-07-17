@@ -190,6 +190,152 @@ def sample_grids(
 
 
 @torch.no_grad()
+def sample_grids_remask(
+    model: VoxelUNet3D,
+    grid: int,
+    num_samples: int,
+    steps: int = 16,
+    device: str = "cuda",
+    temperature: float = 1.0,
+    gumbel_scale: float = 1.0,
+    air_bias: float = 0.0,
+    remask_frac: float = 0.15,
+):
+    """MaskGIT sampling + **ReMDM-lite remasking** (error correction on same weights).
+
+    Identical to ``sample_grids`` except that after each commit step (until 75% of
+    the schedule) the ``remask_frac`` of *already-committed* voxels whose current
+    class the model now finds least probable are returned to MASK — so early
+    mistakes are revisitable instead of locked in. This targets exactly the
+    non-recoverable-error failure of confidence schedules (research.md §B.3:
+    ReMDM, arXiv 2503.00307).
+    """
+    model.eval()
+    n_vox = grid ** 3
+    x = torch.full((num_samples, grid, grid, grid), model.mask_token, dtype=torch.long, device=device)
+
+    for step in range(steps):
+        progress = (step + 1) / steps
+        t = torch.full((num_samples,), 1.0 - progress, device=device)
+        logits = model(x, t) / max(temperature, 1e-5)
+        if air_bias != 0.0:
+            logits[:, 0] = logits[:, 0] - air_bias
+        probs = torch.softmax(logits, dim=1)
+
+        flat_probs = probs.permute(0, 2, 3, 4, 1).reshape(-1, probs.size(1))
+        sampled = torch.multinomial(flat_probs, 1).reshape(num_samples, grid, grid, grid)
+        logp = torch.log(torch.gather(probs, 1, sampled.unsqueeze(1)).squeeze(1) + 1e-9)
+
+        u = torch.rand_like(logp).clamp(1e-9, 1 - 1e-9)
+        gumbel = -torch.log(-torch.log(u))
+        conf = logp + gumbel_scale * (1.0 - progress) * gumbel
+
+        keep_masked = 0 if step == steps - 1 else int(_keep_masked_fraction(progress) * n_vox)
+
+        for b in range(num_samples):
+            flat_conf = conf[b].reshape(-1).clone()
+            flat_pred = sampled[b].reshape(-1)
+            flat_x = x[b].reshape(-1)
+            masked_pos = flat_x == model.mask_token
+            n_to_unmask = int(masked_pos.sum().item()) - keep_masked
+            if n_to_unmask > 0:
+                flat_conf[~masked_pos] = -float("inf")
+                chosen = torch.topk(flat_conf, n_to_unmask).indices
+                flat_x[chosen] = flat_pred[chosen]
+
+            # remask: return the least-plausible committed voxels to MASK
+            if remask_frac > 0 and progress < 0.75:
+                committed = flat_x != model.mask_token
+                n_committed = int(committed.sum().item())
+                n_remask = int(remask_frac * n_committed)
+                if n_remask > 0:
+                    cur_logp = torch.log(torch.gather(
+                        probs[b].reshape(probs.size(1), -1).t(), 1,
+                        flat_x.clamp(max=model.num_classes - 1).unsqueeze(1)
+                    ).squeeze(1) + 1e-9)
+                    cur_logp[~committed] = float("inf")
+                    worst = torch.topk(-cur_logp, n_remask).indices
+                    flat_x[worst] = model.mask_token
+            x[b] = flat_x.reshape(grid, grid, grid)
+
+    x[x == model.mask_token] = 0
+    return x
+
+
+@torch.no_grad()
+def sample_grids_stratified(
+    model: VoxelUNet3D,
+    grid: int,
+    num_samples: int,
+    steps: int = 12,
+    device: str = "cuda",
+    temperature: float = 1.0,
+    gumbel_scale: float = 1.0,
+    air_bias: float = 0.0,
+):
+    """MaskGIT sampling with **octant-stratified commits** (Halton-style spreading).
+
+    Confidence-ranked commit selection is known to cluster spatially, committing
+    correlated low-information regions early and causing non-recoverable local
+    errors (research.md §B.3: Halton scheduler, arXiv 2503.17076). Cheap 3D stand-in
+    for a Halton sequence: split the commit budget evenly across the 8 spatial
+    octants each step, so every region unmasks at the same pace.
+    """
+    model.eval()
+    n_vox = grid ** 3
+    half = grid // 2
+    x = torch.full((num_samples, grid, grid, grid), model.mask_token, dtype=torch.long, device=device)
+
+    # octant index per voxel (flattened once)
+    idx = torch.arange(n_vox, device=device)
+    gx, gy, gz = idx // (grid * grid), (idx // grid) % grid, idx % grid
+    octant = (gx >= half).long() * 4 + (gy >= half).long() * 2 + (gz >= half).long()
+
+    for step in range(steps):
+        progress = (step + 1) / steps
+        t = torch.full((num_samples,), 1.0 - progress, device=device)
+        logits = model(x, t) / max(temperature, 1e-5)
+        if air_bias != 0.0:
+            logits[:, 0] = logits[:, 0] - air_bias
+        probs = torch.softmax(logits, dim=1)
+
+        flat_probs = probs.permute(0, 2, 3, 4, 1).reshape(-1, probs.size(1))
+        sampled = torch.multinomial(flat_probs, 1).reshape(num_samples, grid, grid, grid)
+        logp = torch.log(torch.gather(probs, 1, sampled.unsqueeze(1)).squeeze(1) + 1e-9)
+
+        u = torch.rand_like(logp).clamp(1e-9, 1 - 1e-9)
+        gumbel = -torch.log(-torch.log(u))
+        conf = logp + gumbel_scale * (1.0 - progress) * gumbel
+
+        keep_masked = 0 if step == steps - 1 else int(_keep_masked_fraction(progress) * n_vox)
+
+        for b in range(num_samples):
+            flat_conf = conf[b].reshape(-1).clone()
+            flat_pred = sampled[b].reshape(-1)
+            flat_x = x[b].reshape(-1)
+            masked_pos = flat_x == model.mask_token
+            n_to_unmask = int(masked_pos.sum().item()) - keep_masked
+            if n_to_unmask <= 0:
+                continue
+            flat_conf[~masked_pos] = -float("inf")
+            per_oct = max(1, n_to_unmask // 8)
+            chosen_parts = []
+            for o in range(8):
+                oc = flat_conf.clone()
+                oc[octant != o] = -float("inf")
+                k = min(per_oct, int((masked_pos & (octant == o)).sum().item()))
+                if k > 0:
+                    chosen_parts.append(torch.topk(oc, k).indices)
+            if chosen_parts:
+                chosen = torch.unique(torch.cat(chosen_parts))
+                flat_x[chosen] = flat_pred[chosen]
+                x[b] = flat_x.reshape(grid, grid, grid)
+
+    x[x == model.mask_token] = 0
+    return x
+
+
+@torch.no_grad()
 def sample_grids_flow(
     model: VoxelUNet3D,
     grid: int,
