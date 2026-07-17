@@ -25,9 +25,13 @@ step for enforcing buildability. Lead the LEGO demo with **AR + a validity gate*
 
 ## LEGO demo plan (pitch-ready milestones)
 
-1. **Data** — LDraw parts library + a model corpus (OMR / Rebrickable, or LEGO-provided
-   data). Parse LDR (part, 3×4 transform, colour) into the existing `Structure`/graph
-   schema with a `Piece` type. *Ask of LEGO: curated build data + part metadata.*
+1. **Data** — ✅ *fetched 2026-07-07* (see [Data & curation](data-and-curation.md)): LDraw
+   parts library (33,362 parts, CC BY 2.0), **OMR** model corpus (1,819 models / 651k
+   placements / 5,173 part types, CC BY 4.0), the **LDCad Shadow Library** for stud
+   connectivity (CC BY-SA 4.0), and **StableText2Brick** (~42k cuboid structures, MIT) for
+   pretraining volume. Connectivity coverage is 91% of placements → restrict the generation
+   vocab to shadow-covered parts. Next: parse `.mpd` (part, 3×3 rotation, colour) into the
+   existing `Structure`/graph schema with a `Piece` type.
 2. **Tokenizer / normalizer** — snap to the LEGO stud grid (built-in scale normalization);
    canonicalize orientation to the 24 axis-aligned rotations; delta-coordinate encoding to
    keep sequences short.

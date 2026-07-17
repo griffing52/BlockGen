@@ -20,17 +20,29 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
   ([Data & curation](data-and-curation.md)).
 - Reproducible **experiment runners** that emit figures, samples, metrics, and configs
   under `outputs/` ([Experiments](experiments.md)).
+- A **LegoACE port** (91.7M GPT-2 over native 4-token block records, vendored in
+  `libs/MinecraftACE`) with a full export → train → sample → render/eval loop
+  ([MinecraftACE](minecraftace.md)).
+- An **auto-labeling pipeline** — 4-view renders → VLM + template captions → frozen
+  DINOv2/CLIP embeddings — feeding image/text-conditioned generation
+  ([Labeling & captions](labeling.md)).
+- A whole-codebase operator's map — every package, model class (incl. the phase4 PE),
+  trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)).
 
 ## Headline results so far
 
 | Finding | Evidence |
 |---|---|
-| Diffusion learns a dense build *type* (houses) without memorizing | NN-IoU ≈ 0.48, duplicate-rate 0 |
-| **AR is the best house generator** once scale-normalized | NN-IoU **0.568** vs diffusion 0.369 on identical 12³ houses |
-| MaskGIT under-fills a well-trained net; **flow matching** holds density | occ 96 vs 1017 (target 1086), same weights |
+| **Adjacency-constrained decoding gives validity 1.0** by construction, ~quality-neutral | T11 `ar_raster_constrained` |
+| **Category conditioning is the best cohesion lever** | T10 — top val_nn + raw validity |
+| **AR is the best house generator**; best arm = 84% of the real-build baseline, zero duplicates | val_nn 0.405 (T11) |
+| **No cross-medium transfer gain** in the data-rich regime — compression ≠ generation | T12 — finetune ≈ scratch |
+| 3D-BPE cluster tokens = anti-memorization (dup 0 where flat memorizes) | T10 vehicles |
 | Flat token embeddings **don't** learn birch≈oak | within-family cos-sim ≈ random baseline |
 
-See [Results](results.md) for the full tables and figures.
+See [Results](results.md) for the full tables and figures, and
+[Data & curation](data-and-curation.md) for all five Minecraft corpora plus the LEGO
+corpora (OMR / StableText2Brick / LDraw / shadow) now fetched for the next phase.
 
 ![AR builds a house bottom-up](assets/film_ar_progressive.png)
 
