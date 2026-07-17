@@ -25,9 +25,12 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Architecture (code map): architecture.md
   - Data & curation: data-and-curation.md
   - Representations & tokenization: representations.md
   - Models (the three tracks): models.md
+  - MinecraftACE (LegoACE port): minecraftace.md
+  - Labeling & captions: labeling.md
   - Experiments & outputs: experiments.md
   - Results: results.md
   - Roadmap (LEGO / electronics): roadmap.md

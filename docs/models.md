@@ -14,7 +14,7 @@ the `(y,z,x)` raster order.
   autoregression is a good building prior; the most transferable token format for LEGO
   pieces / circuit components.
 - **Limits:** sequence length grows with block count (`seq ≈ 4·n_blocks`), so dense builds
-  need scale normalization; samples can fragment (no connectivity constraint yet).
+  need scale normalization.
 
 ![AR vs diffusion on canonical houses](assets/compare_ar_vs_diffusion.png)
 
@@ -22,6 +22,32 @@ the `(y,z,x)` raster order.
 Canonical 12³ houses: AR (top) makes consistent houses; diffusion (bottom) is mixed
 (some blobs, some empty).
 ///
+
+### The two quality levers that ship on Track A
+
+- **Adjacency-constrained decoding** (`training/constrained_decode.py`). At each step the
+  next-voxel logits are masked to the 6-neighborhood of already-placed voxels → **validity
+  1.0 by construction**, and it is ~quality-neutral in **raster** order (BFS order *hurts*).
+  This is the single biggest quality lever (T11) and dominates the phase4 PE gain — they
+  don't stack.
+- **Grammar-aware phase4 PE** (`VoxelTransformerAR2`, `pe=phase4`): a `pos%4` phase
+  embedding (which of X/Y/Z/BLOCK this token is) + a `pos//4` block-index embedding. Best
+  ablation arm (val_nn 0.405). Generic relative PE (RoPE/ALiBi) does **not** win — our
+  coordinates travel as *tokens*, not positions, so absolute PE is a weak lever.
+
+![Constrained decoding samples](assets/samples_ar_raster_constrained.png)
+
+/// caption
+Fresh `ar_raster_constrained` samples (real-texture render): visibly single-component,
+house-gestalt massing — validity 1.0 by construction.
+///
+
+### 3D-BPE cluster tokens (anti-memorization)
+
+`tokenizers/cluster_bpe.py` merges frequent voxel-neighborhoods into learned "piece"
+tokens. On homogeneous classes (vehicles) this is the best track *and* stays duplicate-free
+where flat AR memorizes (T10). It generalizes chunk emission but doesn't automatically
+cohere (big pieces can be placed disconnected), so pair it with the constraint above.
 
 ## Track B — Masked discrete diffusion (3D-UNet)
 
