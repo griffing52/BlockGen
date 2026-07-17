@@ -14,6 +14,12 @@ gnn = [
     "torch>=2.1",
     "torch-geometric>=2.4",
 ]
+render = [
+    "pyrender>=0.1.45",   # textured offscreen rendering (blockgen/renderer/textured.py)
+    "trimesh>=4.0",
+    "PyOpenGL>=3.1",
+    "pillow>=9.0",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
