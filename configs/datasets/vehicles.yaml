@@ -1,0 +1,8 @@
+# Prep knobs for the GrabCraft vehicles dataset. Vehicles are gated by a minimum
+# block count rather than a footprint floor. Selector (`dataset: gc-vehicles`)
+# lives in the experiment file.
+description: Vehicle prep — >=55 blocks, 15% val split, D4 augment, canon 16
+vehicle_min_blocks: 55
+val_frac: 0.15
+augment: true
+canon_dim: 16

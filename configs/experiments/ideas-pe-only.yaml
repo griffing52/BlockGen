@@ -1,0 +1,9 @@
+# Just the positional-encoding sweep on houses — fastest way to settle the PE
+# question without paying for ordering/samplers/twostage arms.
+extends:
+  - datasets/houses
+  - training/ar
+  - models/pe-full
+description: Ideas battery — PE group only, houses
+dataset: gc-houses-large
+groups: "pe"

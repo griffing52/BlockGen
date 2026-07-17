@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "scipy>=1.7",    # connected-component labelling (blockgen/eval/novelty.py)
+    "pyyaml>=5.1",   # experiment configs (configs/, blockgen/config.py)
 ]
 
 [project.optional-dependencies]

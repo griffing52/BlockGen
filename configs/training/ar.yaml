@@ -1,0 +1,8 @@
+# Autoregressive transformer training budget. 90 epochs is the sweet spot found
+# in the overnight battery for large houses; smaller/vehicle classes overfit past
+# ~90 (see notes.md §8), so drop epochs_ar for those.
+description: AR training — 90 epochs, seq 1600, batch 8, 16 samples
+epochs_ar: 90
+ar_seq: 1600     # max token sequence length
+ar_batch: 8
+samples: 16      # samples drawn per arm for eval

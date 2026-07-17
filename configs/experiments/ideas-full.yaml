@@ -1,0 +1,11 @@
+# Full ideas ablation battery on GrabCraft large houses: all four arm groups, the
+# full PE sweep, AR + diffusion budgets. This is the currently-running config.
+#   .venv/bin/python -m blockgen.experiments_ideas --config ideas-full --stamp <stamp>
+extends:
+  - datasets/houses
+  - training/ar
+  - training/diffusion
+  - models/pe-full
+description: Ideas battery — houses, all groups (pe/ordering/samplers/twostage)
+dataset: gc-houses-large
+groups: "pe,ordering,samplers,twostage"
