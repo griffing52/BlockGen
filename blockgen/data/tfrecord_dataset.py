@@ -38,8 +38,8 @@ from blockgen.utils.data import Structure
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATASET_DIR = str(_REPO_ROOT / "data" / "more" / "minecraft-schematics-dataset")
-DEFAULT_CACHE_DIR = str(_REPO_ROOT / "data" / "cache")
+DEFAULT_DATASET_DIR = str(_REPO_ROOT / "data" / "minecraft" / "more" / "minecraft-schematics-dataset")
+DEFAULT_CACHE_DIR = str(_REPO_ROOT / "data" / "minecraft" / "cache")
 
 # Metadata fields we keep (the full records carry much more we don't need).
 _META_FIELDS = ("title", "subtitle", "tags", "description", "user", "date",

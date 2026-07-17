@@ -35,8 +35,8 @@ from blockgen.utils.data_loader import safe_load_schematic
 # resolve no matter the current working directory — notably, Jupyter runs with the
 # notebook's own directory as CWD, which otherwise breaks plain ``data/raw`` paths.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "raw")
-DEFAULT_CACHE_DIR = str(_REPO_ROOT / "data" / "cache")
+DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "minecraft" / "raw")
+DEFAULT_CACHE_DIR = str(_REPO_ROOT / "data" / "minecraft" / "cache")
 
 
 @dataclass
