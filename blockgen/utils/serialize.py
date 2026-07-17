@@ -120,6 +120,41 @@ def build_block_vocab(structures: Sequence[Structure], max_dim: int) -> BlockVoc
     )
 
 
+# --- vocabulary persistence -----------------------------------------------
+# A checkpoint does not record the vocabulary it was trained against, and token ids
+# are meaningless without one, so a run that does not save its vocab is not loadable
+# later -- see notes.md §18. Any script that trains a model should call
+# ``save_block_vocab`` (or ``export.minecraftace.save_piece_vocab`` for a
+# ClusterVocab) next to its ``torch.save``.
+def save_block_vocab(vocab: BlockVocab, path: str) -> None:
+    """Write a BlockVocab as JSON. ``id_to_block_token`` is redundant (recoverable
+    from ``block_token_to_id``) and is left out, matching train_conditioned.py."""
+    import json
+    import os
+
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"max_dim": vocab.max_dim,
+                   "block_token_to_id": vocab.block_token_to_id,
+                   "block_index_to_pair": [list(p) for p in vocab.block_index_to_pair]}, f)
+
+
+def load_block_vocab(path: str) -> BlockVocab:
+    """Inverse of ``save_block_vocab``."""
+    import json
+
+    with open(path) as f:
+        blob = json.load(f)
+    return BlockVocab(
+        max_dim=blob["max_dim"],
+        block_token_to_id=blob["block_token_to_id"],
+        id_to_block_token=[t for t, _ in sorted(blob["block_token_to_id"].items(),
+                                                key=lambda kv: kv[1])],
+        block_index_to_pair=[tuple(p) for p in blob["block_index_to_pair"]])
+
+
 # --- token sequence <-> Structure -----------------------------------------
 def structure_to_tokens(structure: Structure, vocab: BlockVocab) -> List[int]:
     """Serialize a structure to ``[BOS, (X,Y,Z,BLOCK)*, EOS]``.
