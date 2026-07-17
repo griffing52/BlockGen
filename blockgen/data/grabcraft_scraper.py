@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "grabcraft" / "raw")
+DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "minecraft" / "grabcraft" / "raw")
 
 BASE_URL = "https://www.grabcraft.com"
 RENDER_OBJECT_BASE = BASE_URL + "/js/RenderObject/"

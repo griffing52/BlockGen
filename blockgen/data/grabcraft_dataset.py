@@ -37,7 +37,7 @@ from blockgen.tokenizers.standard_vocab import STANDARD_VOCAB
 from blockgen.utils.data import Structure
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "grabcraft" / "raw")
+DEFAULT_RAW_DIR = str(_REPO_ROOT / "data" / "minecraft" / "grabcraft" / "raw")
 
 _TEXTURE = re.compile(r"^(\d+)_(\d+)\.png$")
 

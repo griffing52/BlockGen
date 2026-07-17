@@ -1,9 +1,17 @@
-data/raw/
-data/Schematics.zip
-data/more
-data/buildings
-data/cache/
-data/grabcraft
+# Corpora, caches and downloads are fetched, not tracked. The three files under
+# data/minecraft/ are re-included: data/*.py and data/block_ids.csv are tracked
+# symlinks into it, and they dangle in a fresh clone if their targets are ignored.
+data/*
+!data/minecraft/
+data/minecraft/*
+!data/minecraft/block_ids.csv
+!data/minecraft/download.py
+!data/minecraft/helper.py
+
+# Upstream reference clone (github.com/VAST-AI-Research/LegoACE); re-clone it.
+libs/
+
+.env
 
 # pychache 
 **/__pycache__
