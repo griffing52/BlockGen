@@ -1,0 +1,9 @@
+# Gradle
+.gradle/
+build/
+
+# Loom's dev-client/dev-server working directory: worlds, logs, mod config
+run/
+
+# Wrapper jar is committed on purpose (it is how ./gradlew bootstraps Gradle 8.8);
+# everything else Gradle downloads is not.

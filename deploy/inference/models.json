@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Servable models. Paths are relative to the repo root. Add an entry here to",
+    "serve a new checkpoint; no server code changes needed as long as its 'kind'",
+    "already exists in backends.py.",
+    "",
+    "Every entry MUST name the vocab file its checkpoint was trained against.",
+    "Token ids carry no meaning on their own, and two vocabs can share a size while",
+    "disagreeing on every pattern -- backends.py cross-checks vocab size against the",
+    "checkpoint's lm_head, which catches swapped files but NOT a same-size mismatch.",
+    "",
+    "'d_model'/'layers'/'nhead'/'dim_feedforward' must match how the run was trained",
+    "(ARTrainConfig defaults: 256/6/8/1024) or load_state_dict will reject the weights."
+  ],
+  "default": "native_bpe",
+  "models": {
+    "native_bpe": {
+      "kind": "piece_ar",
+      "description": "3D-BPE piece AR, native 32^3 (T18 arm B). Big builds, chunky streaming.",
+      "notes": "Trained by: python -m blockgen.experiments_native --epochs 60 (arm B). Vocab was not saved by that run; recovered via scripts/rebuild_native_vocab.py.",
+      "checkpoint": "outputs/run_20260715_065938_native/native_bpe/model.pt",
+      "piece_vocab": "outputs/run_20260715_065938_native/native_bpe/piece_vocab.json",
+      "max_seq_len": 5480,
+      "pe": "phase4",
+      "d_model": 256,
+      "nhead": 8,
+      "layers": 6,
+      "dim_feedforward": 1024
+    },
+    "canon16_flat": {
+      "kind": "voxel_ar",
+      "description": "Per-voxel AR on canon-16 miniatures (T18 arm A). Highest validity; one block per token.",
+      "notes": "Same run as native_bpe (arm A). Miniature regime: 16^3 downsampled, so builds are small. NOTE: run_20260715_062404_native is a --quick 2-epoch smoke of the same arms -- its checkpoint is byte-compatible (identical shapes) but undertrained, so a vocab/lm_head check cannot tell them apart. Use this run.",
+      "checkpoint": "outputs/run_20260715_065938_native/canon16_flat/model.pt",
+      "block_vocab": "outputs/run_20260715_065938_native/canon16_flat/block_vocab.json",
+      "max_seq_len": 1600,
+      "pe": "phase4",
+      "d_model": 256,
+      "nhead": 8,
+      "layers": 6,
+      "dim_feedforward": 1024
+    },
+    "text_cond": {
+      "kind": "cond_piece_ar",
+      "description": "CLIP-text-conditioned piece AR (T15). Use /gen <text>; bare /gen samples its null branch.",
+      "notes": "Conditioning fidelity is still weak -- palette transfers, geometry mostly does not. Expect a house, not your house.",
+      "checkpoint": "outputs/cond/text_run/best.pt",
+      "piece_vocab": "data/minecraftace/houses_32_bpe/houses_32_bpe_piece_vocab.json",
+      "max_seq_len": 5480,
+      "pe": "phase4",
+      "d_model": 256,
+      "nhead": 8,
+      "layers": 6,
+      "dim_feedforward": 1024,
+      "cond_dim": 512,
+      "n_prefix": 1,
+      "clip": "openai/clip-vit-base-patch32"
+    }
+  }
+}
