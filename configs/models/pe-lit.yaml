@@ -1,0 +1,5 @@
+# Literature-favored subset only: ALiBi and NoPE-adjacent schemes beat RoPE for
+# length generalization in small decoders (Kazemnejad et al. NeurIPS 2023), plus
+# phase4 which encodes our grammar. Cheaper than the full five-way sweep.
+description: PE subset — ALiBi, phase4, RoPE
+pe_arms: "alibi,phase4,rope"

@@ -1,0 +1,6 @@
+# Masked-diffusion 3D-UNet training budget. Grid 32 gives the honest occupancy
+# comparison but its air calibration is fragile (notes.md §8) — if samples come
+# out too sparse/dense, the lever is air_weight in DiffusionTrainConfig, not here.
+description: Diffusion training — 110 epochs, 32^3 grid
+epochs_diff: 110
+diff_grid: 32

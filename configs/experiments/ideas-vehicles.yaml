@@ -1,0 +1,11 @@
+# Ideas battery on GrabCraft vehicles. Vehicles overfit past ~90 epochs, so this
+# trims the AR budget; keeps the literature-favored PE subset to save time.
+extends:
+  - datasets/vehicles
+  - training/ar
+  - training/diffusion
+  - models/pe-lit
+description: Ideas battery — vehicles, trimmed AR budget
+dataset: gc-vehicles
+groups: "pe,ordering,samplers,twostage"
+epochs_ar: 70

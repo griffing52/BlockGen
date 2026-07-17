@@ -1,0 +1,10 @@
+# Data-preparation knobs shared by any house dataset (GrabCraft large houses or
+# the combined-corpus houses). The dataset *selector* itself (`dataset:` for the
+# ideas battery, `datasets:` for the overnight battery) is set in the experiment
+# file, since the two entry points name that flag differently. Everything here is
+# reusable across both.
+description: House prep — footprint floor 16, 15% val split, D4 augment, canon 16
+house_min_dim: 16      # footprint floor for a "large" house
+val_frac: 0.15         # held-out real builds; split happens BEFORE augmentation
+augment: true          # D4 augment train split only (never val)
+canon_dim: 16          # canonicalization grid resolution

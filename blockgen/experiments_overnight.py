@@ -374,6 +374,9 @@ def run_dataset(name: str, structs: List[Structure], labels: List[str],
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stamp", default="manual")
+    ap.add_argument("--config", default=None,
+                    help="YAML config (path or name under configs/); its values "
+                         "become defaults, explicit CLI flags still override")
     ap.add_argument("--datasets", default="gc-houses-large,combined-houses,gc-vehicles",
                     help="comma list of: gc-houses-large, combined-houses, gc-vehicles")
     ap.add_argument("--house-min-dim", type=int, default=16, help="footprint floor for 'large' houses")
@@ -393,6 +396,10 @@ def main() -> None:
     ap.add_argument("--samples", type=int, default=16)
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
+    if args.config:
+        from blockgen.config import load_config, apply_to_parser
+        apply_to_parser(ap, load_config(args.config))
+        args = ap.parse_args()  # re-parse so CLI flags still win over the config
     if args.quick:
         args.epochs_ar = args.epochs_diff = args.epochs_graph = 3
         args.n_merges = 40; args.samples = 4; args.diff_grid = 16; args.hi_dim = 18

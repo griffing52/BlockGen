@@ -1,0 +1,18 @@
+# Full overnight battery: dataset x method sweep across all three datasets with
+# the honest-novelty protocol. This reproduces the 28h/18-arm run (results.md T10).
+#   .venv/bin/python -m blockgen.experiments_overnight --config overnight-full --stamp <stamp>
+#
+# Reuses the shared house-prep and AR fragments; overrides the diffusion budget
+# (overnight trains longer, 130 epochs) and adds the overnight-only knobs
+# (multiple datasets, the BPE hi-dim reach test, merge count, graph-VAE epochs).
+extends:
+  - datasets/houses
+  - training/ar
+  - training/diffusion
+description: Overnight battery — all datasets, full method sweep (T10 repro)
+datasets: "gc-houses-large,combined-houses,gc-vehicles"
+vehicle_min_blocks: 55
+hi_dim: 20          # higher canonical res for the BPE reach test (0=off)
+n_merges: 250       # 3D-BPE cluster-token merges
+epochs_diff: 130
+epochs_graph: 60

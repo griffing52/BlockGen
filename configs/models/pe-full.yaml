@@ -1,0 +1,5 @@
+# Full positional-encoding sweep: all five variants. RoPE/ALiBi test whether a
+# relative scheme beats learned-absolute on our token grammar; phase4 injects the
+# (X,Y,Z,BLOCK) quadruple structure directly. See references.md §PEs.
+description: PE sweep — learned, sinusoidal, RoPE, ALiBi, phase4
+pe_arms: "learned,sin,rope,alibi,phase4"
