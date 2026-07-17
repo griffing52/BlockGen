@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "blockgen",
+  "version": "${version}",
+  "name": "BlockGen",
+  "description": "Streams structures from a BlockGen inference server into the world, block by block, as the model generates them. /gen to build, /model to switch models.",
+  "authors": ["griffing52"],
+  "contact": {
+    "sources": "https://github.com/griffing52/BlockGen"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.blockgen.mod.BlockGenMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
