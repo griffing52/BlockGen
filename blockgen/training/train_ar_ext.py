@@ -24,32 +24,52 @@ from blockgen.utils.serialize import (BOS_TOKEN, EOS_TOKEN, PAD_TOKEN, BlockVoca
 
 
 def train_from_sequences(sequences: List[List[int]], vocab_size: int,
-                         config: ARTrainConfig) -> Tuple[VoxelTransformerAR, dict]:
-    """Train the AR transformer on pre-built token sequences. Returns (model, history)."""
+                         config: ARTrainConfig,
+                         pe: Optional[str] = None) -> Tuple[VoxelTransformerAR, dict]:
+    """Train the AR transformer on pre-built token sequences. Returns (model, history).
+
+    ``pe=None`` uses the original ``VoxelTransformerAR`` (learned absolute PE);
+    any other value selects that positional-encoding scheme in the PE-pluggable
+    ``VoxelTransformerAR2`` (see its module doc: sin / rope / alibi / phase4 / none).
+    """
     device = config.device if torch.cuda.is_available() or config.device == "cpu" else "cpu"
     if not sequences:
         raise ValueError("No training sequences.")
     loader = DataLoader(_TokenDataset(sequences), batch_size=config.batch_size,
-                        shuffle=True, collate_fn=_collate)
-    model = VoxelTransformerAR(
+                        shuffle=True, collate_fn=_collate,
+                        num_workers=config.num_workers,
+                        pin_memory=config.pin_memory and device != "cpu",
+                        persistent_workers=config.num_workers > 0)
+    kwargs = dict(
         vocab_size=vocab_size, max_seq_len=config.max_seq_len, d_model=config.d_model,
         nhead=config.nhead, num_layers=config.num_layers,
-        dim_feedforward=config.dim_feedforward, dropout=config.dropout).to(device)
+        dim_feedforward=config.dim_feedforward, dropout=config.dropout)
+    if pe is None:
+        model = VoxelTransformerAR(**kwargs).to(device)
+    else:
+        from blockgen.models.voxel_transformer_ar2 import VoxelTransformerAR2
+        model = VoxelTransformerAR2(pe=pe, **kwargs).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=config.lr)
     history = {"loss": []}
+    use_amp = config.amp and device != "cpu" and torch.cuda.is_bf16_supported()
     model.train()
     for epoch in range(config.epochs):
-        total, n_tok = 0.0, 0
+        # On-device accumulation: a per-step .item() syncs the GPU every iteration.
+        total = torch.zeros((), device=device, dtype=torch.float32)
+        n_tok = torch.zeros((), device=device, dtype=torch.float32)
         for input_ids, targets, pad_mask in loader:
-            input_ids, targets, pad_mask = input_ids.to(device), targets.to(device), pad_mask.to(device)
-            logits = model(input_ids, pad_mask=pad_mask)
-            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
-                                   targets.reshape(-1), ignore_index=PAD_TOKEN)
-            opt.zero_grad(); loss.backward()
+            input_ids = input_ids.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            pad_mask = pad_mask.to(device, non_blocking=True)
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
+                logits = model(input_ids, pad_mask=pad_mask)
+                loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
+                                       targets.reshape(-1), ignore_index=PAD_TOKEN)
+            opt.zero_grad(set_to_none=True); loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
-            n = int((targets != PAD_TOKEN).sum())
-            total += loss.item() * n; n_tok += n
-        avg = total / max(n_tok, 1)
+            n = (targets != PAD_TOKEN).sum()
+            total += loss.detach().float() * n; n_tok += n
+        avg = float(total / n_tok.clamp(min=1))
         history["loss"].append(avg)
         if epoch % config.log_every == 0 or epoch == config.epochs - 1:
             print(f"[AR-ext] epoch {epoch:3d}  loss {avg:.4f}  (n_seq={len(sequences)})", flush=True)
