@@ -1,52 +1,120 @@
 # Data & curation
 
-## Sources
+BlockGen trains on two media. The full per-corpus inventory — counts, licenses, labels,
+and sample sheets for every source — is in [`data_sources.md`](https://github.com) at the
+repo root. This page is the site-embedded summary plus the **Curator** API.
 
-- `data/more/minecraft-schematics-dataset/` — the crawl:
-    - `fullSchematics.json` — 69,363 records keyed by planetminecraft `url`
-      (title, subtitle/category, tags, description, views, downloads, diamonds, …).
-    - `schematics/*.tfrecords` — 36,290 records, each pairing a `url` with the gzipped-NBT
-      `schematicData`. **This is the metadata join key.**
-- `data/raw/*.schematic` — a separate, *drifted* download. Its filenames map to **no**
-  metadata (verified: file 1 ≠ record 0 by any offset; only ~5% content-match the
-  tfrecords). Do not use it for labeling.
+## Minecraft corpora (voxel builds — legacy `(id, data)` vocab)
 
-!!! note "Why label from the tfrecords"
-    Because `data/raw` can't be reliably labeled, the labeled cache is built straight from
-    the tfrecords: `blockgen/data/tfrecord_dataset.py` parses the TFRecord framing +
-    `tf.train.Example` protobuf **by hand** (no TensorFlow), decodes each schematic via
-    `SchematicFile.from_fileobj(io.BytesIO(gzip.decompress(bytes)))`, and writes
-    `tf_small_<dim>.npz` + `tf_small_<dim>_meta.json`. ~100% of kept structures carry
-    metadata.
+| Corpus | Path | Size | License | Labels |
+|---|---|--:|---|---|
+| **GrabCraft** | `data/minecraft/grabcraft/` | 6,560 builds | site user-content (research use) | 5 top-level / 113 sub categories, title, dims, tags, views; **exact `(id,data)`** |
+| **3D-Craft** | `data/minecraft/3d_craft/` | 2,537 houses | research (Meta AI CraftAssist) | single class + timestamped placement traces |
+| **text2mc** | `data/minecraft/text2mc/` | 11,092 h5 + 28,235 `.schem` (~39k) | Kaggle/CC (research) | free-text tags on every build |
+| **tfrecord crawl** | `data/minecraft/more/` | 36,290 NBT / 69,363 meta | PlanetMinecraft user-content | 15 map categories + views/downloads/diamonds |
+| Legacy schematics | `data/minecraft/raw/` | 12,366 `.schematic` | mixed (drifted crawl) | none reliable |
+| Block vocab ref | `data/minecraft/block_ids.csv` | 933 block types | minecraft-data (MIT) | id/name/material/light/… |
 
-The labeled cache (`--max-dim 24`) keeps **5,866** structures (cropped, `max_dim ≤ 24`,
-`8 ≤ blocks ≤ 4096`) across 15 categories (Land Structure, Redstone Device, 3D Art, …).
+- **GrabCraft** is the labeled workhorse. Blocks decode to an **exact `(id, data)`** via
+  each build's `"<legacy_id>_<data>.png"` texture field — oak vs spruce planks are
+  distinguished (both are `minecraft:planks` by name). Top-level split: Buildings 3,744 ·
+  Transportation 1,317 · Outdoors 910 · Statues 303 · Pixel Art 286.
+- **3D-Craft** records each house as a *placement sequence* (`placed.json`:
+  `(tick, player, xyz, (id,meta), 'P'|'B')`) plus a final `schematic.npy` — unique temporal
+  supervision usable for build-order curricula (`utils/ordering.py`).
+- **text2mc** is modern *flattened* blocks remapped to our legacy vocab via
+  `utils/block_remap.py` (97% state coverage); `tok2block.json` has 3,717 names. The 11k
+  `.h5` are pre-tokenized (`corpora.load_text2mc`); the **28k raw `.schem`** the author never
+  converted are decoded by `utils/schem.py` (Sponge palette + varint `BlockData`) and loaded
+  by `corpora.load_text2mc_schem` — together the dataset's advertised ~40k builds. Free
+  PlanetMinecraft `TAGS` give a coarse category per build (`labeling/categorize.py`).
+- **tfrecord crawl**: `schematics/*.tfrecords` (36,290) pair a `url` with gzipped-NBT
+  `schematicData` (the metadata join key); parsed by hand (no TensorFlow) in
+  `blockgen/data/tfrecord_dataset.py`. Labeled cache `tf_small_24` keeps **5,866**
+  structures, 100% with metadata, across 15 categories (Land Structure 1,723, Redstone
+  1,287, 3D Art 1,264, …).
+- `data/raw` is a **drifted** older download whose filenames map to no reliable metadata
+  (only ~5% content-match the tfrecords) — kept for volume, not used for labeling.
 
-### GrabCraft (category-labeled expansion)
+### The curated house dataset (the training target)
 
-[GrabCraft](https://www.grabcraft.com) organizes builds into a clean human category tree
-(Houses → Medieval / Wooden / Modern / …), which is exactly the per-type supervision we
-want. It has no schematic download, but every build page references a
-`myRenderObject_<id>.js` served from `/js/RenderObject/` whose body is a nested JSON dict
-(one entry per occupied block). Each entry carries a **`texture` field of the form
-`"<legacy_id>_<data>.png"`** — the classic pre-flattening numeric id + data — so blocks
-decode to an **exact `(id, data)`** with no fuzzy name matching (it lines up with
-`STANDARD_VOCAB`; a name reverse-lookup is only a fallback for blank textures).
+`blockgen/curation/houses.py` pools GrabCraft + 3D-Craft + text2mc (`.h5`) + text2mc_schem
+(`.schem`) into a shared legacy vocab, then applies a per-corpus enclosed-air "house-ness"
+gate + variant-aware dedup. Load via `load_house_structures(max_dim)`.
 
-Two stages, mirroring the tfrecord split:
+| Cache | Pooled | Quality drops | Exact dups | **Final** | GrabCraft | 3D-Craft | text2mc `.h5` | text2mc `.schem` |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| `houses_32` | 3,493 | 826 | 6 | **2,661** | 1,360 | 1,267 | 34 | — |
+| `houses_48` | 4,502 | 1,381 | 33 | **3,088** | 1,410 | 1,381 | 180 | **117** |
 
-- `blockgen/data/grabcraft_scraper.py` — crawls a category's paginated listing
-  (`/minecraft/<cat>/pg/<N>`), resolves each build's render object + page metadata
-  (title, dims, tags, views), and writes one **resumable** JSON per build under
-  `data/grabcraft/raw/<subcategory>/<slug>.json`. Rate-limited; re-runs skip existing.
-- `blockgen/data/grabcraft_dataset.py` — decodes those artifacts into `Structure`s and
-  writes `gc_small_<dim>.npz` + `gc_small_<dim>_meta.json` in the **same layout** as the
-  tf cache, so the Curator loads it unchanged via `Curator.from_grabcraft_cache()`.
+`houses_48` rebuilt 2026-07-17 with the new `text2mc_schem` source (28k raw `.schem`, decoded
+via `utils/schem.py`): +**117** clean room-bearing houses (of 348 pooled), lifting text2mc's
+house contribution 180 → 297 and the pool 2,971 → 3,088. The payoff is scale-dependent — only
+**8** schem houses clear the cap at 32³ vs **348** at 48³ (schem builds are mostly oversized
+world exports), so `houses_32` is left unchanged. The general `.schem` corpus
+(`corpora.load_text2mc_schem`) also serves shape pretraining at bigger volumes.
 
-```bash
-python -m blockgen.data.grabcraft_scraper --category houses      # network → raw JSON
-python -m blockgen.data.grabcraft_dataset --max-dim 24           # raw → labeled cache
-```
+The top drop reason is **no-interior** (675 at 32³): the enclosed-air gate (≥8 interior air
+voxels unreachable from the bbox boundary) rejects trees/vehicles/roof fragments. It's
+corpus-calibrated — 17% of ground-truth GrabCraft houses have open interiors (GrabCraft is
+exempt) vs 31% of 3D-Craft and 54% of text2mc — yielding **~3.7–4.2× more clean houses**
+than the old 714-house labeled subset.
+
+Per-corpus splits of `houses_32`, real Minecraft textures (`blockgen/renderer/grid.py`):
+
+| GrabCraft | 3D-Craft | text2mc |
+|---|---|---|
+| ![](assets/houses_32_grabcraft.png) | ![](assets/houses_32_3dcraft.png) | ![](assets/houses_32_text2mc.png) |
+
+/// caption
+The three corpora that compose the curated house set, rendered with the headless
+pyrender + real-texture pipeline. GrabCraft dominates the clean-house count; 3D-Craft adds
+volume; text2mc contributes a small tail after remap + gating.
+///
+
+## LEGO corpora (brick assemblies — LDraw geometry)
+
+Fetched 2026-07-07 (roadmap Phase 0); see [`data/lego/README.md`](https://github.com) for
+fetch commands and `research.md §E` for the typed-connection thesis.
+
+| Corpus | Path | Size | License | Labels |
+|---|---|--:|---|---|
+| **OMR** (Open Model Repository) | `data/lego/omr/` | 1,463 sets → 1,819 models · 651,017 placements | **CC BY 4.0** (per file) | set → title; color + 3×3 rotation + part ref per placement |
+| **StableText2Brick** | `data/lego/stabletext2brick/` | ~42k train + test | **MIT** | text captions + per-brick stability + ShapeNet category |
+| LDraw parts library | `data/lego/ldraw/` | 33,362 part `.dat` | **CC BY 2.0** | part geometry (primitives + meshes) |
+| LDCad Shadow Library | `data/lego/shadow/` | 4,251 files | **CC BY-SA 4.0** | connectivity metas (studs/anti-studs/clips/axles/pins) |
+
+- **OMR** is the license-clean core: **5,173 unique part types** (the diverse, *non-cuboid*
+  vocabulary the thesis targets — tires, slopes, curved panels, Technic gears/axles,
+  minifigs, BrickHeadz, architecture). Parts/model median 156, mean 447, p90 1,107.
+  **Connectivity coverage** (joining the shadow library transitively) is 91.1% of
+  placements / 88.4% of parts → restrict the generation vocab to covered parts and keep
+  >91% of the corpus. Example set: `10014-1` "Caboose".
+- **StableText2Brick** (BrickGPT/LegoGPT corpus) restricts to **8 cuboid brick types**
+  (`1x1`…`2x6`) but is big and eval-comparable; each structure has multiple captions +
+  per-brick stability scores. Not LDraw (format `hxw (x,y,z)`) → not yet rendered.
+- **Connectivity is NOT in base LDraw** — always join the **Shadow Library** for
+  stud ↔ anti-stud mates. Its coverage is a subset of parts, which drives the
+  restrict-to-covered-parts decision. LegoACE's LegoVerse (55k, 9,314 parts) is not public.
+
+Rendered with a separate Blender 4.2 + ImportLDraw package (`legogen/renderer/`), same
+white-background orthographic-isometric aesthetic as the Minecraft sheets:
+
+![OMR dataset grid](assets/omr_grid.png)
+
+/// caption
+`omr_grid.png` — 96 small/medium official OMR sets (part-ref band 15–160). The non-cuboid
+part diversity (slopes, tires, panels, Technic) is exactly what the typed-connection LEGO
+track is designed to place.
+///
+
+![OMR showcase](assets/omr_showcase.png)
+
+/// caption
+`omr_showcase.png` — 24 larger, part-diverse sets (band 200–700), rendered bigger.
+///
+
+---
 
 ## The Curator
 
@@ -70,6 +138,9 @@ lab.find_variant_groups()                    # same shape, DIFFERENT materials -
 lab.auto_mark_reliable(min_diamonds=10)      # popularity seed set
 ```
 
+`Curator.from_grabcraft_cache()` loads the GrabCraft caches in the same layout. For the
+cross-corpus house build, use `blockgen.curation.houses` directly.
+
 ### Variant-aware dedup (important)
 
 The scraped set has many near-duplicates. Some are **true copies** (same shape *and*
@@ -90,4 +161,5 @@ same "Big _ Ore" cube in redstone / lapis / gold / diamond / coal — and keeps 
 
 `blockgen/experiments.py::build_subsets` defines the coherent subsets we train and show
 off: `houses` (~714), `pixel_art` (~124), `redstone`, `towers`, `trees`, `popular`
-(≥10 diamonds). Decisions persist to `data/cache/curation_decisions.json`.
+(≥10 diamonds). Decisions persist to `data/cache/curation_decisions.json`. The current
+training target, though, is the larger cross-corpus `houses_32` / `houses_48` above.
