@@ -71,6 +71,20 @@ def _occ(s: Structure) -> int:
     return int((s.block_ids != s.air_block_id).sum())
 
 
+def _textured_samples(samples, run: Path, tag: str) -> None:
+    """Project standard: also render samples with the real-texture renderer.
+
+    Best-effort — a headless/EGL failure must not kill the training run.
+    """
+    try:
+        from blockgen.eval.cond_render import textured_prompt_grid
+        textured_prompt_grid(samples, [f"{_occ(s)} blocks" for s in samples],
+                             run / "samples_textured.png",
+                             suptitle=f"{run.name} — {tag} (uncond), textured")
+    except Exception as e:  # noqa: BLE001
+        _log(DS, f"textured render skipped ({type(e).__name__}: {e})")
+
+
 def _baseline(val_c, ref_c, vocab, grid: int) -> float:
     """How close a REAL held-out build is to train, at this grid. The normalizer."""
     return round(float(np.mean(
@@ -94,6 +108,7 @@ def arm_flat(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
     model, hist = train_from_sequences(seqs, vocab.vocab_size, cfg, pe="phase4")
     torch.save(model.state_dict(), run / "model.pt")
     s = sample_structures(model, vocab, num_samples=samples, temperature=1.0, top_k=40)
+    _textured_samples(s, run, "canon16_flat")
     row = _eval_row("canon16_flat", s, ref, val, vocab, dim, run)
     row.update(final_loss=round(hist["loss"][-1], 4), n_train=len(seqs),
                train_min=round((time.time() - t) / 60, 1),
@@ -102,11 +117,16 @@ def arm_flat(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
 
 
 def arm_bpe(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
-            samples: int, batch: int, n_merges: int) -> Optional[dict]:
-    """B: native 32 + 3D-BPE + phase4 — the intervention."""
+            samples: int, batch: int, n_merges: int, oriented: bool = False) -> Optional[dict]:
+    """B: native 32 + 3D-BPE + phase4 — the intervention.
+
+    ``oriented`` keeps stair/log/door facings as distinct tokens (notes §19); pair it
+    with the orientation-aware D4 augmentation (augment.py) or facings become noise.
+    """
     run = out / "native_bpe"; run.mkdir(parents=True, exist_ok=True)
     vocab = build_block_vocab(ref + val, max_dim=dim)   # novelty grid only
-    cv = learn_clusters(fit, max_dim=dim, n_merges=n_merges, max_corpus=400)
+    cv = learn_clusters(fit, max_dim=dim, n_merges=n_merges, max_corpus=400,
+                        oriented=oriented)
     # Save the piece vocab BEFORE training. A piece token id means nothing without the
     # patterns it expands to, so the checkpoint is dead weight on its own; cluster_meta
     # below records only counts. Re-deriving it costs a full replay of the seeded
@@ -127,6 +147,7 @@ def arm_bpe(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
          "n_merges": len(cv.merges), "n_fit": len(kept),
          "median_seq_len": int(np.median([len(s) for s in seqs]))}, indent=2))
     s = sample_cluster_structures(model, cv, num_samples=samples, temperature=1.0, top_k=40)
+    _textured_samples(s, run, "native_bpe")
     row = _eval_row("native_bpe", s, ref, val, vocab, dim, run)
     row.update(final_loss=round(hist["loss"][-1], 4), n_train=len(seqs),
                train_min=round((time.time() - t) / 60, 1),
@@ -146,6 +167,9 @@ def main() -> None:
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--stamp", default=time.strftime("%Y%m%d_%H%M%S"))
     ap.add_argument("--arms", nargs="+", default=["flat", "bpe"])
+    ap.add_argument("--oriented", action="store_true",
+                    help="orientation-aware vocab (stairs/logs facings as distinct tokens); "
+                         "uses the orientation-aware D4 augmentation")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     if args.quick:
@@ -176,7 +200,8 @@ def main() -> None:
             # canonicalize(_, 32) on houses_32 crops but never downsamples: native.
             r = arm_bpe(canonicalize(h_aug, 32), canonicalize(h_train, 32),
                         canonicalize(h_val, 32), out, 32, args.seq_bpe,
-                        args.epochs, args.samples, args.batch, args.merges)
+                        args.epochs, args.samples, args.batch, args.merges,
+                        oriented=args.oriented)
             if r: rows.append(r)
         except Exception:  # noqa: BLE001
             (out / "bpe_ERROR.txt").write_text(traceback.format_exc())

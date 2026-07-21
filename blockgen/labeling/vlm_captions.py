@@ -76,11 +76,19 @@ LABEL_SCHEMA = {
                                "statue, bridge, pixel art, redstone, tree, terrain, "
                                "fragment, ...).",
             },
+            "short_tag": {
+                "type": "string",
+                "description": "a terse 2-4 word tag naming the main material + type, "
+                               "e.g. 'spruce house', 'stone castle', 'brick tower'. This "
+                               "is how a user would quickly type it.",
+            },
             "captions": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "3 diverse short captions (8-25 words each), "
-                               "from plain ('a small wooden house') to detailed.",
+                "description": "3 diverse captions (8-25 words each), from plain to "
+                               "detailed. Name materials accurately using the provided "
+                               "dominant-blocks list; describe naturally, do not list "
+                               "the blocks verbatim.",
             },
             "flag_reason": {
                 "type": "string",
@@ -89,13 +97,13 @@ LABEL_SCHEMA = {
                                "'floating fragment', 'incoherent blob').",
             },
         },
-        "required": ["is_build", "category", "captions", "flag_reason"],
+        "required": ["is_build", "category", "short_tag", "captions", "flag_reason"],
         "additionalProperties": False,
     },
 }
 
 # Fields a completed label record carries (besides "id").
-LABEL_FIELDS = ("captions", "is_build", "category", "flag_reason")
+LABEL_FIELDS = ("captions", "short_tag", "is_build", "category", "flag_reason")
 
 
 def _load_env() -> None:
@@ -129,10 +137,16 @@ def build_request_body(sid: str, renders_dir: str, meta: dict,
         hint_bits.append(f"category: {meta['category']}")
     hint = ("Metadata hint (may be noisy): " + "; ".join(hint_bits) + ". "
             if hint_bits else "")
+    # Ground-truth block histogram (idea: block-stats grounding). The VLM cannot read
+    # exact block types off a render, so we tell it the actual dominant materials.
+    mats = meta.get("materials")
+    mat_hint = (f"Dominant blocks (ground truth, most first): {', '.join(mats)}. "
+                if mats else "")
     content: List[dict] = [_image_url(p) for p in paths]
     content.append({"type": "text",
-                    "text": f"{hint}Judge if this is a real build, categorize it, "
-                            "and write 3 diverse captions."})
+                    "text": f"{hint}{mat_hint}Judge if this is a real build, categorize "
+                            "it, give a short 2-4 word tag, and write 3 diverse captions. "
+                            "Use the dominant-blocks list to name materials accurately."})
     return {
         "model": model,
         "max_completion_tokens": 2000,  # headroom for reasoning models
@@ -162,6 +176,7 @@ def _parse_result(content: str) -> dict:
     captions = [c.strip() for c in obj.get("captions", []) if c and c.strip()]
     return {
         "captions": captions,
+        "short_tag": (obj.get("short_tag") or "").strip(),
         "is_build": bool(obj.get("is_build", True)),
         "category": (obj.get("category") or "").strip().lower(),
         "flag_reason": (obj.get("flag_reason") or "").strip(),

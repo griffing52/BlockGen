@@ -25,13 +25,20 @@ from blockgen.utils.serialize import (BOS_TOKEN, EOS_TOKEN, PAD_TOKEN, BlockVoca
 
 def train_from_sequences(sequences: List[List[int]], vocab_size: int,
                          config: ARTrainConfig,
-                         pe: Optional[str] = None) -> Tuple[VoxelTransformerAR, dict]:
+                         pe: Optional[str] = None,
+                         semantic_embedding=None) -> Tuple[VoxelTransformerAR, dict]:
     """Train the AR transformer on pre-built token sequences. Returns (model, history).
 
     ``pe=None`` uses the original ``VoxelTransformerAR`` (learned absolute PE);
     any other value selects that positional-encoding scheme in the PE-pluggable
     ``VoxelTransformerAR2`` (see its module doc: sin / rope / alibi / phase4 / none).
+
+    ``semantic_embedding`` (idea #7) is an optional ``SemanticTokenEmbedding`` that
+    replaces the learned block-token table with a projection of frozen CLIP/SigLIP
+    text embeddings; only valid with a PE (the AR2 backbone).
     """
+    if semantic_embedding is not None and pe is None:
+        raise ValueError("semantic_embedding requires an AR2 backbone; pass pe != None")
     device = config.device if torch.cuda.is_available() or config.device == "cpu" else "cpu"
     if not sequences:
         raise ValueError("No training sequences.")
@@ -48,6 +55,8 @@ def train_from_sequences(sequences: List[List[int]], vocab_size: int,
         model = VoxelTransformerAR(**kwargs).to(device)
     else:
         from blockgen.models.voxel_transformer_ar2 import VoxelTransformerAR2
+        if semantic_embedding is not None:
+            kwargs["semantic_embedding"] = semantic_embedding
         model = VoxelTransformerAR2(pe=pe, **kwargs).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=config.lr)
     history = {"loss": []}

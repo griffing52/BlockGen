@@ -51,6 +51,9 @@ class BlockVocab:
     id_to_block_token: List[str]
     # The (block_id, block_data) pair each block index decodes back to.
     block_index_to_pair: List[Tuple[int, int]]
+    # If True, orientation-bearing blocks (stairs/logs/doors/...) keep their facing as
+    # a distinct token; must match how the vocab was built (see _token_for oriented).
+    oriented: bool = False
 
     @property
     def coord_offset(self) -> int:
@@ -90,12 +93,15 @@ class BlockVocab:
         return self.block_index_to_pair[int(tok) - self.block_offset]
 
 
-def build_block_vocab(structures: Sequence[Structure], max_dim: int) -> BlockVocab:
+def build_block_vocab(structures: Sequence[Structure], max_dim: int,
+                      oriented: bool = False) -> BlockVocab:
     """Build a vocabulary from a corpus of structures.
 
     Block classes are derived via ``_token_for`` (the existing id/id:data rule in
     ``data.py``), so the vocab stays consistent with the rest of the codebase and
-    stays small when restricted to the cached subset.
+    stays small when restricted to the cached subset. With ``oriented``,
+    orientation-bearing blocks (stairs/logs/doors/...) keep their facing/axis as
+    distinct tokens so the model can learn orientation (notes.md §17).
     """
     # Collect distinct block tokens with a representative (id, data) pair.
     token_to_pair: Dict[str, Tuple[int, int]] = {}
@@ -104,7 +110,7 @@ def build_block_vocab(structures: Sequence[Structure], max_dim: int) -> BlockVoc
         ids = s.block_ids[occ]
         datas = s.block_data[occ]
         for bid, bdata in zip(ids.tolist(), datas.tolist()):
-            tok = _token_for(int(bid), int(bdata))
+            tok = _token_for(int(bid), int(bdata), oriented=oriented)
             if tok not in token_to_pair:
                 token_to_pair[tok] = (int(bid), int(bdata))
 
@@ -117,6 +123,7 @@ def build_block_vocab(structures: Sequence[Structure], max_dim: int) -> BlockVoc
         block_token_to_id=block_token_to_id,
         id_to_block_token=sorted_tokens,
         block_index_to_pair=block_index_to_pair,
+        oriented=oriented,
     )
 
 
@@ -138,7 +145,8 @@ def save_block_vocab(vocab: BlockVocab, path: str) -> None:
     with open(path, "w") as f:
         json.dump({"max_dim": vocab.max_dim,
                    "block_token_to_id": vocab.block_token_to_id,
-                   "block_index_to_pair": [list(p) for p in vocab.block_index_to_pair]}, f)
+                   "block_index_to_pair": [list(p) for p in vocab.block_index_to_pair],
+                   "oriented": vocab.oriented}, f)
 
 
 def load_block_vocab(path: str) -> BlockVocab:
@@ -152,7 +160,8 @@ def load_block_vocab(path: str) -> BlockVocab:
         block_token_to_id=blob["block_token_to_id"],
         id_to_block_token=[t for t, _ in sorted(blob["block_token_to_id"].items(),
                                                 key=lambda kv: kv[1])],
-        block_index_to_pair=[tuple(p) for p in blob["block_index_to_pair"]])
+        block_index_to_pair=[tuple(p) for p in blob["block_index_to_pair"]],
+        oriented=blob.get("oriented", False))
 
 
 # --- token sequence <-> Structure -----------------------------------------
@@ -178,7 +187,7 @@ def structure_to_tokens(structure: Structure, vocab: BlockVocab) -> List[int]:
     for x, y, z in coords.tolist():
         bid = int(s.block_ids[x, y, z])
         bdata = int(s.block_data[x, y, z])
-        tok = _token_for(bid, bdata)
+        tok = _token_for(bid, bdata, oriented=vocab.oriented)
         block_index = vocab.block_token_to_id.get(tok)
         if block_index is None:
             # Unknown block (not in corpus) -> skip the voxel rather than crash.
@@ -254,7 +263,8 @@ def structure_to_grid(structure: Structure, grid: int, vocab: BlockVocab) -> np.
     occ = s.occupied_mask
     coords = np.argwhere(occ)
     for x, y, z in coords.tolist():
-        tok = _token_for(int(s.block_ids[x, y, z]), int(s.block_data[x, y, z]))
+        tok = _token_for(int(s.block_ids[x, y, z]), int(s.block_data[x, y, z]),
+                         oriented=vocab.oriented)
         block_index = vocab.block_token_to_id.get(tok)
         if block_index is None:
             class_id = 1  # unknown -> generic non-air class

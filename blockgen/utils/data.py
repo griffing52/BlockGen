@@ -66,7 +66,26 @@ WOOL_DATA_COLORS: Dict[int, RGBA] = {
 }
 
 
-def _token_for(block_id: int, block_data: int) -> str:
+# Block ids whose data value encodes ORIENTATION (facing/axis/half), not just a
+# texture variant: stairs, logs, doors, trapdoors, slabs (top/bottom bit). With
+# ``oriented=True`` the token key keeps the raw data so different facings are
+# DISTINCT tokens the model can learn -- the raw corpus (grabcraft/3dcraft) has the
+# full facing range, but STANDARD_VOCAB only lists one variant per block, so the
+# default key collapses them. See notes.md §17. Opt-in so existing vocabs/models are
+# unaffected; the D4 augmenter must remap these too (notes §17) or augmented copies
+# get wrong-facing blocks -- irrelevant for un-augmented (conditioned) training.
+_ORIENTATION_IDS = frozenset({
+    53, 67, 108, 109, 114, 128, 134, 135, 136, 156, 163, 164, 180, 203,  # stairs
+    17, 162,                                                              # logs (axis)
+    64, 71, 193, 194, 195, 196, 197,                                     # doors
+    96, 167,                                                             # trapdoors
+    44, 126, 182, 205,                                                   # slabs (top/bottom)
+})
+
+
+def _token_for(block_id: int, block_data: int, oriented: bool = False) -> str:
+    if oriented and block_id in _ORIENTATION_IDS:
+        return f"{block_id}:{block_data}"  # keep facing/axis as a distinct token
     keyed = f"{block_id}:{block_data}"
     if keyed in STANDARD_VOCAB:
         return keyed

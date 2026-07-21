@@ -32,13 +32,34 @@ def index_from_manifest(manifest_path: str) -> Dict[str, dict]:
     }
 
 
+def add_materials(index: Dict[str, dict], cache_path: str, k: int = 6) -> None:
+    """Attach a top-k dominant-material list to each index entry, from the cache.
+
+    Feeding the ground-truth block histogram to the VLM (idea, ideas.md) lets it name
+    materials correctly ("is it a dirt house or a wood house") — a render alone can't
+    reliably reveal exact block types. Mutates ``index`` in place.
+    """
+    from blockgen.curation.houses import load_structures_from_cache
+    from blockgen.labeling.templates import dominant_materials
+    structs, _ = load_structures_from_cache(cache_path)
+    for i, s in enumerate(structs):
+        sid = f"h{i:05d}"
+        if sid in index:
+            index[sid]["materials"] = dominant_materials(s, k=k)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, help="*_manifest.json from the cache")
     parser.add_argument("--out", required=True, help="index.json for the VLM labeler")
+    parser.add_argument("--cache", default=None,
+                        help="cache .npz; if given, add dominant-material lists for the "
+                             "VLM prompt (block-stats grounding)")
     args = parser.parse_args()
 
     index = index_from_manifest(args.manifest)
+    if args.cache:
+        add_materials(index, args.cache)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(index, f, indent=1)
