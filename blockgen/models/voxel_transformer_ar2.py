@@ -170,6 +170,7 @@ class VoxelTransformerAR2(nn.Module):
         pe: str = "learned",
         piece_factors=None,
         piece_offset: Optional[int] = None,
+        semantic_embedding: Optional[nn.Module] = None,
     ) -> None:
         super().__init__()
         if pe not in PE_CHOICES:
@@ -178,10 +179,23 @@ class VoxelTransformerAR2(nn.Module):
         self.max_seq_len = max_seq_len
         self.pe = pe
 
-        # Opt-in factored piece embedding: rotations/variants of one motif share
-        # parameters instead of each piece id learning from scratch. Pass the
-        # PieceFactors from build_piece_factors(cv) plus cv.piece_offset.
-        if piece_factors is not None:
+        # Opt-in token-embedding replacements (mutually exclusive), each keeping the
+        # nn.Embedding contract (embedding_dim / weight / forward):
+        #   * semantic_embedding — idea #7: block rows are a projection of frozen
+        #     CLIP/SigLIP text embeddings (blockgen.models.semantic_embedding), a
+        #     material/placement prior instead of learning every block from scratch.
+        #   * piece_factors — factored piece embedding for 3D-BPE vocabularies.
+        if semantic_embedding is not None and piece_factors is not None:
+            raise ValueError("pass at most one of semantic_embedding / piece_factors")
+        if semantic_embedding is not None:
+            if semantic_embedding.embedding_dim != d_model or \
+                    semantic_embedding.vocab_size != vocab_size:
+                raise ValueError(
+                    f"semantic_embedding (vocab {semantic_embedding.vocab_size}, dim "
+                    f"{semantic_embedding.embedding_dim}) must match vocab_size "
+                    f"{vocab_size}, d_model {d_model}")
+            self.token_embedding = semantic_embedding
+        elif piece_factors is not None:
             if piece_offset is None:
                 raise ValueError("piece_offset is required when piece_factors is given")
             from blockgen.models.factored_embedding import FactoredPieceEmbedding

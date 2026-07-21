@@ -64,7 +64,10 @@ def build_captions(index_path: str, vlm_jsonl: str | None, out_path: str,
         if rec.get("category"):
             s.metadata["category"] = rec["category"]
 
-        pool = vlm_caps + template_captions(s, k=k, seed=i)
+        # Guaranteed short-tag caption first (how users actually type prompts), then
+        # the VLM's detailed captions, then template fallbacks — mixed granularity.
+        short = [rec["short_tag"]] if rec.get("short_tag") else []
+        pool = short + vlm_caps + template_captions(s, k=k, seed=i)
         seen = set()
         merged = []
         for c in pool:

@@ -50,16 +50,32 @@ class CondVoxelAR2(VoxelTransformerAR2):
                   + self.block_index_embedding(grammar_pos // 4)[None]
         return h
 
+    def _make_prefix(self, cond: Optional[torch.Tensor], B: int,
+                     cond_mask: Optional[torch.Tensor] = None,
+                     cond_drop: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Map a condition to ``[B, n_prefix, d_model]`` prefix vectors.
+
+        Default (LegoACE recipe): ``cond`` is ``[B, n_prefix, cond_dim]`` (e.g. one
+        pooled CLIP token), linearly projected. ``None`` selects the learned null
+        condition (CFG / cond-dropout). ``ResampledCondVoxelAR2`` overrides this to
+        cross-attend a full condition *sequence* into the prefix — the idea #6
+        conditioning-channel upgrade — and is the only path that uses ``cond_mask`` /
+        ``cond_drop`` (per-sample cond-dropout to the null prefix).
+        """
+        if cond is None:
+            cond = self.null_cond[None].expand(B, -1, -1)
+        return self.cond_proj(cond) + self.prefix_pos[None]
+
     def forward(self, input_ids: torch.Tensor,
                 cond: Optional[torch.Tensor] = None,
-                pad_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+                pad_mask: Optional[torch.Tensor] = None,
+                cond_mask: Optional[torch.Tensor] = None,
+                cond_drop: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Returns logits aligned with ``input_ids`` positions (prefix stripped)."""
         B, L = input_ids.shape
         if L + self.n_prefix > self.max_seq_len + self.n_prefix:
             raise ValueError(f"seq_len {L} exceeds max_seq_len {self.max_seq_len}")
-        if cond is None:  # unconditional branch (CFG / cond-dropout)
-            cond = self.null_cond[None].expand(B, -1, -1)
-        prefix = self.cond_proj(cond) + self.prefix_pos[None]
+        prefix = self._make_prefix(cond, B, cond_mask, cond_drop)
 
         h = torch.cat([prefix.to(self.token_embedding.weight.dtype),
                        self._token_h(input_ids)], dim=1)
@@ -81,17 +97,20 @@ class CondVoxelAR2(VoxelTransformerAR2):
     def generate_cond(self, *, cond: torch.Tensor, bos_token_id: int,
                       eos_token_id: int, max_new_tokens: int,
                       temperature: float = 1.0, top_k: Optional[int] = 32,
-                      cfg_scale: float = 1.0) -> torch.Tensor:
+                      cfg_scale: float = 1.0,
+                      cond_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Batched conditional sampling with classifier-free guidance.
 
-        cond: [B, P, cond_dim]. Returns [B, L] token ids (right-padded with EOS).
+        cond: [B, P, cond_dim] (pooled prefix) or [B, S, cond_dim] (sequence, for the
+        resampler). ``cond_mask`` [B, S] is a key-padding mask (True = pad), used only
+        by the resampler path. Returns [B, L] token ids (right-padded with EOS).
         """
         device = next(self.parameters()).device
         B = cond.shape[0]
         tokens = torch.full((B, 1), bos_token_id, dtype=torch.long, device=device)
         finished = torch.zeros(B, dtype=torch.bool, device=device)
         for _ in range(max_new_tokens):
-            logits_c = self.forward(tokens, cond=cond)[:, -1]
+            logits_c = self.forward(tokens, cond=cond, cond_mask=cond_mask)[:, -1]
             if cfg_scale != 1.0:
                 logits_u = self.forward(tokens, cond=None)[:, -1]
                 logits = logits_u + cfg_scale * (logits_c - logits_u)

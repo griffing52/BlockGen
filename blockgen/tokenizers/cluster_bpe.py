@@ -62,6 +62,7 @@ class ClusterVocab:
     block_index_to_pair: List[Tuple[int, int]]       # base block index -> (id, data)
     merges: List[Tuple[int, int, Coord]] = field(default_factory=list)  # (pa, pb, delta) in order
     num_blocks: int = 0
+    oriented: bool = False                           # orientation-preserving token keys
 
     @property
     def coord_offset(self) -> int:
@@ -111,7 +112,8 @@ def _atomic_labeling(s: Structure, base: BlockVocab):
     owner: Dict[Coord, int] = {}
     nid = 0
     for x, y, z in np.argwhere(occ).tolist():
-        tok = _token_for(int(c.block_ids[x, y, z]), int(c.block_data[x, y, z]))
+        tok = _token_for(int(c.block_ids[x, y, z]), int(c.block_data[x, y, z]),
+                         oriented=base.oriented)
         bidx = base.block_token_to_id.get(tok)
         if bidx is None:
             continue
@@ -168,11 +170,51 @@ def _apply_merge(inst: Dict[int, dict], owner: Dict[Coord, int], nid: int,
     return nid
 
 
+# Legacy block ids whose objects occupy TWO voxels that share the id — beds (26),
+# wooden/iron doors (64/71/193-197), and double-plants (175, sunflower/rose bush/tall
+# grass/large fern). Their two halves should be ONE piece token, not two, both for
+# semantic coherence and because the Minecraft mod otherwise places only one half.
+MULTI_BLOCK_IDS = frozenset({26, 64, 71, 193, 194, 195, 196, 197, 175})
+
+
+def _forced_family_keys(labelings, base: BlockVocab):
+    """Canonical (pa, pb, delta) merge keys for adjacent same-family atomic voxels.
+
+    Both halves of a bed/door/double-plant share a legacy id, so a qualifying pair is
+    two 6-adjacent atomic voxels whose block ids are equal and in ``MULTI_BLOCK_IDS``.
+    Returned deterministically sorted so the vocab is reproducible.
+    """
+    id_of = [base.block_index_to_pair[b][0] for b in range(base.num_blocks)]
+    keys: set = set()
+    for inst, owner, _ in labelings:
+        for (x, y, z), a in owner.items():
+            pa = inst[a]["piece"]
+            if pa >= len(id_of) or id_of[pa] not in MULTI_BLOCK_IDS:
+                continue
+            for dx, dy, dz in _NBR:
+                w = (x + dx, y + dy, z + dz)
+                b = owner.get(w)
+                if b is None or b == a or w < (x, y, z):
+                    continue
+                pb = inst[b]["piece"]
+                if pb < len(id_of) and id_of[pb] == id_of[pa]:  # same-family halves
+                    keys.add(_canon_pair(pa, inst[a]["anchor"], pb, inst[b]["anchor"]))
+    return sorted(keys)
+
+
 def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 120,
                    max_corpus: int = 400, min_count: int = 3, seed: int = 0,
+                   force_families: bool = True, oriented: bool = False,
                    verbose: bool = True) -> ClusterVocab:
-    """Learn a ClusterVocab by BPE-style greedy merging over a corpus."""
-    base = build_block_vocab(structs, max_dim=max_dim)
+    """Learn a ClusterVocab by BPE-style greedy merging over a corpus.
+
+    With ``force_families`` (default), multi-voxel objects (beds/doors/double-plants;
+    see ``MULTI_BLOCK_IDS``) are merged into single pieces FIRST, as guaranteed
+    top-priority merges, before frequency-based BPE — so they always tokenize as one
+    piece regardless of how often they occur. These are extra merges, not counted
+    against ``n_merges``.
+    """
+    base = build_block_vocab(structs, max_dim=max_dim, oriented=oriented)
     patterns: List[Pattern] = [((0, 0, 0, b),) for b in range(base.num_blocks)]
     merges: List[Tuple[int, int, Coord]] = []
 
@@ -183,6 +225,24 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
     for s in corpus:
         inst, owner, nid = _atomic_labeling(s, base)
         labelings.append([inst, owner, nid])
+
+    def _commit(pa, pb, delta):
+        new_pid = len(patterns)
+        merged = list(patterns[pa]) + [(dx + delta[0], dy + delta[1], dz + delta[2], bb)
+                                       for dx, dy, dz, bb in patterns[pb]]
+        patterns.append(_reanchor(merged))
+        merges.append((pa, pb, delta))
+        for lab in labelings:
+            lab[2] = _apply_merge(lab[0], lab[1], lab[2], pa, pb, delta, new_pid)
+        return new_pid
+
+    if force_families:
+        forced = _forced_family_keys(labelings, base)
+        for pa, pb, delta in forced:
+            _commit(pa, pb, delta)
+        if verbose:
+            print(f"[BPE] forced {len(forced)} multi-block merges (beds/doors/plants) "
+                  f"-> {len(patterns)} pieces", flush=True)
 
     for step in range(n_merges):
         counts: Counter = Counter()
@@ -201,13 +261,7 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
         (pa, pb, delta), cnt = counts.most_common(1)[0]
         if cnt < min_count:
             break
-        new_pid = len(patterns)
-        merged = list(patterns[pa]) + [(dx + delta[0], dy + delta[1], dz + delta[2], bb)
-                                       for dx, dy, dz, bb in patterns[pb]]
-        patterns.append(_reanchor(merged))
-        merges.append((pa, pb, delta))
-        for lab in labelings:
-            lab[2] = _apply_merge(lab[0], lab[1], lab[2], pa, pb, delta, new_pid)
+        _commit(pa, pb, delta)
         if verbose and (step % 20 == 0 or step == n_merges - 1):
             avg = np.mean([len(l[0]) for l in labelings])
             print(f"[BPE] merge {step:3d}/{n_merges}  count={cnt}  "
@@ -215,7 +269,7 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
 
     return ClusterVocab(max_dim=max_dim, patterns=patterns,
                         block_index_to_pair=base.block_index_to_pair,
-                        merges=merges, num_blocks=base.num_blocks)
+                        merges=merges, num_blocks=base.num_blocks, oriented=oriented)
 
 
 # --------------------------------------------------------------------------- #
@@ -223,10 +277,13 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
 # --------------------------------------------------------------------------- #
 def structure_to_cluster_tokens(s: Structure, cv: ClusterVocab) -> List[int]:
     """Tokenize by replaying the learned merges, then emit [BOS,(X,Y,Z,PIECE)*,EOS]."""
-    base = BlockVocab(max_dim=cv.max_dim,
-                      block_token_to_id={_token_for(*p): i for i, p in enumerate(cv.block_index_to_pair)},
-                      id_to_block_token=[_token_for(*p) for p in cv.block_index_to_pair],
-                      block_index_to_pair=cv.block_index_to_pair)
+    base = BlockVocab(
+        max_dim=cv.max_dim,
+        block_token_to_id={_token_for(*p, oriented=cv.oriented): i
+                           for i, p in enumerate(cv.block_index_to_pair)},
+        id_to_block_token=[_token_for(*p, oriented=cv.oriented)
+                           for p in cv.block_index_to_pair],
+        block_index_to_pair=cv.block_index_to_pair, oriented=cv.oriented)
     c = s.crop_to_non_air()
     if max(c.shape) > cv.max_dim:
         raise ValueError(f"structure max dim {max(c.shape)} exceeds max_dim {cv.max_dim}")

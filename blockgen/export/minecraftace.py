@@ -195,6 +195,7 @@ def save_piece_vocab(cv: ClusterVocab, path: str) -> None:
             "patterns": [[list(cell) for cell in pat] for pat in cv.patterns],
             "merges": [[pa, pb, list(delta)] for pa, pb, delta in cv.merges],
             "block_index_to_pair": [list(p) for p in cv.block_index_to_pair],
+            "oriented": cv.oriented,
         }, f)
 
 
@@ -207,6 +208,7 @@ def load_piece_vocab(path: str) -> ClusterVocab:
         block_index_to_pair=[tuple(p) for p in blob["block_index_to_pair"]],
         merges=[(pa, pb, tuple(delta)) for pa, pb, delta in blob["merges"]],
         num_blocks=blob["num_blocks"],
+        oriented=blob.get("oriented", False),
     )
 
 

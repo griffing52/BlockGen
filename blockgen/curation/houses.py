@@ -359,13 +359,14 @@ def build_house_dataset(max_dim: int = 32, min_blocks: int = 80,
 
 
 # --- cache io ---------------------------------------------------------------
-def house_cache_path(max_dim: int, cache_dir: str = DEFAULT_CACHE_DIR) -> str:
-    return os.path.join(cache_dir, f"houses_{max_dim}.npz")
+def house_cache_path(max_dim: int, cache_dir: str = DEFAULT_CACHE_DIR,
+                     name: str = "houses") -> str:
+    return os.path.join(cache_dir, f"{name}_{max_dim}.npz")
 
 
 def save_house_cache(structures: Sequence[Structure], max_dim: int,
                      cache_dir: str = DEFAULT_CACHE_DIR,
-                     report: Optional[dict] = None) -> str:
+                     report: Optional[dict] = None, name: str = "houses") -> str:
     os.makedirs(cache_dir, exist_ok=True)
     n = len(structures)
     ids = np.empty(n, dtype=object)
@@ -373,7 +374,7 @@ def save_house_cache(structures: Sequence[Structure], max_dim: int,
     for i, s in enumerate(structures):
         ids[i] = s.block_ids.astype(np.int16)
         data[i] = s.block_data.astype(np.int16)
-    path = house_cache_path(max_dim, cache_dir)
+    path = house_cache_path(max_dim, cache_dir, name=name)
     np.savez_compressed(
         path, block_ids=ids, block_data=data,
         sources=np.array([s.source_path or "" for s in structures]),
@@ -405,12 +406,16 @@ def load_structures_from_cache(npz_path: str) -> Tuple[List[Structure], dict]:
         raise FileNotFoundError(f"Structure cache not found at {npz_path}.")
     blob = np.load(npz_path, allow_pickle=True)
     manifest = json.loads(Path(npz_path.replace(".npz", "_manifest.json")).read_text())
+    # Read each member ONCE: a NpzFile re-decompresses the whole array on every key
+    # access, so indexing blob["block_ids"][i] inside the loop is O(n) full
+    # decompressions of a ~300MB object array -- minutes at corpus scale. Hoist them.
+    block_ids, block_data, sources = blob["block_ids"], blob["block_data"], blob["sources"]
     structures = []
-    for i in range(len(blob["block_ids"])):
+    for i in range(len(block_ids)):
         item = manifest["items"][i]
         structures.append(Structure(
-            block_ids=blob["block_ids"][i], block_data=blob["block_data"][i],
-            source_path=str(blob["sources"][i]),
+            block_ids=block_ids[i], block_data=block_data[i],
+            source_path=str(sources[i]),
             metadata={k: item.get(k, "") for k in ("corpus", "category", "title", "url")}))
     return structures, manifest
 
