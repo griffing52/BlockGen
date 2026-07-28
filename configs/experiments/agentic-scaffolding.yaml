@@ -1,0 +1,11 @@
+# The headline track-E ablation: does scaffolding beat a bare prompt?
+# Five arms x 12 detailed prompts on one model, everything else held fixed.
+#   .venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
+extends:
+  - agentic/loop-full
+description: Agentic — scaffolding ablation (zeroshot/oneshot/plan/repair/full)
+arms: "zeroshot,oneshot,plan,repair,full"
+prompts: detailed
+n: 12
+provider: "openai:gpt-5-mini"
+name: agentic_scaffolding

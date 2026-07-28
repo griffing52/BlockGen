@@ -1,0 +1,8 @@
+# Agentic loop knobs: every scaffolding stage on, generous canvas and budget.
+# Reusable fragment -- the experiment files pick the arms and prompts.
+description: Agentic loop — 48³ canvas, 16k tokens, medium reasoning
+canvas: 48
+canvas_height: 48
+max_tokens: 16000
+reasoning_effort: medium
+critique_mode: rewrite

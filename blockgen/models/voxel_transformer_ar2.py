@@ -311,7 +311,8 @@ class VoxelTransformerAR2(nn.Module):
     def generate(self, *, bos_token_id: int, eos_token_id: int, max_new_tokens: int,
                  temperature: float = 1.0, top_k: Optional[int] = 32,
                  device: Optional[torch.device] = None,
-                 use_cache: bool = True) -> torch.Tensor:
+                 use_cache: bool = True,
+                 prompt: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Autoregressive sampling.
 
         With ``use_cache`` (default) each step feeds only the new token and reuses the
@@ -324,7 +325,16 @@ class VoxelTransformerAR2(nn.Module):
         if device is None:
             device = next(self.parameters()).device
         use_cache = use_cache and self.supports_cache()
-        tokens = torch.tensor([[bos_token_id]], dtype=torch.long, device=device)
+        # ``prompt`` [1, K] continues from a given prefix instead of a bare BOS. The
+        # cached path already primes with the whole initial ``tokens`` tensor, so a
+        # multi-token prefix needs no special handling. Used by
+        # scripts/attach_prefix_test.py to separate drift from blindness.
+        if prompt is not None:
+            tokens = prompt.to(device=device, dtype=torch.long)
+            if tokens.dim() == 1:
+                tokens = tokens.unsqueeze(0)
+        else:
+            tokens = torch.tensor([[bos_token_id]], dtype=torch.long, device=device)
         past = None
         for _ in range(max_new_tokens):
             if use_cache:

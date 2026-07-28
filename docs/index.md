@@ -26,6 +26,10 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
 - An **auto-labeling pipeline** — 4-view renders → VLM + template captions → frozen
   DINOv2/CLIP embeddings — feeding image/text-conditioned generation
   ([Labeling & captions](labeling.md)).
+- An **agentic track** (E): a frontier LLM writes a short WorldEdit-style *build
+  program* that is executed onto a voxel canvas — no training, arbitrary canvas
+  sizes, free text/image conditioning, and builds an order of magnitude larger than
+  the per-voxel tracks reach ([Agentic generation](agentic.md)).
 - A whole-codebase operator's map — every package, model class (incl. the phase4 PE),
   trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)).
 
@@ -39,6 +43,7 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
 | **No cross-medium transfer gain** in the data-rich regime — compression ≠ generation | T12 — finetune ≈ scratch |
 | 3D-BPE cluster tokens = anti-memorization (dup 0 where flat memorizes) | T10 vehicles |
 | Flat token embeddings **don't** learn birch≈oak | within-family cos-sim ≈ random baseline |
+| **Programs beat per-voxel tokens for scale**: 1,070-block coherent house, 0 failed commands, $0.008 | T22 — agentic track (`gpt-5-mini`) |
 
 See [Results](results.md) for the full tables and figures, and
 [Data & curation](data-and-curation.md) for all five Minecraft corpora plus the LEGO

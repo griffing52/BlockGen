@@ -13,6 +13,7 @@ directory under `outputs/run_<stamp>_<name>/` (gitignored) with a config manifes
 | `experiments_overnight` | 3 datasets × 6 tracks: conditioning, 3D-BPE, more-data | T10 — conditioning is the best lever |
 | `experiments_p4c` | phase4 × constrained combo (the two proven winners) | do-not-stack check |
 | `experiments_transfer` | pool-pretrain → finetune on `houses_32` | T12 — no in-domain transfer gain |
+| `experiments_agentic` | Track E: scaffolding arms (plan / example / repair / critique) × prompt sets | T22 — programs beat per-voxel tokens for scale |
 
 ```bash
 STAMP=$(date +%Y%m%d_%H%M%S)
@@ -21,7 +22,15 @@ STAMP=$(date +%Y%m%d_%H%M%S)
 .venv/bin/python -m blockgen.experiments_p4c      --stamp $STAMP      # phase4 + constrained
 .venv/bin/python -m blockgen.experiments_transfer --stamp $STAMP      # cross-medium transfer
 .venv/bin/python -m blockgen.experiments_transfer --stamp smoke --quick   # fast wiring check
+
+# Track E (agentic) — no GPU, no stamp; it makes its own run dir and costs API tokens
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
+.venv/bin/python -m blockgen.experiments_agentic --quick --provider mock   # offline wiring check
 ```
+
+The agentic battery is the one runner that does **not** train anything: it spends API
+calls instead of GPU hours, caches every response on disk so re-runs are free and
+deterministic, and reports cost per arm. See [Agentic generation](agentic.md).
 
 Parameterized runs read `configs/{datasets,experiments,models,training}/*.yaml` via
 `blockgen/config.py` (e.g. `--config ideas-full`). Launch helpers: `scripts/run_ideas.sh`,

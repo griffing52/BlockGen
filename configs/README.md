@@ -27,6 +27,14 @@ The launcher scripts forward extra flags, so `--config` works through them too:
 ./scripts/run_ideas.sh --config ideas-pe-only
 ```
 
+The agentic battery takes `--config` the same way (its keys are that runner's flags —
+`arms`, `prompts`, `n`, `provider`, `canvas`, …):
+
+```bash
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-detail --prompts captions:2
+```
+
 ## Layout
 
 Keys are argparse **dest** names (`epochs_ar`, `diff_grid`, `pe_arms`, …). The
@@ -38,6 +46,7 @@ is one flat mapping, so every key maps unambiguously to one flag.
 | `datasets/`    | data-prep knobs (min-dim/blocks, val split, augment, canon) |
 | `training/`    | epoch/batch/seq budgets for AR and diffusion             |
 | `models/`      | model-variant sweeps (PE arm lists)                      |
+| `agentic/`     | Track E loop knobs (canvas, token budget, reasoning effort)  |
 | `experiments/` | top-level runs that `extends:` the above + set selectors |
 
 The dataset *selector* (`dataset:` for ideas, `datasets:` for overnight) lives in

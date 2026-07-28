@@ -1,0 +1,9 @@
+# Cheap agentic loop: small canvas, low reasoning effort, tight token budget.
+# Use this while iterating on prompts or on the DSL -- responses are cached, so a
+# re-run after a code change only pays for the calls whose request actually changed.
+description: Agentic loop — 32³ canvas, 8k tokens, low reasoning
+canvas: 32
+canvas_height: 32
+max_tokens: 8000
+reasoning_effort: low
+critique_mode: patch

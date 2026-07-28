@@ -1,0 +1,15 @@
+# Long-horizon / large-build arm: the regime the per-voxel tracks cannot reach at
+# all (a village square is ~10k blocks = ~40k tokens as block lines, but ~80 lines
+# as a program). Big canvas, big token budget, planning on.
+#   .venv/bin/python -m blockgen.experiments_agentic --config agentic-large
+description: Agentic — long-horizon multi-part builds on a 96³ canvas
+arms: "plan,full"
+prompts: large
+n: 6
+canvas: 96
+canvas_height: 64
+max_tokens: 32000
+reasoning_effort: medium
+target_blocks: 8000
+provider: "openai:gpt-5"
+name: agentic_large

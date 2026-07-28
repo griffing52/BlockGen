@@ -1,0 +1,18 @@
+# Prompt-detail ablation, paired: run it twice against the SAME builds, changing
+# only how richly they are described (caption index 0 = short tag, 2 = rich VLM
+# caption from data/minecraft/labels/houses_32_captions.json). Same --seed picks
+# the same builds at either index, so the comparison isolates prompt detail.
+#
+#   .venv/bin/python -m blockgen.experiments_agentic --config agentic-detail \
+#       --prompts captions:0 --name agentic_detail_short
+#   .venv/bin/python -m blockgen.experiments_agentic --config agentic-detail \
+#       --prompts captions:2 --name agentic_detail_rich
+extends:
+  - agentic/loop-full
+description: Agentic — prompt-detail ablation on real corpus captions
+arms: "oneshot,full"
+prompts: "captions:0"
+n: 16
+seed: 0
+provider: "openai:gpt-5-mini"
+name: agentic_detail

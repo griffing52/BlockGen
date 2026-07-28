@@ -2,6 +2,14 @@
 
 All three share the tokenizer and the novelty eval. No text conditioning.
 
+!!! note "There is a fourth way to generate now"
+    [Track E — agentic generation](agentic.md) skips training entirely: a frontier
+    LLM emits a **build program** in a WorldEdit-style command language, which is
+    executed onto a voxel canvas. It shares this page's `Structure` type, renderer
+    and validity metric, so its samples are directly comparable to A/B/C — but it
+    has no learned model, and its cost is measured in tokens and dollars rather
+    than epochs.
+
 ## Track A — Autoregressive token transformer
 
 `blockgen/models/voxel_transformer_ar.py` · train `blockgen/training/train_ar.py`

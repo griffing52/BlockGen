@@ -16,7 +16,14 @@ raw corpora ──► caches (npz) ──► curation ──► prep protocol �
       figures ◄── render ◄── evaluate ◄── sample ◄───────────────────┘
       outputs/    renderer/   eval/        per-model samplers
                   grid.py     novelty.py   (+ constrained_decode)
+                                  ▲
+prompt ──► LLM ──► program ──► executor ──► Canvas ──► Structure ──┘
+ (Track E, blockgen/agentic/: no training, no corpus — the model writes commands)
 ```
+
+Track E joins the same pipeline at the *sample* stage: it produces `Structure`s and a
+structure cache in the standard format, so it is rendered and evaluated by exactly the
+tooling the trained tracks use ([Agentic](agentic.md)).
 
 Every experiment battery (`blockgen/experiments_*.py`) is a driver that walks this
 pipeline end-to-end for a set of *arms* and writes one run directory — see
@@ -31,6 +38,7 @@ pipeline end-to-end for a set of *arms* and writes one run directory — see
 | `blockgen/utils/` | `Structure`, corpora loaders, block remapping, orderings |
 | `blockgen/tokenizers/` | standard block vocab, per-voxel serialization, 3D-BPE |
 | `blockgen/models/` | the model zoo (below) |
+| `blockgen/agentic/` | Track E: LLM-written build programs — DSL, canvas, providers, agent loop ([Agentic](agentic.md)) |
 | `blockgen/training/` | one trainer module per model family + constrained decoding |
 | `blockgen/eval/` | novelty report + connectivity/validity |
 | `blockgen/labeling/` | renders → captions → frozen embeddings ([Labeling](labeling.md)) |
