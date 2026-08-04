@@ -29,8 +29,12 @@ nav:
   - Data & curation: data-and-curation.md
   - Representations & tokenization: representations.md
   - Models (the three tracks): models.md
+  - Agentic generation (Track E): agentic.md
   - MinecraftACE (LegoACE port): minecraftace.md
   - Labeling & captions: labeling.md
   - Experiments & outputs: experiments.md
+  - Bring your own model: custom-model.md
+  - Reproducing a run (T18): reproduce-native.md
+  - Evaluation suite: benchmark.md
   - Results: results.md
   - Roadmap (LEGO / electronics): roadmap.md

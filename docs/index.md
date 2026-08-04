@@ -31,7 +31,12 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
   sizes, free text/image conditioning, and builds an order of magnitude larger than
   the per-voxel tracks reach ([Agentic generation](agentic.md)).
 - A whole-codebase operator's map — every package, model class (incl. the phase4 PE),
-  trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)).
+  trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)),
+  plus a runnable end-to-end walkthrough for adding your own architecture
+  ([Bring your own model](custom-model.md)).
+- A **validated cross-track benchmark** — every metric must pass a corruption
+  ladder before it is allowed to rank anything, and realism is always reported
+  beside novelty so a memorizing model cannot win ([Evaluation suite](benchmark.md)).
 
 ## Headline results so far
 

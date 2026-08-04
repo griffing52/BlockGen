@@ -58,6 +58,20 @@ STAMP=$(date +%Y%m%d_%H%M%S)
     --canon-dim 12 --ar-seq 1600 --epochs-diff24 150 --epochs-ar 80 --epochs-diff-canon 120
 ```
 
+## Train and evaluate your own model
+
+The whole loop — define an architecture, train it, sample, render, score it
+against every other track — is one runnable file:
+
+```bash
+.venv/bin/python examples/custom_model.py --epochs 3 --samples 6   # ~1 min
+.venv/bin/python -m blockgen.eval.bench --arms ar/my_model:<the npz it prints>
+```
+
+That trains a deliberately useless model to prove the wiring. See
+[Bring your own model](custom-model.md) for what each step does and what to
+change, and [Evaluation suite](benchmark.md) for how to read the scorecard.
+
 ## Build these docs
 
 ```bash

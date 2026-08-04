@@ -24,6 +24,16 @@ render = [
     "PyOpenGL>=3.1",
     "pillow>=9.0",
 ]
+agentic = [
+    # Track E (blockgen/agentic/): LLM-written build programs. Only the provider
+    # you actually use is needed -- the OpenAI client also drives Gemini through
+    # its OpenAI-compatible endpoint, so `openai` alone covers both.
+    "openai>=1.40",
+    "python-dotenv>=1.0",  # reads the repo .env for API keys
+    "pillow>=9.0",         # PNG encoding for image conditioning / visual critique
+    "anthropic>=0.40",     # optional: --provider anthropic:…
+    "google-genai>=1.0",   # optional: native Gemini client (else the compat endpoint)
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -31,3 +41,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["blockgen"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: touches the real corpus, a GPU, or the renderer (deselect with -m 'not slow')",
+]

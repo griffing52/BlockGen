@@ -26,7 +26,8 @@ from blockgen.utils.serialize import (BOS_TOKEN, EOS_TOKEN, PAD_TOKEN, BlockVoca
 def train_from_sequences(sequences: List[List[int]], vocab_size: int,
                          config: ARTrainConfig,
                          pe: Optional[str] = None,
-                         semantic_embedding=None) -> Tuple[VoxelTransformerAR, dict]:
+                         semantic_embedding=None,
+                         model=None) -> Tuple[VoxelTransformerAR, dict]:
     """Train the AR transformer on pre-built token sequences. Returns (model, history).
 
     ``pe=None`` uses the original ``VoxelTransformerAR`` (learned absolute PE);
@@ -36,9 +37,22 @@ def train_from_sequences(sequences: List[List[int]], vocab_size: int,
     ``semantic_embedding`` (idea #7) is an optional ``SemanticTokenEmbedding`` that
     replaces the learned block-token table with a projection of frozen CLIP/SigLIP
     text embeddings; only valid with a PE (the AR2 backbone).
+
+    ``model`` accepts an already-constructed module instead, so a custom
+    architecture can reuse this loop (and therefore the sampler, the constrained
+    decoder and the whole eval path) without copying it. The contract is small:
+
+        forward(input_ids, pad_mask=None) -> logits [B, L, vocab_size]
+        .vocab_size : int
+        .max_seq_len : int
+
+    See docs/custom-model.md. Mutually exclusive with ``pe`` /
+    ``semantic_embedding``, which are instructions for building the stock model.
     """
     if semantic_embedding is not None and pe is None:
         raise ValueError("semantic_embedding requires an AR2 backbone; pass pe != None")
+    if model is not None and (pe is not None or semantic_embedding is not None):
+        raise ValueError("pass either `model` or `pe`/`semantic_embedding`, not both")
     device = config.device if torch.cuda.is_available() or config.device == "cpu" else "cpu"
     if not sequences:
         raise ValueError("No training sequences.")
@@ -51,7 +65,14 @@ def train_from_sequences(sequences: List[List[int]], vocab_size: int,
         vocab_size=vocab_size, max_seq_len=config.max_seq_len, d_model=config.d_model,
         nhead=config.nhead, num_layers=config.num_layers,
         dim_feedforward=config.dim_feedforward, dropout=config.dropout)
-    if pe is None:
+    if model is not None:
+        if getattr(model, "vocab_size", vocab_size) != vocab_size:
+            raise ValueError(
+                f"model.vocab_size={model.vocab_size} but the sequences were built "
+                f"against a vocab of {vocab_size}. Token ids would decode to the "
+                f"wrong blocks.")
+        model = model.to(device)
+    elif pe is None:
         model = VoxelTransformerAR(**kwargs).to(device)
     else:
         from blockgen.models.voxel_transformer_ar2 import VoxelTransformerAR2

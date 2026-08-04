@@ -7,6 +7,10 @@ data/minecraft/*
 !data/minecraft/block_ids.csv
 !data/minecraft/download.py
 !data/minecraft/helper.py
+# The benchmark split defines every number in the eval suite and is a few tens
+# of KB, so it is tracked. Feature caches are large and regenerable in minutes,
+# so they are not.
+!data/minecraft/splits/
 
 # Upstream reference clone (github.com/VAST-AI-Research/LegoACE); re-clone it.
 libs/

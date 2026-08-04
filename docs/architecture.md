@@ -188,6 +188,12 @@ the same stamp (finished arms skip via their on-disk `novelty.json`).
 
 ## Writing your own experiment
 
+!!! tip "Want the runnable version?"
+    [Bring your own model](custom-model.md) walks the whole loop end to end —
+    model contract, split, tokenize, train, sample, render, evaluate — with a
+    working file you can execute: `.venv/bin/python examples/custom_model.py`.
+    This section is the design pattern behind it.
+
 The pattern every battery follows — copy it:
 
 1. **Prep** (the honest-novelty protocol, in this order): dedup (IoU 0.95,

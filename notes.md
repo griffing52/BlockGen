@@ -871,3 +871,537 @@ gets wrong-but-plausible: legacy 2 "Grass" is `grass_block` (and modern `grass`
 was renamed `short_grass` in 1.20.3), 31:1 "Tall Grass" is the *short* plant, and
 "Oak Wood" (17:4/162:9) is a **log** — legacy had no bark blocks, so mapping it
 to `oak_wood` silently yields the wrong block.
+
+*(Correction, see §19: the §18(c) claim that "orientation is absent from the corpora"
+is WRONG. Orientation IS in the raw grabcraft/3dcraft data; the tokenizer discarded it.
+Fixed with the `oriented` vocab flag.)*
+
+## 19. Full-corpus conditioned run + orientation fix (2026-07-20)
+
+Built the whole-corpus conditioned-generation pipeline (the data-scaling lever,
+research.md §B.8) and trained a native-32³ text-conditioned model on it. See
+ideas.md for the approach ratings; deliverables/references.bib (193 entries) now
+covers the full related-work set incl. LegoACE, BrickGPT, the adapter/graph-LLM/
+3D-CLIP/TAG/attachment lines.
+
+**Corpus (`blockgen/curation/corpus.py` → `data/minecraft/cache/all_32.npz`):**
+all four corpora pooled UNFILTERED (no house filter) → quality_filter → dedupe →
+**4,712 builds** (grabcraft 2,612 all-categories, 3dcraft 1,902, text2mc 198). NOT
+the ~40k raw: text2mc builds are big (median maxdim 96, p90 256); only ~1,400 h5 +
+~600 schem fit a native 32³ box. **The box is the binding constraint** — 40k needs
+either decimation (vetoed) or a bigger box (fights native_bpe seq length). This is
+what motivates the attachment/growth model (ideas.md, §below).
+
+**Pipeline stages, all corpus-agnostic now:** render_views --cache (18,848 imgs) →
+make_index --cache (adds top-6 block histogram) → vlm_captions (gpt-5-mini batch,
+now feeds block-stats + emits a guaranteed short_tag; ~$5-11, 100% is_build) →
+build_captions → embed_conditions --cache --text-encoder siglip (SigLIP text seqs
++ DINOv2). Model: `scripts/train_cond_resampler.py` (ResampledCondVoxelAR2 = #6
+Q-Former-lite resampler over the full SigLIP token sequence, not a pooled prefix).
+
+**Fixed an O(n²) cache-load bug** in `load_structures_from_cache` (indexed the NpzFile
+inside the loop → re-decompressed the whole object array every row): minutes → 0.1s.
+Silently taxed every run, houses included.
+
+**Forced multi-block merges** (`cluster_bpe.learn_clusters force_families`): beds (26),
+doors (64/71/193-197), double-plants (175) → single piece tokens (269 forced merges on
+the oriented corpus). Also fixes the mod's broken door/bed placement.
+
+**§18(c) was WRONG — orientation IS in the data.** The claim "no facing info exists"
+was about the *tokenizer*, not the data. The raw corpus (grabcraft + 3dcraft) has full
+stairs facings (block_data 0-7) and log axes (0-11); only text2mc collapsed them. What
+threw orientation away was `_token_for`: it only keeps a data value if "id:data" is in
+STANDARD_VOCAB, which lists one texture-variant per block, so real facings collapsed to
+one token. **Fix:** opt-in `oriented=True` flag threaded through `_token_for` (new
+`_ORIENTATION_IDS` = stairs/logs/doors/trapdoors/slabs) → `build_block_vocab` →
+`BlockVocab`/`ClusterVocab` (persisted in save/load). Oriented corpus vocab: 427→655
+blocks, 774→1,215 vocab; stairs now 8 facings, logs 16 values. The conditioned trainer
+doesn't augment so it's clean; **augmented (unconditioned) runs still need the D4
+block_data rotation table (§17)** or they get wrong-facing blocks — required for the
+attachment model too.
+
+**Attachment/growth model (next flagship, ideas.md #8/#5, research.md E.2).** No box:
+seed at bottom-center, BFS across the bottom plane then climb, attach pieces to open
+faces (= the ports in `graph_data.py`), pose derived from the connection, per-face
+CLOSE = boundary (air ≡ EOS), collision-check-and-resample during sampling. Solves
+train-on-everything (any size, no decimation). MVP plan: single-voxel pieces,
+unconditioned, over the full 40k. Related: VoxelCNN/3D-Craft, BrickAnything (tree
+tokens), SolidGen, GCPN/GraphAF/JT-VAE (valency≈collision + resample), GraphRNN/DiGress.
+
+## 20. Attachment/growth Phase 0 — extractor + ordering bake-off (2026-07-21)
+
+Results/tables: `results.md` T21. This section is methods + repro.
+
+**New modules.**
+- `blockgen/utils/attach_order.py` — `structure_to_attach_ops` / `attach_ops_to_structure`
+  / `roundtrip_iou`. Ops are `SEED(piece)`, `ATTACH(piece, direction)`, `CLOSE(direction)`;
+  direction indexes `graph_data.PORT_DIRECTIONS`. **No coordinate is ever emitted** — the
+  parent voxel is implicit in frontier position, which the decoder reconstructs by
+  replaying the same ordering. Frontier is a heap keyed by `(priority, tiebreak)`.
+- `blockgen/utils/attach_vocab.py` — `AttachVocab`, the op↔token-id bridge. Layout:
+  `0` BOS, `1` EOS, `2+d` CLOSE, `8+p` SEED, `8+P+p*6+d` ATTACH. Vocab is a function of
+  the pieces the corpus actually uses (195 on 4k builds → 1,373 tokens).
+- `scripts/ordering_bakeoff.py` — Phase-0 gate + training-free ordering comparison.
+- `scripts/train_attach_corpus.py` — Phase-1 trainer, one arm per ordering.
+
+**The op stream is a token sequence, so Phase 1 needs no graph encoder.** This is the
+shortcut that made the MVP land in one session: a plain causal transformer over op tokens
+*is* the autoregressive attachment model, so `VoxelTransformerAR2` +
+`train_ar_ext.train_from_sequences` are reused unchanged (`pe="sin"` keeps the fused
+`is_causal` SDPA path, which is what makes seq 4096 affordable). All geometry lives in the
+decoder. The GNN encoder of `implementation_plan.md` §3 is a Phase-2 capacity upgrade, not
+a prerequisite.
+
+**ORDERING IS A PARAMETER, NOT A CONSTANT.** Every ordering is a priority function in
+`attach_order.ORDERINGS`; adding one is ~4 lines. Shipped: `bfs_bottom_center` (the plan's
+canonical order), `layered_raster`, `radial`, `dfs` (LIFO frontier, see `LIFO_ORDERINGS`).
+
+**Constraint discovered the hard way — decode-availability.** A priority function may only
+read what the decoder also has: face coordinates and the partial structure. Reading
+ground-truth occupancy desyncs the frontier and round-trip IoU collapses to 0.23. Priorities
+are also written **relative to the component seed** so they are shift-invariant (encode
+works in the cropped build frame, decode in a padded working grid). If you add an ordering,
+the round-trip test is the guardrail — it catches this immediately.
+
+**Multi-component policy (the §9 open question), decided.** `multi_component="largest"` is
+the corpus default: keep the largest 6-connected component, drop the rest — costs 0.4% of
+voxels. `"reseed"` (one SEED per component) is available but **geometry-lossy BY
+CONSTRUCTION**: the op stream encodes intra-component connectivity only, so nothing records
+where disconnected components sit *relative to each other*. `"reject"` raises. This is a
+real representational limit, not an implementation gap.
+
+**Repro.**
+```bash
+# Phase-0 gate + ordering bake-off (CPU, ~5 min for 1200 builds)
+.venv/bin/python -m scripts.ordering_bakeoff --limit 1200 --human-limit 400
+
+# Phase-1: one arm per ordering
+.venv/bin/python -m scripts.train_attach_corpus \
+  --limit 4000 --max-seq-len 4096 --epochs 24 --batch-size 4 \
+  --orderings bfs_bottom_center,layered_raster,radial,dfs
+```
+Note `.venv/bin/python` — `torch_geometric` is only in the venv, and `attach_order`
+imports `graph_data` for `PORT_DIRECTIONS` (single source of truth for the 6 directions).
+
+**Gotchas.**
+- `AttachVocab` is saved **before** training starts (`attach_vocab.json` in the arm dir) —
+  §18(b) burned two unloadable checkpoints on exactly this.
+- Sampling runs **unmasked** (SEED is not banned after position 0) so the reported validity
+  is *learned*, not filtered. Turning that mask on is the filter arm of the §10 ablation;
+  do not turn it on silently or the headline validity becomes an artifact.
+- Op count is ~2.91/voxel, so `max_seq_len` is the binding constraint, not the box:
+  4096 fits ~70% of `all_32` builds. Raising it to 8192 reaches ~91% and is the cheapest
+  next lever on "train on everything".
+
+**Addendum (same day, after the first Phase-1 arms).**
+
+- **Sparse decoder (bug fix, and a design correction).** `attach_ops_to_structure`
+  originally materialized into a preallocated `256³` numpy array. A free-running model
+  grows past any such volume: large overruns raised `IndexError` (killing samples), and —
+  far worse — **small negative indices silently wrapped around**, scattering phantom
+  blocks on the opposite face and manufacturing fake disconnected components. This
+  corrupted the first arm's validity numbers (reported 0.154, actually ~1.0). The decoder
+  is now a **dict of cells materialized and cropped at the end**, so decode coordinates
+  are genuinely unbounded. A fixed working grid was the last hidden box in the pipeline —
+  removing it is on-thesis, not just a bug fix. Round-trip re-verified: 1.0 on synthetic
+  cases and on 120 corpus builds × 4 orderings, 0 failures.
+- **Sampling temperature dominates sample quality.** T=1.0 → filaments (thickness 2.99);
+  T≈0.5 → solid (4.75 vs real-build 4.14). Diagnose with `scripts/attach_diagnose.py`
+  (prints a temperature sweep and a CALIBRATION vs STRUCTURAL verdict); re-sample trained
+  arms with `scripts/attach_resample.py --temp 0.6`. **Always report thickness next to
+  loss** — held-out NLL was excellent (1.077 bits/op) while samples were 1-voxel tendrils,
+  so NLL alone is not a usable quality signal for this representation.
+- **The n-gram proxy screens well; it does not separate near-ties.** Final trained order
+  was `layered_raster` 1.0723 < `bfs_bottom_center` 1.0773 < `dfs` 1.5116 < `radial`
+  2.9989. The proxy recovered this **exactly except for an adjacent swap of the top two,
+  which differ by 0.5%** — so a ~5-minute CPU screen predicted the result of four GPU
+  runs. It does not predict achievable loss (proxy values run ~2× the trained ones).
+  Screen candidate orderings with it; settle near-ties by training.
+- **What actually matters in an ordering: finish a layer before climbing.** The two
+  gravity/layer-structured orderings tie and both beat `dfs` (+41%) and `radial` (+180%).
+  Locality per se is *not* the property — `radial` is maximally local and is the worst arm
+  by a wide margin.
+- **New scripts**: `scripts/attach_diagnose.py` (temperature sweep + verdict),
+  `scripts/attach_resample.py` (re-sample + render arms at a chosen temperature),
+  `scripts/attach_report.py` (cross-run table incl. **bits/build**, the only
+  representation-agnostic description-length metric — `bits/op` is not comparable across
+  tokenizers).
+- **`max_seq_len` is a data filter, not just a compute knob.** Over 600 `all_32` builds:
+  unfiltered occ_p50 **1,058**, but only 65% pass seq≤4096 and those have occ_p50 **755**
+  (thickness unchanged, 4.22 vs 4.21). The filter discards *large* builds specifically, so
+  a seq-4096 arm trains on a systematically smaller distribution than the corpus and its
+  generated size must be judged against **755, not ~1,000**. Report the *filtered*
+  reference statistics in every arm, or the model looks worse than it is — and the "no
+  box" claim looks stronger than it is (a volume constraint was traded for a length
+  constraint with the same selection pressure).
+
+**Addendum 2 — the metric that overturned the ordering conclusion.**
+
+- **Run the perceptual metric before believing ANY ordering/quality claim.**
+  `scripts/attach_perceptual.py` (CMMD + CLIP over textured renders, shared real
+  reference, plus a **real-vs-real floor** so the numbers have a scale). At n=24 the CMMD
+  ranking came out an **exact inversion** of the held-out-loss ranking (ρ = −1.0):
+  `radial` is worst by loss (2.9989 bits/op) and best perceptually (CMMD 0.980 vs floor
+  0.469; CLIP 0.2675 vs floor 0.2774), while `layered_raster` is best by loss and worst
+  perceptually. **bits/op, human-order agreement, and val NLL all agreed with each other
+  and all three disagreed with the eye** — the T20 lesson recurring in a new
+  representation. Confirmation at n=64 × 3 seeds is the gate before this is load-bearing;
+  always pass `--seed` so replicates coexist rather than overwrite.
+- **Always emit a real-vs-real floor with CMMD.** Without it a CMMD of 0.98 is
+  uninterpretable; against a 0.469 floor it means "about 2× the best achievable at this
+  n". The floor is computed by splitting the reference set in half.
+- **Sequence length was the binding constraint on sample size, confirmed.** 4096 → 8192,
+  sole variable, matched sampler/decoder/temperature: generated **median** occupancy
+  242 → 710 (2.9×), thickness preserved, validity 1.00, loss −12.6%. Retention
+  70.2% → 88.4% → 92.3% @16384 → **100%** of the 300-build reference sample at 16384.
+- **Design lesson (a run I wasted).** The seq-16384 arm dropped `batch_size` 2→1 and
+  `epochs` 24→20 to fit the context, so it varies three things and cannot test the
+  sequence-length hypothesis at all. When raising `max_seq_len`, hold the effective batch
+  fixed with **gradient accumulation** and keep epochs constant — otherwise the arm is
+  uninterpretable.
+- **Report the MEDIAN of generated occupancy.** The distribution is right-skewed:
+  seq-8192 @T=0.5 is median 710 but mean 1,272. `attach_resample` reports p50 and
+  `attach_diagnose` reports the mean — do not quote them against each other.
+
+**Addendum 3 — Phase-1 verdict: the op-token shortcut fails, and why.**
+
+- **`scripts/attach_prefix_test.py` — the decisive diagnostic.** Teacher-force the first K
+  ops of a *real* build, then let the model continue. Drift predicts a real prefix holds
+  the model on-distribution; blindness predicts it does not help. Result: a real prefix
+  makes things **worse**, and the model's close-rate climbs monotonically with prefix
+  length (0.659 → 0.799 → 0.869) while the **ground-truth** continuation close-rate is
+  flat (0.606 → 0.601). Handed more real structure, the model shuts the frontier down
+  faster. **VERDICT: BLINDNESS.** It has learned the op-frequency marginals (free-run
+  close-rate 0.659 vs true 0.606; attach-rate 0.337 vs real 0.346) but cannot read its own
+  op history as geometry.
+  *Always compute the ground-truth null for a position-dependent statistic* — the raw
+  close-rate climb looks like correct late-build behaviour until you check that the true
+  rate is flat.
+- **Consequence: `implementation_plan.md` §3's graph/state encoder is a PREREQUISITE.**
+  The Phase-1 MVP deliberately skipped it (a plain causal transformer over op tokens, so
+  the whole AR stack could be reused). That shortcut is what fails: with no view of the
+  partial structure, per-face decisions are made blind. Two earlier claims in this session
+  that the encoder was unnecessary both rested on the buggy `thickness` metric and are
+  withdrawn. Phase 2 = encoder over the placed structure with frontier faces as nodes;
+  everything else built here (extractor, vocab, orderings, diagnostics, perceptual eval)
+  plugs in unchanged.
+- **Three gates for every future arm on this track:**
+  1. Open `samples_*.png`. Three scalars (thickness, occupancy, CMMD) each moved the
+     "right" way while the renders showed lines, plates and spheres.
+  2. Use **corrected** thickness (zero-padded, not `np.roll`) and quote CMMD as a multiple
+     of a real-vs-real floor computed at the **same** n (the floor moves 0.469 @n=24 →
+     0.100 @n=64).
+  3. Treat **NLL as adversarial**: `bits/op` correlates +1.000 with output solidity across
+     orderings because a 1-voxel line is the most compressible op stream. The loss-minimising
+     output is degenerate, so low loss is evidence of collapse, not quality.
+
+## 21. LLM-baseline track — BrickGPT-style text→build (2026-07-22)
+
+The "Track D" LLM baseline from `research.md`: does a pretrained LLM, prompted or
+LoRA-finetuned, generate our houses from a caption? Three conditions, all sharing one
+caption→block-lines format, name map, parser, and TEXTURED render so they compare
+apples-to-apples (`scripts/train_llm_brickgpt.py`, `scripts/zeroshot_brickgpt.py`).
+
+**Format (v1, per-voxel).** One line `<block_name> <x> <y> <z>` per occupied voxel,
+`(y,z,x)` raster order (mirrors `serialize.structure_to_tokens`). `build_name_map`
+gives a reversible readable-name ↔ `(id,data)` map (238 names over the houses corpus).
+Completion-only loss, exactly like BrickGPT trains bricks conditioned on the prompt.
+
+**Results.**
+
+| Condition | Model | Parse rate | Coherence |
+|---|---|---|---|
+| zero-shot | gpt-5-mini (no example) | 0.26 | mostly flat floors + partial shells |
+| one-shot | gpt-5-mini (1 in-ctx build) | 0.29 | same; median blocks *dropped* 78→40 |
+| **finetuned** | **LoRA Qwen2.5-Coder-1.5B** | **0.87** | several read as houses (walls+windows+roof) |
+
+- **Finetuning wins decisively** — 3× the parse rate and the only condition producing
+  house-shaped output. Confirms the BrickGPT thesis: a small finetuned model beats a
+  big *prompted* one on this structured spatial task (VoxelCodeBench's finding).
+- Frontier prompting emits *valid-looking* blocks but *spatially incoherent* builds;
+  ~75% of gpt-5-mini's blocks are dropped as out-of-vocab (it uses names outside our
+  238). One example barely helped (0.26→0.29) — one build doesn't teach the vocab.
+- **gpt-5 reasoning-token trap:** gpt-5* are reasoning models; reasoning tokens count
+  against `max_completion_tokens`, so a small budget → EMPTY content. Fix:
+  `reasoning_effort="low"` + large budget (16k). This is a serialization task, not a
+  reasoning one.
+
+**Recipe notes that mattered (v1).** Per-voxel costs ~10.7 tokens/block, so a median
+house is ~7.8k tokens and only **77/2661** builds fit a 2048-token cap (3 fit 1024).
+20 epochs (not 5) needed so the diluted prompt→first-block transition token accumulates
+enough signal to learn to *start* the format; effective batch 4 (not 16) for enough
+opt-steps on the tiny set; micro-batch 1 + chunked CE loss to keep the 152k-vocab logits
+inside a shared 16 GB GPU. Failure modes remaining: a few builds collapse to a flat slab
+or single stick; smallest builds train best (least first-token dilution).
+
+**v2 — serialize PIECES, not voxels (`scripts/train_llm_pieces.py`).** Emit one line per
+3D-BPE piece (`<piece_name> <x> <y> <z>`) reusing the AR track's cached piece vocab
+(`data/minecraftace/houses_32_bpe`, 678 pieces). Piece name = `<majority_block>[_k]` —
+grounded in caption vocab, reversible (name→piece id→pattern placed at anchor).
+Serialize↔parse verified EXACT on 7/7 builds. Token scope (`scripts/scope_piece_tokens.py`):
+
+| | tokens/block | median/build | fit ≤2048 | fit ≤4096 |
+|---|---|---|---|---|
+| voxel (v1) | 10.65 | 7765 | 77 | 462 |
+| piece (v2) | 6.49 | 5026 | **308** | 1043 |
+
+Per-block savings is only 1.64× (piece *names* are multi-token; unmerged voxels stay
+atomic), but the decisive win is **4× the training data at the same cap (77→308 builds)**
+— the binding lever on a tiny dataset. Full run: 20-epoch LoRA, same recipe as v1,
+`outputs/run_20260722_072022_llm_pieces` (297 builds fit; some houses lack captions).
+
+**v2 outcome (2026-07-22) — parse ✅, coherence ✗ (honest mixed result).**
+
+| | parse | data | coherence |
+|---|---|---|---|
+| voxel v1 | 0.87 | 73 | ~5 good houses, ~40% collapse |
+| piece v2 | **0.99** | **297** | ~6 good houses, ~40% collapse |
+
+- **Improved:** parse 0.87→0.99 (pieces are a more structured, reliably-formatted target)
+  and the 4× data landed as scoped. Both stated v2 goals met.
+- **Did NOT improve:** geometric coherence. ~40% of val samples collapse to a flat slab,
+  a rail, or a stick (the "wool tree on a single trunk" caption produced literally a
+  single pole). The good ones (walls+roof+foundation) are on par with v1's best, not better.
+- **Why pieces didn't fix it — two real reasons.** (1) The extra data is also *harder*:
+  v1 trained on the 73 SMALLEST builds (~180 blocks median); v2's 297 reach ~400 blocks,
+  diluting the format-initiation signal (v1's own "smallest builds train best"). (2) A wrong
+  piece has a bigger **blast radius** — it stamps a whole multi-voxel pattern, so one error
+  becomes a floating plank-run/rail, not a single stray voxel. The collapses are the model
+  emitting a degenerate low-entropy piece stream. Val loss also climbed 0.37→0.41 (epochs
+  8–20), mild overfit on the tiny set.
+- **Reading.** Token efficiency alone does NOT buy coherence on a small heterogeneous set.
+  Same lesson as §20: a flat token stream with no view of the partial structure places
+  blind. Pieces remain the right target for *scale* (4× data, 0.99 parse) and are what ports
+  to LEGO, but the coherence lever is elsewhere. Candidate next controls: (a) hold build-size
+  fixed (rerun v2 on only ≤200-block builds) to isolate the format effect from the data-shift
+  confound; (b) bigger pieces (more merges → fewer lines); (c) the on-thesis fix — a spatial
+  encoder over the partial build, not more/denser tokens.
+
+---
+
+## 22. Agentic track (Track E) — the LLM writes the build *program* (2026-07-28)
+
+`blockgen/agentic/`, docs in `docs/agentic.md`. §21's LLM baseline asked "can a model
+emit our voxels?"; this asks the prior question — **is one-token-per-voxel the right
+output format at all?** Track E replaces it: a frontier LLM emits a short program in a
+WorldEdit-flavored command language, and an executor runs it onto a voxel canvas.
+
+**Why the format change is the point.** §21 measured 10.65 tokens *per block*, so a
+median house is ~7.8k tokens and only 77/2661 builds fit a 2k cap. A command is ~9
+tokens and places tens–hundreds of blocks (measured: **24.9 blocks/command**). The
+consequences are structural, not incremental: builds are no longer context-bound,
+canvas size becomes a run-time argument instead of a training decision, and text/image
+conditioning is free with the base model (no labeled corpus, no encoder, no training).
+
+**Architecture (each layer independently swappable — that was the design constraint).**
+
+| Module | Role |
+|---|---|
+| `blockstate.py` | modern names (+ `[facing=]`/`[axis=]`/`[type=]` states) → legacy `(id,data)`; state bits match `deploy/…/blockmap.py`, so a facing survives into a live server |
+| `canvas.py` | bounded voxel buffer, clipping + change counting in ONE place; `structure_to_canvas` seeds it from a real build (the *editing* seam) |
+| `dsl.py` | 14 commands via a `@register` decorator; parser + executor are separate |
+| `providers.py` | `LLMProvider` interface; OpenAI / Gemini / Anthropic / scripted, disk response cache, cost accounting |
+| `prompts.py` | system/plan/build/repair/critique — **the command reference is generated from the registry**, so prompts can't drift from the language |
+| `examples.py` | hand-written in-context programs + a retrieval hook (keyword now, CLIP later) |
+| `tasks.py` | prompt sets: `short`, `detailed`, `large`, `captions:k` (real corpus captions) |
+| `agent.py` | the loop: plan → generate → execute → repair(N) → critique(M) |
+| `report.py` | run artifacts; structure cache in the **standard** `.npz` format |
+
+**Decisions that turned out to matter.**
+
+- **Parse ≠ execute.** Syntax errors are reported with line numbers before anything
+  runs; a failing *command* is skipped while the rest of the program executes. A
+  program with 3 bad lines out of 80 still yields a build plus an exact fix-list. This
+  is what makes the repair loop possible at all — the feedback is symbolic and precise,
+  unlike "your voxel cloud is wrong".
+- **Zero-change commands are warnings.** Almost always a coordinate bug, and the
+  cheapest useful signal to hand back.
+- **Unknown block = error, not a stone fallback.** A silent substitution would hide
+  palette drift inside a grey blob and make the metrics lie.
+- **Rollback on regression.** If a repair/critique round returns an empty build, the
+  previous build is kept. A loop that destroys a good build is worse than no loop.
+- **Response caching by request hash.** LLM sampling is the expensive
+  non-reproducible step; cached re-runs are free *and* byte-identical, so re-rendering
+  or adding a metric doesn't re-roll the experiment.
+- **Stepped roofs need risers** (found by the connectivity metric, not by eye). A
+  gable that steps up-and-in touches only diagonally, so a roof built the obvious way
+  scored as 6 disconnected components under the repo's 6-connectivity validity notion.
+  `gable … riser=true` (default) closes each step's vertical face. Regression-tested.
+
+**Reasoning-token trap** (inherited from §21): `gpt-5*` bill thinking against the
+completion budget → small cap = empty content. Default budget 16k;
+`--reasoning-effort low` is the cheap setting for what is mostly a serialization task.
+
+**How to run.**
+
+```bash
+.venv/bin/pip install -e '.[agentic]'          # keys go in .env
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
+.venv/bin/python -m blockgen.experiments_agentic --quick --provider mock   # offline
+.venv/bin/python scripts/run_agentic.py "a small oak cottage" --plan --examples 1 \
+    --repair-rounds 1 --critique-rounds 1
+.venv/bin/python scripts/run_agentic.py --list-commands   # what the model is told
+```
+
+Arms: `zeroshot | oneshot | plan | repair | critique | full` (all see the same
+prompts). Configs: `configs/experiments/agentic-{scaffolding,detail,large}.yaml`.
+The detail ablation is **paired** — `captions:0` and `captions:2` describe the same
+builds at different richness under the same seed.
+
+**Validated so far.** 57 tests (`tests/test_agentic_{dsl,agent}.py`) covering block
+resolution, parsing, every command, the failure paths, the whole agent loop through
+the scripted provider, the cache, and the run artifacts — all offline. One live
+build: see results.md T22.
+
+**Open (the honest gaps).**
+1. **No novelty number yet.** NN-IoU vs `houses_32` is the natural next measurement,
+   and the one that decides whether these builds are "new" in the paper's sense.
+2. **No inverse compiler** (build → program), so there's no supervised signal here and
+   no mined examples; the in-context examples are hand-written technique demos.
+3. The scaffolding arms are **wired but not yet measured** at n>1 — plan/example/repair/
+   critique each cost calls and none has earned its keep yet.
+4. Language limits: single clipboard slot, no variables/loops/functions. Those are the
+   next primitives if programs start hitting repetition limits.
+5. The comparison to §21 must be made **at equal cost** (tokens and dollars per
+   coherent build), not on parse rate.
+
+### 22b. Serving Track E in Minecraft (2026-07-29)
+
+The agentic track is now a servable *kind* in `deploy/inference` alongside the trained
+checkpoints, so `/gen <anything>` in game runs the LLM→program→execute loop.
+
+**Model groups.** An agentic entry is a *provider*, not a checkpoint, so listing every
+API model as its own registry row would bury the four trained models under a wall of
+names. An entry may now declare `"models": [...]`; it shows as **one row** in `/model`
+and members resolve on demand as `agentic:<model>` (cached after first use). The mod's
+`/model` argument became a greedy string, which is what lets `/model agentic list` and
+`/model agentic gemini-3.5-flash` parse as two words instead of forcing a colon.
+Vendor is inferred from the model name (`gpt-*`→openai, `gemini*`→gemini,
+`claude*`→anthropic); explicit `vendor:model` always wins. `strict_models: false`
+lets a model released after the list was written through anyway.
+
+**Two entries, differing only in loop:** `agentic` (1 example + 1 repair, 48³) and
+`agentic_plus` (plan + 2 repairs + visual critique, 64³). Every loop knob is a JSON
+field, so a new preset is an entry, not code.
+
+**Streaming is execution, not generation.** The neural backends stream because
+sampling is incremental. The agentic backend has the whole program before it places
+anything, so it *replays* it one command at a time (`ProgramRunner(..., track_voxels=
+True)`), one message batch per command, labelled with the command. In world you watch
+the foundation, then walls, then the doorway being cut, then the roof — cleared voxels
+stream as `minecraft:air` so openings really open. The LLM wait (25–70 s) is up front
+and unavoidable; only the replay is paced.
+
+**Protocol compatibility.** `step` and `stats` ride as *optional fields on existing
+message types* (`blocks`, `done`) rather than as new types — the mod's dispatcher
+errors on an unknown type, so a new type would have broken every mod built before
+this change.
+
+**Cost is reported in chat**, per build: provider, commands, tokens, dollars. A model
+missing from `providers.PRICES` reports **cost unknown**, never `$0.00` — printing
+zero for a paid call reads as free. (Found immediately: `gemini-3.5-flash` is newer
+than the price table.)
+
+**Two defects this work surfaced, both fixed.**
+1. *Every sample of a prompt was identical.* LLM sampling is not seedable and the
+   response cache keys on the request, so `--n 4` returned one build four times. Fixed
+   with a variation rider in the request (`build(..., seed=k)`), which both asks for a
+   different design and changes the cache key.
+2. *Roof stairs all faced east.* `gable` placed one facing for both slopes, which
+   reads as a staircase. Now the two slopes get opposing legacy facing bits (an
+   explicit `[facing=]` in the program still wins).
+
+**Verified live.** `agentic:gemini-3.5-flash` over the real WebSocket: 2,915 blocks,
+48 commands, 0 failed, 65 s (`gpt-5-mini` runs ~35 s). The Fabric mod compiles clean
+against JDK 21. 85 server-side tests, all offline via `agentic:mock`.
+
+**Architecture decision — the server stays in `deploy/`, for now.** The question came
+up whether `blockgen_server` should move into the `blockgen` package. Recommendation:
+**no for the transport, yes eventually for the domain layer.**
+- The FastAPI/WebSocket server is a *deployment artifact*: it version-locks with the
+  Fabric mod, carries its own deps (fastapi/uvicorn), and nothing in the research
+  pipeline imports it. Folding it into the library would put a web framework in the
+  dependency path of every experiment.
+- But `blockmap.py` (legacy→modern block states) is *domain* logic, and it is now the
+  inverse of `blockgen/agentic/blockstate.py` (modern→legacy). **Two inverse mappings
+  maintained in different trees is the real risk here** — the bit conventions are
+  currently kept in sync by comment and by test, not by construction. If a third
+  consumer appears, move `blockmap` into `blockgen/utils/` and have the server import
+  it, rather than moving the server.
+- The cheap fix available today, unrelated to where code lives: `blockgen_server` is
+  not installable (`run_server.sh` sets `PYTHONPATH`, tests do `sys.path.insert`).
+  Adding it to `pyproject` as a package with a `deploy` extra would remove those
+  hacks without moving a line.
+
+## §23. The evaluation suite (`blockgen/eval/bench`, 2026-08-03)
+
+Motivation: T17/T20 retracted `nn_iou` and T21 retracted `cmmd`, both *after* they
+had been used to adjudicate arms. The suite's organizing rule is therefore that a
+metric must pass a corruption ladder before it is allowed to rank anything, and
+`full.py` mechanically refuses to report one that has not.
+
+Design decisions worth remembering, and the measurements behind them:
+
+- **Novelty is co-equal with realism, on the same row.** `train_verbatim` (literal
+  training copies) scores MV-DINO-KID 0.015 — second only to real data — and is
+  caught only by `dino_nn_percentile = 0.000`. Realism-without-novelty has a
+  trivial winning strategy, and the AR baseline already exploits it (31% dupes).
+- **Views are pooled per structure, not flattened.** `perceptual.render_views`
+  treats 4 views as 4 samples; measured, that biases the KID null to +8e-5 at n=16
+  (2σ) while pooling gives 0.000. Pooling also makes the bootstrap unit the
+  structure, which every estimator here already assumes.
+- **Coherence is distance-to-real.** 66% of real val houses are single-component
+  natively (43% at canon-16), so `lcc_ratio = 1.0` is as wrong as 0.2. The
+  scorecard type has no representation for a bare rate.
+- **Validity gates ≠ sensitivity.** Ordering/invariance/self-consistency failures
+  mean the metric measures the wrong thing → null. "Cannot resolve a 40% cut at
+  n=64" is a power limit → recorded, still reported. Conflating them either
+  disqualifies good metrics or launders bad ones.
+- **The renderer fits the camera to the bbox**, so absolute size is invisible to
+  every image-space metric. Consequences: cross-resolution comparison is legal
+  (the point of T20); block-count and bbox distributions must live permanently in
+  the voxel tier; and an *end-slab* deletion probe is a no-op, which is why
+  `chunk_delete` cuts strictly interior.
+- **`perceptual.py` is deliberately not patched** despite `cmmd` being the biased
+  estimator with a σ=10 kernel that is nearly linear on unit-norm features
+  (median heuristic says 0.70). Patching it would silently invalidate T20/T21;
+  the ladder scores it as a labelled legacy metric instead.
+
+Three bugs the tests/ladder caught in the suite's own code, all of the
+silently-wrong-number kind: palette JSD returned **0.0** (perfect) when every
+generated block was outside the reference vocabulary (fixed: union alphabet);
+material agreement matched substrings, so "ice" fired on "a nice building" (fixed:
+word boundaries); and the ladder's probe set was category-biased because corpus
+order is contiguous by category, inflating every noise floor ~45%.
+
+Cost is not a constraint: 21 ms/view to render, 2.4 ms/image to embed, so the full
+2661-build corpus caches in ~4 min / 25 MB and a 128-sample arm scores in ~54 s.
+The FAST/FULL split is about trust and dependencies, not compute.
+
+### §23.1 First cross-track comparison (T23d)
+
+Both tracks fail in opposite directions, and the split is clean enough to steer by:
+
+- **native_oriented** learned the corpus *palette* (JSD 0.054 vs agentic's 0.228)
+  but not its *structure*: interior volume 0.005 against a real 0.114, and the
+  highest floating-block fraction in the table (0.155 vs 0.112). Its KID (0.187)
+  is worse than canon-16 decimated real builds (0.110).
+- **agentic** matches real connectivity exactly (0.983) with the least floating
+  mass, and wins realism (KID 0.107) — but its palette is 16× further from real,
+  which is what a small hand-written DSL palette buys. n=12, so provisional.
+
+Neither memorizes (dup 0.000, novelty percentile at/above the real floor), so the
+31% duplication of the earlier AR baseline is not a property of the current arms.
+
+The actionable item is shared: **nothing builds interiors.** `enclosed_air_ratio`
+is a FAST-tier metric, so this was findable without a GPU and should gate future
+runs rather than being discovered at eval time. Corpus curation already dropped
+675 builds for `no_interior` — the models are not learning the property the
+curation was selecting for.
+
+Sampling a served checkpoint into the bench format is `scripts/sample_to_npz.py`,
+which reads architecture from `deploy/inference/models.json` rather than
+re-declaring d_model/layers/pe. Generation has no KV cache
+(`train_ar_ext.generate_from_prefix` re-runs the prefix each step), so native
+sampling is ~10 s/build at a ~1750-token median — 64 builds took 10.4 min. That
+cost, not the eval, is what makes n>=256 a scheduling decision.
