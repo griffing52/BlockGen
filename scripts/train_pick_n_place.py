@@ -46,6 +46,9 @@ def main() -> int:
     ap.add_argument("--vocab-limit", type=int, default=256)
     ap.add_argument("--ordering", default="bfs", choices=("bfs", "layered", "dfs"))
     ap.add_argument("--oriented", action="store_true")
+    ap.add_argument("--complete-only", action="store_true",
+                    help="train only on builds that fit under --max-nodes, so "
+                         "every example teaches a genuine ending")
     ap.add_argument("--d-model", type=int, default=256)
     ap.add_argument("--layers", type=int, default=6)
     ap.add_argument("--nhead", type=int, default=8)
@@ -94,9 +97,11 @@ def main() -> int:
                         for x in train_s) if s is not None]
     codec = PieceCodec.from_sequences(seqs, limit=args.vocab_limit)
     train_ds = GrowthDataset(train_s, codec, max_nodes=args.max_nodes,
-                             ordering=args.ordering, oriented=args.oriented)
+                             ordering=args.ordering, oriented=args.oriented,
+                             complete_only=args.complete_only)
     val_ds = GrowthDataset(val_s, codec, max_nodes=args.max_nodes,
-                           ordering=args.ordering, oriented=args.oriented)
+                           ordering=args.ordering, oriented=args.oriented,
+                           complete_only=args.complete_only)
     print(f"[dataset] palette {codec.n_pieces} | train {train_ds.stats()} | "
           f"val {val_ds.stats()}", flush=True)
     if len(train_ds) == 0:

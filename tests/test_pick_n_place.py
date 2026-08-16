@@ -299,3 +299,28 @@ def test_codec_roundtrips_and_reserves_ids():
         assert codec.decode(codec.encode(t)) == t
         assert codec.encode(t) >= pnp.PIECE_OFFSET      # never STOP or PAD
     assert PieceCodec.from_json(codec.to_json()).tokens == codec.tokens
+
+
+def test_truncated_builds_get_no_stop_target():
+    """STOP must mean "finished", not "hit max_nodes".
+
+    With every training build truncated to the cap, STOP always fired at the same
+    position and carried no completeness information -- the model emitted a fixed
+    ~350-node budget regardless of what it was shown (prefix-test length_corr
+    -0.05). A cut-off sequence is not an ending, so it gets no STOP target.
+    """
+    structures = [_solid(6, 6, 6)]          # 216 nodes, well over the cap below
+    codec = PieceCodec.from_sequences([go.structure_to_growth(structures[0])])
+    ds = GrowthDataset(structures, codec, max_nodes=32, min_nodes=4)
+    assert ds.stats()["complete_frac"] == 0.0
+    batch = collate([ds[0]])
+    assert (batch["pick_target"][0] == pnp.STOP).sum() == 0, "truncated: no STOP"
+
+
+def test_complete_builds_do_get_a_stop_target():
+    structures = [_house(0)]
+    codec = PieceCodec.from_sequences([go.structure_to_growth(structures[0])])
+    ds = GrowthDataset(structures, codec, max_nodes=4096, min_nodes=4)
+    assert ds.stats()["complete_frac"] == 1.0
+    batch = collate([ds[0]])
+    assert (batch["pick_target"][0] == pnp.STOP).sum() == 1, "complete: one STOP"

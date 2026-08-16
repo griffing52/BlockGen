@@ -365,11 +365,18 @@ class Rollout:
 def generate(model: PickAndPlace, *, max_nodes: Optional[int] = None,
              temperature: float = 1.0, top_k: Optional[int] = 40,
              max_extent: Optional[int] = None, device: str = "cuda",
+             prefix: Optional["Rollout"] = None,
              generator: Optional[torch.Generator] = None) -> Rollout:
     """Grow one build. Re-encodes each step -- O(N^2) per build, MVP-acceptable.
 
     `implementation_plan.md` §3 lists cached incremental message passing as the
     fix; it is a sampling-time optimization and deliberately not done here.
+
+    `prefix` teacher-forces an opening -- the first K nodes of a *real* build --
+    and lets the model continue from there. That is T21's diagnostic: a model
+    that reads its own history as geometry should continue a real prefix roughly
+    as far as the real build goes, while a blind one shuts the frontier down
+    harder the more real structure it is handed.
     """
     model.eval()
     cfg = model.cfg
@@ -379,6 +386,11 @@ def generate(model: PickAndPlace, *, max_nodes: Optional[int] = None,
     coords: List[np.ndarray] = []
     parents: List[int] = []
     dirs: List[int] = []
+    if prefix is not None and len(prefix.pieces):
+        pieces = [int(x) for x in prefix.pieces]
+        coords = [np.asarray(c, dtype=np.int64) for c in prefix.coords]
+        parents = [int(x) for x in prefix.parent]
+        dirs = [int(x) for x in prefix.direction]
 
     def encode():
         if not pieces:

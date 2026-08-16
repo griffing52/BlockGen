@@ -84,9 +84,12 @@ class GrowthDataset(Dataset):
 
     def __init__(self, structures: Sequence[Structure], codec: PieceCodec,
                  *, max_nodes: int = 256, ordering: str = "bfs",
-                 oriented: bool = False, min_nodes: int = 8):
+                 oriented: bool = False, min_nodes: int = 8,
+                 complete_only: bool = False):
         self.codec = codec
         self.max_nodes = max_nodes
+        self.complete_only = complete_only
+        self.n_truncated = 0
         self.items: List[GrowthSequence] = []
         self.n_dropped_oov = 0
         self.n_too_small = 0
@@ -95,6 +98,14 @@ class GrowthDataset(Dataset):
                                       max_nodes=max_nodes)
             if seq is None or seq.n_nodes < min_nodes:
                 self.n_too_small += 1
+                continue
+            if complete_only and seq.n_nodes >= max_nodes:
+                # Only builds that ended on their own. Truncated ones cannot
+                # teach STOP, and when they dominate they drown it: at
+                # max_nodes=384 only 13.8% of builds were complete, STOP fell to
+                # 0.036% of pick targets, and the model stopped emitting it at
+                # all (measured STOP rate 0.00).
+                self.n_truncated += 1
                 continue
             if any(codec.encode(t) is None for t in seq.pieces.tolist()):
                 # A build containing a piece outside the palette would train the
@@ -109,10 +120,14 @@ class GrowthDataset(Dataset):
 
     def stats(self) -> dict:
         sizes = [s.n_nodes for s in self.items]
+        complete = [s.n_nodes < self.max_nodes for s in self.items]
         return {"n": len(self.items), "dropped_oov": self.n_dropped_oov,
-                "too_small": self.n_too_small,
+                "too_small": self.n_too_small, "truncated_skipped": self.n_truncated,
                 "median_nodes": float(np.median(sizes)) if sizes else 0.0,
-                "max_nodes_seen": int(max(sizes)) if sizes else 0}
+                "max_nodes_seen": int(max(sizes)) if sizes else 0,
+                # Only these carry a STOP target. If it is ~0 the model has no
+                # signal for when a build is finished, whatever the losses say.
+                "complete_frac": float(np.mean(complete)) if complete else 0.0}
 
     def __getitem__(self, i: int) -> dict:
         seq = self.items[i]
@@ -129,6 +144,12 @@ class GrowthDataset(Dataset):
             "legal": seq.placement_masks(),
             "port_target": seq.target_ports(),
             "n": n,
+            # A sequence that hit the cap was cut mid-build, so its last step is
+            # not an ending. Supervising STOP there teaches "stop at max_nodes"
+            # instead of "stop when the build is done" -- measured: with every
+            # build truncated to 384, the model emitted ~350 nodes regardless of
+            # what it was shown (prefix-test length_corr = -0.05).
+            "complete": n < self.max_nodes,
         }
 
 
@@ -155,9 +176,13 @@ def collate(batch: List[dict]) -> dict:
         coords[b, :n] = item["coords"]
         legal[b, :n, :n, :] = item["legal"]
         pad[b, :n] = False
-        # Pick: predict every piece, then STOP once the build is finished.
+        # Pick: predict every piece, then STOP -- but only if this build really
+        # ended. A truncated sequence gets no STOP target (stays -100), so STOP
+        # is learned exclusively from genuinely-complete builds and keeps meaning
+        # "finished" rather than "hit the cap".
         pick_target[b, :n] = item["pieces"]
-        pick_target[b, n] = STOP
+        if item.get("complete", True):
+            pick_target[b, n] = STOP
         # Place: node 0 is the seed and has no parent -> stays ignored.
         pt = item["port_target"]
         for t in range(1, n):

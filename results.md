@@ -149,9 +149,55 @@ Read this carefully:
 4. **No track builds interiors.** pick-and-place is 0.000, joining native (0.005)
    and agentic (0.021) against a real 0.114.
 
-Next, in order: raise `max_nodes` toward real sizes (memory is `[B,N,N,6]`, so
-this needs the sparse-candidate refactor), then the free-running prefix test from
-T21 as a direct blindness comparison, then n≥256 samples before quoting KID.
+### T24d. The prefix test — blindness is caused by the *training data*, not the model
+
+T21's diagnostic, run against pick-and-place. Teacher-force the first K nodes of
+a real held-out build, let the model continue, and ask how close the continuation
+is to what the build actually had left. The statistic is **|cont_ratio − 1|**,
+distance from correct.
+
+| model | trained on | \|ratio−1\| by prefix | verdict |
+|---|---|---|---|
+| `pnp_384` | all 1,863 builds (every one truncated at the cap) | 0.237 → 0.272 → **0.418** | error **grows** → blind |
+| `pnp_complete` | 258 builds that fit under the cap | 0.213 → **0.103** | error **halves** → uses the prefix |
+
+Same architecture, same hyperparameters, opposite verdicts. The difference is
+what STOP was allowed to mean.
+
+**Two measurement mistakes were made getting here, both worth the entry.**
+
+1. *No variance in the pool.* The first run at `max_nodes=192` reported
+   cont_ratio 0.979/0.978/0.972/0.976 — flat, high, and meaningless. The corpus
+   median is 623 nodes, so every held-out build truncated to exactly 192,
+   `true_remaining` was `192 − K` for all of them, and the model emitted ~188
+   every time. `(188−K)/(192−K) ≈ 0.98` is arithmetic; a model ignoring the
+   prefix scores identically. Only **7 of 399** test builds are naturally under
+   192. The script now restricts to untruncated builds and refuses a verdict when
+   length variance is degenerate.
+2. *The wrong direction of error.* The rule initially read any decline in
+   cont_ratio as blindness. But `pnp_complete` free-runs 21% **too long** and
+   drops to 10% too short when given half a real build — the prefix pulling it
+   toward the correct length, scored as a failure. T21's blindness was shutting
+   down *below* target, so the error has to grow, not the ratio fall.
+
+**Mechanism.** With `max_nodes=384`, `complete_frac` is 0.138 — 86% of builds are
+cut off arbitrarily, so STOP never marks a real ending. Suppressing the STOP
+target on truncated builds (correct in principle) made it 0.036% of pick targets
+and the model stopped emitting it entirely (STOP rate **0.00**, every build ran
+to the cap). Training only on complete builds restores it (STOP 0.62) and yields
+a model that uses the prefix — at the cost of 7× less data, so `place_lift` falls
+139.8× → 51.8×.
+
+That is the real tension, and it is a data problem, not an architecture problem:
+**at any cap the corpus can afford, most builds cannot teach an ending.** The fix
+is a cap above the corpus median (~623), which needs the sparse-candidate
+refactor since `legal` is `[B,N,N,6]`.
+
+Caveat: 12 builds and 2 prefix points. Directionally clear, statistically thin.
+
+Next, in order: sparse candidate list so `max_nodes` can reach ~1024 (unblocks
+both the size confound and the STOP signal), re-run the prefix test at n≥32
+builds, then n≥256 samples before quoting KID.
 
 ---
 

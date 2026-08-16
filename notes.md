@@ -1506,3 +1506,80 @@ connected, material-stratified massing — floors, walls, glass panes, doors, gr
 sitting on dirt. Not houses. But T21's collapse modes were 1-voxel filaments,
 flat plates and balls, and none of those appear, which is the first evidence that
 the state encoder addresses the blindness it was prescribed for.
+
+### §24.2 The prefix test, and a confound in my own test
+
+Ran T21's blindness diagnostic against pick-and-place. First attempt, at
+`max_nodes=192`:
+
+| prefix | K | continued | true rem | cont_ratio | STOP |
+|---|---|---|---|---|---|
+| 0.00 | 0 | 187.9 | 192.0 | 0.979 | 0.54 |
+| 0.10 | 19 | 169.2 | 173.0 | 0.978 | 0.50 |
+| 0.25 | 48 | 140.0 | 144.0 | 0.972 | 0.58 |
+| 0.50 | 96 | 93.7 | 96.0 | 0.976 | 0.42 |
+
+Flat and high — which reads as a clean "not blind", and **is not evidence of
+anything**. The corpus median is 623 nodes, so at a 192 cap every held-out build
+is truncated to exactly 192 and `true_remaining` is `192 - K` for all of them.
+The model emits ~188 nodes regardless. `cont_ratio = (188-K)/(192-K) ≈ 0.98` is
+arithmetic, and a model that ignored the prefix entirely would score identically.
+Only **7 of 399** test builds are naturally shorter than 192, so the pool had no
+length variance to detect anything with.
+
+The diagnostic has to ask a question a fixed-output model cannot fake: does the
+model continue *further* for builds that genuinely had further to go? That is
+`length_corr`, the correlation between continuation length and true remaining
+length, over builds of differing size. The script now restricts to untruncated
+builds, reports the correlation, and refuses a verdict when the pool's length
+std is degenerate.
+
+Worth noting the shape of this mistake, because it is the same shape as the one
+in §24.1 and as T21's: **a number that looks like a result but is determined by
+the setup.** T21's `bits/op` rewarded collapse; the palette JSD returned 0.0 for
+a fully out-of-vocabulary generation; teacher-forced accuracy was blind to
+STOP-at-1.0. In each case the metric was fine and the *denominator* was wrong.
+Ask what a null model scores before believing what the real one scores.
+
+Re-running at `max_nodes=384`, where a usable fraction of builds fit under the
+cap. That also attacks the size confound in T24c: 185 blocks against a real 904
+made KID mostly a truncation measurement.
+
+### §24.3 Blindness is a property of the training data here
+
+Same model, same hyperparameters, opposite prefix-test verdicts:
+
+| trained on | \|cont_ratio-1\| by prefix | verdict |
+|---|---|---|
+| all 1,863 builds (all truncated at the cap) | 0.237 → 0.272 → 0.418 | error grows → blind |
+| the 258 builds that fit under the cap | 0.213 → 0.103 | error halves → uses the prefix |
+
+The mechanism is STOP's meaning. At `max_nodes=384` only 13.8% of builds finish
+naturally, so for the rest the last step is an arbitrary cut. Train on all of
+them and STOP means "hit the cap": the model emits a fixed ~350-node budget and
+ignores the prefix. Suppress STOP on truncated builds — correct in principle —
+and it becomes 0.036% of pick targets and the model stops emitting it at all
+(STOP rate 0.00). Train only on complete builds and STOP means "finished": STOP
+returns at 0.62 and the prefix pulls the model toward the right length.
+
+Cost: 258 builds instead of 1,863, and `place_lift` 139.8x → 51.8x. So the tension
+is real and it is about data, not architecture — **at any cap the memory budget
+allows, most builds cannot teach an ending.** The unblock is a cap above the
+corpus median (~623), which needs the candidate list to be sparse rather than
+`[B,N,N,6]`.
+
+Two measurement errors on the way, both mine, both the same species as §24.2:
+
+* The first prefix test had no length variance in the pool, so cont_ratio was
+  arithmetic (see §24.2).
+* The verdict rule read *any* decline in cont_ratio as blindness. But the
+  complete-only model free-runs 21% too long and lands 10% short with half a real
+  prefix — the prefix pulling it toward correct, scored as failure. The statistic
+  has to be distance from correct, |ratio-1|, because T21's blindness was
+  undershooting and this baseline overshoots.
+
+Running tally of "the metric was fine, the denominator was wrong" in this project:
+bits/op rewarding collapse (T21), palette JSD returning 0.0 for fully OOV output,
+teacher-forced accuracy blind to STOP-at-1.0, cont_ratio with no variance, and now
+a verdict rule with the wrong sign convention. It is the dominant failure mode
+here, and it is always cheap to catch by asking what a null model scores.
