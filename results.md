@@ -68,6 +68,93 @@ Compare to the old labeled-cache `houses` subset (714): **~3.7–4.2× more clea
 
 ---
 
+## T24. Pick-and-place — learned placement, first test (2026-08-16)
+
+> ### Bottom line
+> The mechanism works and T21's collapse modes are gone; the model is **not yet
+> competitive** on realism. Picker/placer train in **1.6 min** to a placer that is
+> **84× above the legal-face chance baseline** (val 0.713 vs 0.0085). Generated
+> builds are solid, connected, material-stratified massing — no filaments, no
+> plates, no balls. But KID 0.532 is worse than every existing track, and the
+> dominant reason is size: 185 blocks against a real 904, because training
+> truncates at `max_nodes=192`.
+>
+> One bug is worth the entry on its own: a train/inference skew that **no
+> teacher-forced metric could see**. See T24b.
+
+Code: `blockgen/models/pick_n_place.py`, `utils/growth_order.py`,
+`training/train_pick_n_place.py`, `scripts/train_pick_n_place.py`.
+Run: `outputs/run_20260816_081506_pnp_fixed` · 30 epochs, 1,863 builds, 5.4M params.
+
+    Picker : G     -> P(V)    which piece next (or STOP)
+    Placer : G x V -> P(E)    which open face to attach it to
+
+This is `implementation_plan.md` §3's state encoder. T21 ran the same growth
+process with placement decided by a hand-written frontier heap and failed with a
+specific diagnosis — the model could not read its own op history as geometry.
+Here placement is learned, and geometry enters attention as a bias on the clamped
+relative 3D offset between placed nodes.
+
+### T24a. Phase 0 — representation
+
+Round-trip **IoU exactly 1.000 (min 1.000)** across bfs/layered/dfs on 200 real
+builds; replay walks parent/direction from the seed and never reads the stored
+coordinates. Block retention 0.994 (loss is non-largest components, dropped
+deliberately). Legality mask verified against ground truth: **11,940/11,940**
+true placements legal, seed row empty.
+
+### T24b. A bug only free-running generation could see
+
+| | before fix | after fix |
+|---|---|---|
+| val place_acc | 0.715 | 0.713 |
+| place_lift | 84.0× | 83.8× |
+| **median blocks generated** | **30** | **187** |
+
+`node_features` normalized the step index by the *current* sequence length — the
+padded batch max (192) in training, but the current build length during
+generation. Three nodes in, every node read as "end of build"; the picker had
+learned STOP-at-1.0 and stopped almost immediately.
+
+**Every teacher-forced number stayed excellent with the bug in place.** Loss,
+accuracy and an 84× lift over chance all looked like a working model. Only the
+free-running block count moved — by 6×. Any metric computed with ground truth fed
+in is blind to this entire class of failure, which is precisely why T21's
+teacher-forced numbers could not be trusted. **A growth model needs at least one
+free-running number in its training log, every run.** Guarded by
+`test_prefix_features_match_full_sequence`.
+
+### T24c. Against the other tracks (n=128 ref, same split)
+
+| arm | n | KID ↓ | recall ↑ | novelty ↑ | connected | interior | floating | blocks |
+|---|---|---|---|---|---|---|---|---|
+| real_test | 128 | −0.001 | 0.882 | 0.536 | 0.977 | 0.106 | 0.112 | 1003 |
+| agentic | 12 | **0.107** | 0.992 | 0.673 | 0.983 | 0.021 | 0.017 | 1699 |
+| native_oriented | 64 | 0.192 | 0.799 | 0.525 | 0.955 | 0.005 | 0.155 | 1082 |
+| **pick_n_place** | 16 | 0.532 | 0.075 | 0.604 | **1.000** | 0.000 | **0.000** | **185** |
+| *real@canon8* | 128 | *0.485* | *0.115* | *0.724* | *0.826* | *0.002* | *0.293* | *47* |
+
+Read this carefully:
+
+1. **`connected 1.000` and `floating 0.000` are structural guarantees, not
+   achievements.** Growth cannot emit a disconnected or floating voxel. Real
+   builds score 0.977/0.112, so the model is *further from the data* than the
+   other tracks on both — the same "validity by construction is a filter, not
+   learning" caveat this project already applies to constrained decoding.
+2. **KID 0.532 is dominated by size.** At 185 blocks it sits beside `real@canon8`
+   (47 blocks, KID 0.485). Until `max_nodes` reaches real build sizes (~904
+   median) this number is measuring truncation.
+3. **It does not memorize** (dup 0.000, novelty 0.604) but `diversity` 0.836 is
+   the lowest of any arm, which is worth watching.
+4. **No track builds interiors.** pick-and-place is 0.000, joining native (0.005)
+   and agentic (0.021) against a real 0.114.
+
+Next, in order: raise `max_nodes` toward real sizes (memory is `[B,N,N,6]`, so
+this needs the sparse-candidate refactor), then the free-running prefix test from
+T21 as a direct blindness comparison, then n≥256 samples before quoting KID.
+
+---
+
 ## T23. Evaluation suite — a validated cross-track benchmark (2026-08-03)
 
 > ### Bottom line

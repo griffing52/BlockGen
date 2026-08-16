@@ -1405,3 +1405,104 @@ re-declaring d_model/layers/pe. Generation has no KV cache
 (`train_ar_ext.generate_from_prefix` re-runs the prefix each step), so native
 sampling is ~10 s/build at a ~1750-token median — 64 builds took 10.4 min. That
 cost, not the eval, is what makes n>=256 a scheduling decision.
+
+## §24. Pick-and-place: learned placement over a growth graph (2026-08-16)
+
+Track: `blockgen/models/pick_n_place.py`, `utils/growth_order.py`,
+`training/train_pick_n_place.py`, `scripts/train_pick_n_place.py`.
+
+    Picker : G     -> P(V)    which piece next (or STOP)
+    Placer : G x V -> P(E)    which open face to attach it to
+
+**Why this and not T21 again.** T21 built the same growth process with placement
+*implicit* — `attach_order`'s frontier heap decided where each piece went and the
+model only chose the piece. The verdict was blindness, not drift: the model
+matched op-frequency marginals almost exactly while its close-rate *climbed*
+0.693 → 0.838 → 0.896 the more real structure it was handed, against a flat
+ground-truth 0.606. It could not read its own op history as geometry.
+`implementation_plan.md` §3 concluded a state encoder over the placed structure
+is a prerequisite. This is that encoder, plus a head that makes "where" a learned
+decision.
+
+**Representation (`growth_order.py`).** A build is nodes in placement order; node
+0 is the seed, every later node names an earlier parent and one of six faces.
+Phase 0 gate, same as T21's: replay walks parent/direction from the seed and
+never reads the stored coordinates — **round-trip IoU exactly 1.000 (min 1.000)**
+across bfs/layered/dfs on 200 real builds, block retention 0.994 (the loss is
+non-largest components, dropped on purpose and reported separately).
+
+One thing that bit immediately and is worth remembering: the first round-trip
+read 0.779 because the *check* compared the replay against the full original
+structure while encoding had deliberately dropped minor components. Comparing
+like with like is `sequence_to_reference`. A representation gate that measures
+two things at once will report a failure that is not there — or hide one that is.
+
+**Legality is precomputed, not searched.** A cell is occupied exactly when its
+node index is ≤ t, so storing the node that eventually fills each neighbour cell
+turns the whole time-varying mask into a comparison against t:
+`legal(i,d,t) = (i<t) and not (0 <= nbr[i,d] < t)`. Vectorized over all steps, no
+per-step set membership. Verified: 11,940/11,940 ground-truth placements legal,
+seed row empty.
+
+**Connection encoding instead of positional encoding** (the design question that
+started this). Node inputs carry only what was knowable at placement — own piece,
+arrival direction, parent's piece — and geometry enters *attention* as a learned
+bias on the clamped relative 3D offset between every pair of placed nodes. An
+edge is the special case `offset == unit direction`; the same table also covers
+two-apart and diagonal. Encoding a node's final 6-neighbourhood as an input
+feature would leak nodes placed later, inflate training accuracy, and evaporate
+at sampling time — the leak is tested against (`test_encoder_is_causal`).
+
+**The placer is a pointer, not an n² map.** Candidates are open faces (≤6N, and
+mostly illegal), so query = current state ⊕ chosen piece, keys = (node,
+direction). Mask with −inf **before** softmax; masking after and renormalizing is
+numerically worse and makes the CE target inconsistent with what is sampled.
+
+**Read `place_lift`, not `place_acc`.** The mask already removes most candidates,
+so accuracy has a floor of 1/n_legal. Reporting the ratio is what distinguishes
+"learned where things go" from "the mask did it". At 3 epochs on 200 builds:
+place_acc 0.421 against chance 0.014 — **29.6× lift** — so the placer is doing
+real work early. That number, not the loss, is the one to watch.
+
+**Known MVP limits.** Sampling re-encodes per step (O(N²) per build); §3's cached
+incremental message passing is the fix and is a sampling-time concern only.
+Training is one encoder pass per build via causal masking. `legal` is
+[B,N,N,6] so max_nodes drives memory — 256 is comfortable, and the corpus median
+is ~900 nodes, so most builds train on a truncated (still connected, still valid)
+prefix.
+
+### §24.1 First result, and a bug that only free-running generation could see
+
+30 epochs, 1,863 builds, max_nodes 192, 1.17M→13M params, **1.6 min** on one GPU.
+
+| | before fix | after fix |
+|---|---|---|
+| val place_acc | 0.715 | 0.713 |
+| place_lift | 84.0x | 83.8x |
+| **median blocks generated** | **30** | **187** |
+
+Teacher-forced metrics moved by 0.002. Generation went from 30 blocks to 187
+(training length 192). The cause was a train/inference skew in one line:
+`node_features` normalized the step index by the *current* sequence length, which
+in training is the padded batch max (192) and during generation is however many
+nodes exist so far. Three nodes in, every node read as "end of build", the picker
+had learned STOP-at-1.0, and it stopped almost immediately.
+
+**The lesson is the one T21 paid for.** Every teacher-forced number was excellent
+and *stayed* excellent with the bug in place — pick/place loss, accuracy, and an
+84x lift over the legal-face baseline all looked like a working model. Only the
+free-running median-block count showed it. Any metric computed with the ground
+truth fed in is blind to this whole class of failure, so a growth model needs at
+least one free-running number in its training log, every run. `place_lift` tells
+you the placer works; `median blocks` tells you the *loop* works, and they are
+independent claims.
+
+Guarded now by `test_prefix_features_match_full_sequence` — a prefix must encode
+identically inside a longer sequence, which is the general invariant. Anything
+computed from the current length violates it.
+
+Qualitatively (`outputs/run_20260816_081506_pnp_fixed/samples.png`): solid,
+connected, material-stratified massing — floors, walls, glass panes, doors, grass
+sitting on dirt. Not houses. But T21's collapse modes were 1-voxel filaments,
+flat plates and balls, and none of those appear, which is the first evidence that
+the state encoder addresses the blindness it was prescribed for.
