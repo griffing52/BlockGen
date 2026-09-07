@@ -73,8 +73,8 @@ def test_every_metric_gets_every_blocking_gate(result):
 
 def test_sensitivity_is_recorded_separately_from_validity(result):
     """Power is not validity: a resolution limit must not suppress a value."""
-    expected = {"S3_resolves_canon16", "S4_resolves_material_shuffle",
-                "S5_resolves_chunk_delete_40"}
+    expected = set(ladder.RENDER_RUNGS.sensitivity)
+    assert "S6_resolves_solidify" in expected     # the tier-separating rung
     for metric, flags in result.sensitivity.items():
         assert set(flags) == expected, metric
         assert not (set(flags) & set(result.gates[metric])), metric
@@ -178,3 +178,92 @@ def test_render_marks_pass_and_fail(result):
     text = ladder.render(result)
     assert "PASS" in text or "FAIL" in text
     assert "real_heldout" in text
+
+
+# --- the two noise-floor corrections ---------------------------------------
+def test_noise_floor_corrects_for_overlapping_draws():
+    """Repeated n-subsets of an N-build pool share members, so their spread is
+    the spread of a subsample, not of an independent draw. Dividing out the
+    finite-population factor recovers the quantity every gate is stated in."""
+    rng = np.random.default_rng(0)
+    pool = rng.normal(size=(100, 4))
+    ref = rng.normal(size=(40, 4))
+    fn = lambda r, p: float(p.mean() - r.mean())
+
+    _, sd_small_n, _ = ladder.noise_floor(fn, ref, pool, 10, reps=400,
+                                          rng=np.random.default_rng(1))
+    _, sd_big_n, _ = ladder.noise_floor(fn, ref, pool, 90, reps=400,
+                                        rng=np.random.default_rng(1))
+    # For a sample mean the corrected spread is sigma/sqrt(n), so drawing 9x
+    # more builds must cut it by about 3 -- uncorrected, the n=90 draws would
+    # nearly all be the same 90 builds and the spread would collapse further.
+    assert sd_small_n / sd_big_n == pytest.approx(3.0, rel=0.25)
+
+
+def test_noise_floor_reports_a_separate_standard_error_for_the_mean():
+    rng = np.random.default_rng(0)
+    pool = rng.normal(size=(80, 4))
+    ref = rng.normal(size=(40, 4))
+    fn = lambda r, p: float(p.mean())
+    _, sd, sem = ladder.noise_floor(fn, ref, pool, 20, reps=100, rng=rng)
+    # the mean of 100 draws is pinned far more precisely than one draw is spread
+    assert 0 < sem < sd
+
+
+def test_g8_rejects_an_estimator_whose_null_mean_decays_with_n(fake_embed,
+                                                              monkeypatch):
+    """The `legacy_cmmd` failure mode, in miniature: a statistic whose expected
+    value under the null halves every time n doubles. The earlier form of G8
+    compared this drift against the spread of a *single* draw -- larger by
+    sqrt(reps) -- and passed it."""
+    ref = [_struct(seed=i) for i in range(24)]
+    probe = [_struct(seed=100 + i) for i in range(60)]
+    biased = {"one_over_n": lambda r, p: 1.0 / len(p)}
+    monkeypatch.setattr(ladder, "METRICS", biased)
+    monkeypatch.setattr(ladder, "build_metrics", lambda sigma: dict(biased))
+    res = ladder.run_ladder(ref, probe, n=20, reps=24, include_legacy=False,
+                            verbose=False)
+    assert res.gates["one_over_n"]["G8_n_stability"] is False
+
+
+def test_g8_accepts_an_n_stable_estimator(fake_embed, monkeypatch):
+    ref = [_struct(seed=i) for i in range(24)]
+    probe = [_struct(seed=100 + i) for i in range(60)]
+    stable = {"const": lambda r, p: float(p.mean() - r.mean())}
+    monkeypatch.setattr(ladder, "METRICS", stable)
+    monkeypatch.setattr(ladder, "build_metrics", lambda sigma: dict(stable))
+    res = ladder.run_ladder(ref, probe, n=20, reps=24, include_legacy=False,
+                            verbose=False)
+    assert res.gates["const"]["G8_n_stability"] is True
+
+
+# --- rung specifications ---------------------------------------------------
+def test_geometry_rungs_swap_the_noise_family_and_widen_invariance():
+    """An occupancy metric is exactly blind to retyping blocks, so gating it on
+    `noise_*` would fail it for doing what it was built to do. Material
+    corruptions become invariances it must *not* move under."""
+    assert ladder.GEOMETRY_RUNGS.ordered_noise == ("occ_noise_1", "occ_noise_5",
+                                                   "occ_noise_10")
+    assert "material_shuffle" in ladder.GEOMETRY_RUNGS.invariant
+    assert "material_shuffle" not in ladder.RENDER_RUNGS.invariant
+    assert "noise_1" not in ladder.GEOMETRY_RUNGS.ordered_noise
+
+
+def test_solidify_is_a_sensitivity_rung_for_both_families():
+    """It is the rung that separates the two tiers, so both must report on it."""
+    assert "S6_resolves_solidify" in ladder.RENDER_RUNGS.sensitivity
+    assert "S6_resolves_solidify" in ladder.GEOMETRY_RUNGS.sensitivity
+
+
+def test_geometry_ladder_runs_without_a_gpu():
+    from blockgen.eval.bench import ladder as ld
+    ref = [_struct(seed=i) for i in range(20)]
+    probe = [_struct(seed=100 + i) for i in range(40)]
+    res = ld.run_geometry_ladder(ref, probe, n=16, reps=6, verbose=False)
+    assert set(res.scores) == {"geom_kid", "geom_mmd_rbf"}
+    assert res.backbone == ld.GEOM_BACKBONE
+    for m in res.scores:
+        # blind to material by construction: these must be bit-identical
+        assert res.scores[m]["material_shuffle"] == res.scores[m]["real_heldout"]
+        assert res.scores[m]["monochrome"] == res.scores[m]["real_heldout"]
+        assert res.scores[m]["rot90_1"] == res.scores[m]["real_heldout"]

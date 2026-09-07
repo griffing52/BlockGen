@@ -145,9 +145,160 @@ def probe_suite(structures: Sequence[Structure],
         # rejecting the metric.
         "chunk_delete_20": [chunk_delete(s, 0.20, rng) for s in pool],
         "chunk_delete_40": [chunk_delete(s, 0.40, rng) for s in pool],
+        # Structural rungs. `solidify` is the render tier's measured blind
+        # spot; the occupancy-noise triple is the geometric counterpart of the
+        # material-noise triple above, and each tier is gated on the one it is
+        # built to see (see `geometry` module docstring).
+        "solidify": [solidify(s) for s in pool],
+        "occ_noise_1": [occupancy_noise(s, 0.01, rng) for s in pool],
+        "occ_noise_5": [occupancy_noise(s, 0.05, rng) for s in pool],
+        "occ_noise_10": [occupancy_noise(s, 0.10, rng) for s in pool],
+        "jitter_columns": [jitter_columns(s, 1, rng) for s in pool],
         "material_shuffle": [shuffle_materials(s, rng) for s in pool],
         "monochrome": [monochrome(s) for s in pool],
         "rot90_1": [rotate_y(s, 1) for s in pool],
         "rot90_2": [rotate_y(s, 2) for s in pool],
         "mirror_x": [mirror_x(s) for s in pool],
     }
+
+
+def solidify(s: Structure) -> Structure:
+    """Fill every enclosed air cell. Interiors destroyed, silhouette preserved.
+
+    The probe that motivates the geometry tier. Because `render_structure` sees
+    only the outside, filling the rooms is close to invisible to any image-space
+    metric -- measured on 128 held-out builds, MV-DINO-KID cannot separate it
+    from real at all (0.000 [-0.002, 0.004] against a real -0.001
+    [-0.004, 0.003]), while it adds a median 31% to the block count and deletes
+    every room in the corpus. Any metric that claims to measure build quality and cannot separate
+    this rung is measuring the facade.
+
+    Filled cells take the build's own most common material, so the probe is not
+    detectable as a palette anomaly either.
+    """
+    from scipy import ndimage
+
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
+    if not occ.any():
+        return c
+    filled = ndimage.binary_fill_holes(
+        occ, structure=ndimage.generate_binary_structure(3, 1))
+    add = filled & ~occ
+    if not add.any():
+        return c
+    bi, bd = c.block_ids.copy(), c.block_data.copy()
+    vals, counts = np.unique(bi[occ], return_counts=True)
+    bi[add], bd[add] = vals[counts.argmax()], 0
+    return Structure(block_ids=bi, block_data=bd)
+
+
+def partial_solidify(s: Structure, frac: float,
+                     rng: np.random.Generator) -> Structure:
+    """Fill a fraction `frac` of the enclosed air cells. Graded `solidify`.
+
+    The dose-response arm for structural damage. `solidify` is the frac=1.0
+    endpoint; intermediate values let a metric be asked the harder question --
+    not "can you see every room removed" but "does your number move smoothly as
+    rooms are removed" -- which is what separates a metric that ranks quality
+    from one that merely detects an artifact.
+
+    Interior cells are filled **inward from the walls**, nearest-first, so a
+    half-solidified build is a house whose walls have grown until half the
+    interior volume is gone. Two alternatives were tried and rejected: random
+    speckle is trivially detectable as noise rather than as lost interior, and
+    filling whole rooms largest-first makes the dose axis useless -- one dominant
+    pocket is typically more than a quarter of the interior, so `frac=0.25`
+    already removed 71% of it (0.1175 -> 0.0337) and every larger dose was
+    indistinguishable. Nearest-first fills exactly `frac` of the interior volume
+    at every setting.
+    """
+    from scipy import ndimage
+
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
+    if not occ.any() or frac <= 0:
+        return c
+    filled = ndimage.binary_fill_holes(
+        occ, structure=ndimage.generate_binary_structure(3, 1))
+    pockets = filled & ~occ
+    if not pockets.any():
+        return c
+    # Depth of each interior cell below the wall it hides behind.
+    depth = ndimage.distance_transform_cdt(pockets, metric="taxicab")
+    idx = np.argwhere(pockets)
+    d = depth[tuple(idx.T)]
+    k = int(round(min(max(frac, 0.0), 1.0) * len(idx)))
+    if k < 1:
+        return c
+    keep = idx[np.argsort(d, kind="stable")[:k]]
+    add = np.zeros_like(pockets)
+    add[tuple(keep.T)] = True
+    bi, bd = c.block_ids.copy(), c.block_data.copy()
+    vals, counts = np.unique(bi[occ], return_counts=True)
+    bi[add], bd[add] = vals[counts.argmax()], 0
+    return Structure(block_ids=bi, block_data=bd)
+
+
+def occupancy_noise(s: Structure, p: float, rng: np.random.Generator) -> Structure:
+    """Move a fraction `p` of blocks to random cells touching the build.
+
+    The structural analogue of `block_noise`, and the reason the geometry tier
+    needs its own noise rung. `block_noise` retypes blocks without moving them,
+    so an occupancy-only metric is exactly blind to it -- ordering that rung
+    would be asking the metric to see something it is designed not to see. This
+    probe is the mirror image: block count and palette multiset are preserved
+    exactly, and only the arrangement degrades.
+    """
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
+    n = int(occ.sum())
+    k = int(round(p * n))
+    if k < 1 or n == 0:
+        return c
+
+    # Destinations: air cells 6-adjacent to the solid, so displaced blocks stay
+    # near the build. Scattering them anywhere in the bounding box would make
+    # the rung trivially separable by block count per unit volume alone.
+    nbr = np.zeros_like(occ)
+    for axis in range(3):
+        for shift in (1, -1):
+            nbr |= np.roll(occ, shift, axis=axis)
+    dest = np.argwhere(nbr & ~occ)
+    src = np.argwhere(occ)
+    if len(dest) == 0:
+        return c
+    k = min(k, len(dest), len(src))
+    take = src[rng.permutation(len(src))[:k]]
+    put = dest[rng.permutation(len(dest))[:k]]
+
+    bi, bd = c.block_ids.copy(), c.block_data.copy()
+    moved = [(int(bi[tuple(t)]), int(bd[tuple(t)])) for t in take]
+    for t in take:
+        bi[tuple(t)], bd[tuple(t)] = c.air_block_id, 0
+    for d, (a, b) in zip(put, moved):
+        bi[tuple(d)], bd[tuple(d)] = a, b
+    return Structure(block_ids=bi, block_data=bd)
+
+
+def jitter_columns(s: Structure, amp: int, rng: np.random.Generator) -> Structure:
+    """Shift each vertical column by up to `amp` blocks. Planarity destroyed.
+
+    Walls, floors and roof planes are broken into steps while the block count,
+    the palette and the footprint are all preserved exactly. This is the rung
+    `wall_frac` exists to catch.
+    """
+    c = s.crop_to_non_air()
+    bi, bd = c.block_ids, c.block_data
+    X, Y, Z = c.shape
+    nbi = np.full_like(bi, c.air_block_id)
+    nbd = np.zeros_like(bd)
+    sh = rng.integers(-amp, amp + 1, size=(X, Z))
+    for x in range(X):
+        for z in range(Z):
+            d = int(sh[x, z])
+            src = slice(max(0, -d), Y - max(0, d))
+            dst = slice(max(0, d), Y - max(0, -d))
+            nbi[x, dst, z] = bi[x, src, z]
+            nbd[x, dst, z] = bd[x, src, z]
+    return Structure(block_ids=nbi, block_data=nbd)

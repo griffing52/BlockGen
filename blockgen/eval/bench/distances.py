@@ -72,6 +72,33 @@ def kid(x: np.ndarray, y: np.ndarray, degree: int = 3, gamma: float | None = Non
     return float(scale * (term_x + term_y - 2.0 * kxy.mean()))
 
 
+def kid_arm_term(x: np.ndarray, ref: np.ndarray, degree: int = 3,
+                 gamma: float | None = None, coef0: float = 1.0,
+                 scale: float = 1000.0) -> float:
+    """The part of `kid(x, ref)` that depends on `x`. Use for paired deltas.
+
+    `kid = term_x + term_ref - 2*mean(k_x_ref)`, and `term_ref` depends on the
+    reference alone. When two arms are compared against the *same* reference
+    draw it cancels exactly, so computing it is pure waste -- and it is the
+    expensive one: the reference is typically several times larger than an arm,
+    so its self-kernel dominates the cost. Dropping it takes a 66-pair
+    head-to-head table from tens of minutes to about one, and removes a term
+    that contributes nothing to the difference but floating-point noise.
+
+    Differences of this quantity equal differences of `kid` exactly. The
+    absolute value is not a KID and must never be reported as one.
+    """
+    x, ref = _as2d(x), _as2d(ref)
+    m = len(x)
+    if m < 2 or len(ref) < 1:
+        return float("nan")
+    g = 1.0 / x.shape[1] if gamma is None else gamma
+    kxx = (g * (x @ x.T) + coef0) ** degree
+    kxr = (g * (x @ ref.T) + coef0) ** degree
+    term_x = (kxx.sum() - np.trace(kxx)) / (m * (m - 1))
+    return float(scale * (term_x - 2.0 * kxr.mean()))
+
+
 def median_bandwidth(x: np.ndarray, max_n: int = 512,
                      rng: np.random.Generator | None = None) -> float:
     """Median pairwise distance -- the standard RBF bandwidth heuristic.

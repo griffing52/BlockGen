@@ -91,13 +91,28 @@ def _load_backbone(name: str, device: str = "cuda"):
 
 
 def render_views(structures: Sequence[Structure], view: ViewConfig = ViewConfig(),
-                 verbose: bool = True) -> List[np.ndarray]:
+                 verbose: bool = True, max_fail_frac: float = 0.02
+                 ) -> List[np.ndarray]:
     """Render every structure from every view, in structure-major order.
 
     Uses the same textured pyrender path and the same alpha-onto-white composite
     as `blockgen.eval.perceptual.render_views`, so pixels are identical to the
     existing pipeline and generated and real builds are rendered the same way.
-    Degenerate samples become a blank frame rather than killing a sweep.
+
+    **This fails loudly.** An earlier version substituted a blank white frame for
+    any exception, which made a broken renderer indistinguishable from a corpus
+    of blank builds -- and that is not a hypothetical: a PyOpenGL/Python version
+    mismatch made every `render_structure` call raise, every image came back
+    white, every DINO feature collapsed to one vector, and every arm scored a
+    near-perfect KID of -4e-13. Worse, `load_or_build` verifies the render canary
+    before trusting its cache, so the all-white canary would have failed to match
+    and the 30 MB feature cache would have been silently *rebuilt from blank
+    frames*, destroying every previously valid number.
+
+    A scattered failure on a pathological sample is tolerated up to
+    `max_fail_frac`; anything beyond that raises with the first traceback, on the
+    principle the rest of the suite already follows -- a metric that cannot be
+    computed is reported as null with a reason, never as a number.
     """
     from blockgen.renderer.textured import render_structure
     from blockgen.renderer.textures import load_face_textures
@@ -105,12 +120,14 @@ def render_views(structures: Sequence[Structure], view: ViewConfig = ViewConfig(
     tex = load_face_textures()
     out: List[np.ndarray] = []
     bg255 = np.array(view.bg, dtype=np.float32) * 255.0
+    failures: List[BaseException] = []
     for i, s in enumerate(structures):
         for azim, elev in view.views:
             try:
                 img = render_structure(s, px=view.px, azim_deg=azim, elev_deg=elev,
                                        ortho=view.ortho, face_textures=tex)
-            except Exception:
+            except Exception as exc:
+                failures.append(exc)
                 img = np.full((view.px, view.px, 3), 255, np.uint8)
             if img.shape[-1] == 4:
                 a = img[..., 3:4].astype(np.float32) / 255.0
@@ -118,6 +135,18 @@ def render_views(structures: Sequence[Structure], view: ViewConfig = ViewConfig(
             out.append(np.ascontiguousarray(img[..., :3]))
         if verbose and (i + 1) % 128 == 0:
             print(f"    rendered {i + 1}/{len(structures)}", flush=True)
+
+    if failures and len(failures) > max(1, int(max_fail_frac * max(len(out), 1))):
+        raise RuntimeError(
+            f"renderer failed on {len(failures)}/{len(out)} views "
+            f"({len(failures) / max(len(out), 1):.0%}), above the "
+            f"{max_fail_frac:.0%} tolerance. Every failed view becomes a blank "
+            f"frame, which scores as a perfect match rather than as an error, so "
+            f"this run is aborted instead of reported. First failure: "
+            f"{type(failures[0]).__name__}: {failures[0]}") from failures[0]
+    if failures:
+        print(f"[features] WARNING: {len(failures)}/{len(out)} views failed to "
+              f"render and were blanked ({type(failures[0]).__name__})", flush=True)
     return out
 
 

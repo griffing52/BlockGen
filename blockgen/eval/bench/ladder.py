@@ -40,7 +40,10 @@ Blocking gates
     G2  ordering          real < noise_1 < noise_5 < noise_10
     G6  invariance        |rot90_k - real|, |mirror_x - real| < 1 sd
     G7  self-consistency  a fresh real draw sits within 2 sd of the null mean
-    G8  n-stability       the null mean at n/2 and n agree within 2 sd
+    G8  n-stability       the null mean at n/2 and n agree within 2 standard
+                          errors *of their difference* -- not within 2 sd of a
+                          single draw, which is sqrt(reps) times larger and
+                          passes estimators with a visible 1/n bias
 
 Sensitivity flags (recorded, non-blocking)
     S3  resolves canon16           canon16 - real          > 3 sd
@@ -106,6 +109,46 @@ ORDERED_NOISE = ("noise_1", "noise_5", "noise_10")
 INVARIANT = ("rot90_1", "rot90_2", "mirror_x")
 
 
+@dataclass(frozen=True)
+class RungSpec:
+    """Which rungs a family of metrics is gated on.
+
+    A metric is only fairly judged on damage it is built to see. The render
+    metrics read appearance, so their noise rung retypes blocks in place
+    (`noise_*`). The geometry metrics read occupancy and are *exactly* blind to
+    retyping, so gating them on `noise_*` would fail every one of them for doing
+    precisely what they are designed to do. Their noise rung moves blocks
+    instead (`occ_noise_*`), and material shuffle joins their invariance set as
+    a positive statement of that blindness: it must not move them at all.
+    """
+    ordered_noise: Tuple[str, ...]
+    invariant: Tuple[str, ...]
+    sensitivity: Dict[str, str]
+
+
+#: Sensitivity rungs shared by both families. `solidify` is listed for both on
+#: purpose -- it is the rung that separates them, and recording that the render
+#: metrics fail to resolve it is the point.
+RENDER_RUNGS = RungSpec(
+    ordered_noise=ORDERED_NOISE,
+    invariant=INVARIANT,
+    sensitivity={"S3_resolves_canon16": "canon16",
+                 "S4_resolves_material_shuffle": "material_shuffle",
+                 "S5_resolves_chunk_delete_40": "chunk_delete_40",
+                 "S6_resolves_solidify": "solidify"})
+
+GEOMETRY_RUNGS = RungSpec(
+    ordered_noise=("occ_noise_1", "occ_noise_5", "occ_noise_10"),
+    # Material-only corruptions belong in the *invariance* set here: an
+    # occupancy metric that moved under them would be reading something it has
+    # no access to, which would mean a bug in the descriptor.
+    invariant=INVARIANT + ("material_shuffle", "monochrome"),
+    sensitivity={"S3_resolves_canon16": "canon16",
+                 "S5_resolves_chunk_delete_40": "chunk_delete_40",
+                 "S6_resolves_solidify": "solidify",
+                 "S7_resolves_jitter_columns": "jitter_columns"})
+
+
 def legacy_cmmd(r: np.ndarray, p: np.ndarray) -> float:
     """`blockgen.eval.perceptual.cmmd`, scored as a labelled legacy metric."""
     import torch
@@ -150,8 +193,8 @@ class LadderResult:
 
 
 def _noise_floor(fn, ref_feats: np.ndarray, pool_feats: np.ndarray, n: int,
-                 reps: int, rng: np.random.Generator) -> Tuple[float, float]:
-    """Mean and sd of the metric for *real* probes against the real reference.
+                 reps: int, rng: np.random.Generator) -> Tuple[float, float, float]:
+    """`(mean, sd_pop, sem)` for *real* probes against the real reference.
 
     Draws n held-out real builds and scores them against the same full reference
     every rung is scored against. Comparing two halves of the reference instead
@@ -161,17 +204,60 @@ def _noise_floor(fn, ref_feats: np.ndarray, pool_feats: np.ndarray, n: int,
 
     This is the metric's own resolution: differences smaller than this sd are
     not differences, whatever the point estimates say.
+
+    Two corrections, both of which the first version of this function got wrong
+    and both of which understated the spread -- which made the gates too strict
+    and rejected metrics for being noisy when the noise was mismeasured.
+
+    **The pool must contain the probe set.** `real_heldout` is the "fresh real
+    draw" G7 tests, so it has to be a member of the distribution it is tested
+    against. Drawing the null from the held-out builds *other than* the probes
+    turns G7 into a comparison of two disjoint halves, and with a group-aware
+    split two halves of a small corpus genuinely differ.
+
+    **The draws overlap, so their spread is not the spread of an independent
+    draw.** Repeated n-subsets of an N-build pool share members, and their
+    variance carries the finite-population factor `(1 - n/N)`; dividing it out
+    recovers the variance of a draw from the population, which is the quantity
+    every gate is stated in. At n=64 out of N=245 the factor is 0.87 in sd, and
+    measured on `geom_kid` the uncorrected estimate was 0.21 against a true
+    between-sample spread near 0.28 -- enough to fail a metric that separates
+    the `solidify` rung at 145 sd. The correction is exact for a sample mean and
+    a leading-order approximation for the degree-2 U-statistics used here.
     """
-    if len(pool_feats) < n + 1:
-        return float("nan"), float("nan")
+    N = len(pool_feats)
+    if N < n + 1:
+        return float("nan"), float("nan"), float("nan")
     vals = []
     for _ in range(reps):
-        idx = rng.choice(len(pool_feats), size=n, replace=False)
+        idx = rng.choice(N, size=n, replace=False)
         vals.append(fn(ref_feats, pool_feats[idx]))
     v = np.asarray([x for x in vals if np.isfinite(x)], dtype=float)
     if v.size < 2:
-        return float("nan"), float("nan")
-    return float(v.mean()), float(v.std(ddof=1))
+        return float("nan"), float("nan"), float("nan")
+    fpc = max(1.0 - n / float(N), 1e-6)
+    sd_obs = float(v.std(ddof=1))
+    # Two different spreads, for two different questions, and using one where
+    # the other belongs is what made G8 toothless (see the gate).
+    #   sd_pop -- how much a single fresh real draw moves. The unit every gate
+    #             is stated in.
+    #   sem    -- how precisely `reps` draws pin down this pool's mean. Draws
+    #             share members, so the mean converges to a property of the
+    #             pool and `sd_obs / sqrt(reps)` is its honest precision.
+    return float(v.mean()), sd_obs / np.sqrt(fpc), sd_obs / np.sqrt(v.size)
+
+
+def noise_floor(fn, ref_feats: np.ndarray, pool_feats: np.ndarray, n: int,
+                reps: int = 48, rng: np.random.Generator | None = None
+                ) -> Tuple[float, float, float]:
+    """Public alias for the noise-floor estimator: `(mean, sd_pop, sem)`.
+
+    Exported because `composite` states every pillar in units of `sd_pop` -- the
+    spread of a *fresh* real sample of the same size, scored under the same
+    protocol. Any other denominator makes "real-sample spreads" a false label.
+    """
+    return _noise_floor(fn, ref_feats, pool_feats, n, reps,
+                        rng or np.random.default_rng(0))
 
 
 def run_ladder(
@@ -180,7 +266,7 @@ def run_ladder(
     view: ft.ViewConfig = ft.ViewConfig(),
     backbone: str = "dinov2b",
     n: int = 64,
-    reps: int = 12,
+    reps: int = 48,
     device: str = "cuda",
     seed: int = 0,
     include_legacy: bool = True,
@@ -203,9 +289,10 @@ def run_ladder(
     order = np.random.default_rng(seed).permutation(len(all_probe))
     all_probe = [all_probe[i] for i in order]
     probe_src = all_probe[:n]
-    # A larger pool of real held-out builds, used only to estimate each metric's
-    # noise floor under the *same* protocol the rungs are scored under.
-    null_pool = all_probe[n:] if len(all_probe) > 2 * n else all_probe
+    # Every held-out real build, used only to estimate each metric's noise floor
+    # under the *same* protocol the rungs are scored under. The probe set is
+    # deliberately included -- see `_noise_floor`.
+    null_pool = all_probe
     if verbose:
         print(f"[ladder] reference {len(ref_pool)}, probes {len(probe_src)}, "
               f"null pool {len(null_pool)}", flush=True)
@@ -224,49 +311,147 @@ def run_ladder(
         probe_feats[name] = embed(structs)
     null_feats = embed(null_pool)
 
-    result = LadderResult(backbone=backbone, view=view.key(), n=len(probe_src))
+    return score_rungs(metrics, ref_feats, probe_feats, null_feats, RENDER_RUNGS,
+                       backbone=backbone, view=view.key(), reps=reps, rng=rng)
+
+
+def score_rungs(
+    metrics: Dict[str, Callable[[np.ndarray, np.ndarray], float]],
+    ref_feats: np.ndarray,
+    probe_feats: Dict[str, np.ndarray],
+    null_feats: np.ndarray,
+    rungs: RungSpec,
+    backbone: str,
+    view: str,
+    reps: int = 48,
+    rng: np.random.Generator | None = None,
+) -> LadderResult:
+    """Evaluate every gate for every metric, given features for every rung.
+
+    Shared by the render and geometry ladders so the two families are judged by
+    literally the same code -- if `geom_kid` and `mv_dino_kid` disagree about a
+    rung, that is a fact about what their features see, never about how their
+    gates were computed.
+    """
+    rng = rng or np.random.default_rng(0)
+    n_probe = len(probe_feats["real_heldout"])
+    result = LadderResult(backbone=backbone, view=view, n=n_probe)
 
     for mname, fn in metrics.items():
         scores = {name: float(fn(ref_feats, f)) for name, f in probe_feats.items()}
-        floor_mean, floor_sd = _noise_floor(fn, ref_feats, null_feats,
-                                            min(len(probe_src), len(null_feats) - 1),
-                                            reps, rng)
+        n_floor = min(n_probe, len(null_feats) - 1)
+        floor_mean, floor_sd, floor_sem = _noise_floor(fn, ref_feats, null_feats,
+                                                       n_floor, reps, rng)
         sd = floor_sd if np.isfinite(floor_sd) and floor_sd > 0 else float("nan")
         base = scores["real_heldout"]
 
         def sep(name: str, k: float) -> bool:
-            return np.isfinite(sd) and (scores[name] - base) > k * sd
+            return (name in scores and np.isfinite(sd)
+                    and (scores[name] - base) > k * sd)
 
-        half = max(8, min(len(probe_src), len(null_feats) - 1) // 2)
-        m_small, _ = _noise_floor(fn, ref_feats, null_feats, half, reps, rng)
+        half = max(8, n_floor // 2)
+        m_small, _, sem_small = _noise_floor(fn, ref_feats, null_feats, half,
+                                             reps, rng)
+        # G8 asks whether two *means* differ, so it must be tested against the
+        # standard error of their difference -- not against the spread of a
+        # single draw, which is larger by a factor of sqrt(reps) and let a
+        # known-biased estimator through. `legacy_cmmd`'s null mean halves every
+        # time n doubles (0.173, 0.100, 0.058, 0.039 at n = 16/32/64/128); the
+        # old form scored that 0.6 sd and passed it, this form scores it 14.8
+        # standard errors and rejects it.
+        drift_se = float(np.sqrt(sem_small ** 2 + floor_sem ** 2))
 
+        noise_seq = [base] + [scores[k] for k in rungs.ordered_noise]
         # Blocking: is this measuring build quality at all?
         gates: Dict[str, bool] = {
             "G1_damage_ordering": base < scores["canon16"] < scores["canon8"],
-            "G2_noise_ordering": (base < scores["noise_1"] < scores["noise_5"]
-                                  < scores["noise_10"]),
+            "G2_noise_ordering": all(a < b for a, b in zip(noise_seq, noise_seq[1:])),
             "G6_invariance": bool(np.isfinite(sd) and all(
-                abs(scores[k] - base) < 1.0 * sd for k in INVARIANT)),
+                abs(scores[k] - base) < 1.0 * sd for k in rungs.invariant)),
             # 2 sd, not 1: this compares a single draw to a mean of many.
             "G7_self_consistency": bool(
                 np.isfinite(sd) and abs(base - floor_mean) < 2.0 * sd),
             "G8_n_stability": bool(
-                np.isfinite(sd) and abs(m_small - floor_mean) < 2.0 * sd),
+                np.isfinite(drift_se) and drift_se > 0
+                and abs(m_small - floor_mean) < 2.0 * drift_se),
         }
         # Non-blocking: how much damage does n buy the resolution to see?
-        sensitivity = {
-            "S3_resolves_canon16": sep("canon16", 3.0),
-            "S4_resolves_material_shuffle": sep("material_shuffle", 3.0),
-            "S5_resolves_chunk_delete_40": sep("chunk_delete_40", 3.0),
-        }
+        sensitivity = {flag: sep(rung, 3.0)
+                       for flag, rung in rungs.sensitivity.items()}
 
         result.scores[mname] = {k: float(v) for k, v in scores.items()}
-        result.noise[mname] = {"mean": float(floor_mean), "sd": float(floor_sd)}
+        result.noise[mname] = {"mean": float(floor_mean), "sd": float(floor_sd),
+                               "sem": float(floor_sem),
+                               "mean_half_n": float(m_small),
+                               "drift_se": float(drift_se)}
         # numpy comparisons yield np.bool_, which json refuses to serialize.
         result.gates[mname] = {k: bool(v) for k, v in gates.items()}
         result.sensitivity[mname] = {k: bool(v) for k, v in sensitivity.items()}
 
     return result
+
+
+def run_geometry_ladder(
+    reference: Sequence[Structure],
+    probe_pool: Sequence[Structure],
+    n: int = 64,
+    reps: int = 48,
+    seed: int = 0,
+    verbose: bool = True,
+) -> LadderResult:
+    """The same ladder, on geometric features instead of rendered ones.
+
+    No GPU, no renderer, no network -- which is the point: the render tier is
+    the half of the suite that can break silently (a texture pack, a driver, an
+    EGL context), and a structural tier that runs anywhere is what makes the
+    benchmark reproducible on a reviewer's machine.
+
+    The whitening is fitted on the reference set only, exactly once, and reused
+    for every rung. Refitting per rung would let a corruption move the feature
+    scale and then be measured against its own distortion.
+    """
+    from blockgen.eval.bench import geometry as geom
+
+    rng = np.random.default_rng(seed)
+    ref_pool = [s.crop_to_non_air() for s in reference]
+    all_probe = [s.crop_to_non_air() for s in probe_pool]
+    order = np.random.default_rng(seed).permutation(len(all_probe))
+    all_probe = [all_probe[i] for i in order]
+    probe_src = all_probe[:n]
+    null_pool = all_probe          # includes the probes; see `_noise_floor`
+    if verbose:
+        print(f"[geom-ladder] reference {len(ref_pool)}, probes {len(probe_src)}, "
+              f"null pool {len(null_pool)}", flush=True)
+
+    std = geom.Standardizer.fit(geom.descriptor(ref_pool))
+    ref_feats = geom.geom_features(ref_pool, std)
+
+    suite = pb.probe_suite(probe_src, np.random.default_rng(seed))
+    suite["real_heldout"] = probe_src
+    probe_feats = {name: geom.geom_features(structs, std)
+                   for name, structs in suite.items()}
+    null_feats = geom.geom_features(null_pool, std)
+
+    sigma = D.median_bandwidth(ref_feats)
+    metrics: Dict[str, Callable[[np.ndarray, np.ndarray], float]] = {
+        "geom_kid": lambda r, p: D.kid(p, r),
+        "geom_mmd_rbf": lambda r, p: D.mmd_rbf(p, r, sigma=sigma),
+    }
+    return score_rungs(metrics, ref_feats, probe_feats, null_feats, GEOMETRY_RUNGS,
+                       backbone=GEOM_BACKBONE, view=geom_view_key(), reps=reps,
+                       rng=rng)
+
+
+#: The geometry tier is stored beside the render ladders under a backbone name
+#: of its own, so `full.py`'s gate lookup needs no special case. The "view" slot
+#: records the descriptor's shape, which is what would invalidate the result.
+GEOM_BACKBONE = "geom"
+
+
+def geom_view_key() -> str:
+    from blockgen.eval.bench import geometry as geom
+    return (f"patch{geom.PATCH}_orb{geom.N_ORBITS}"
+            f"_t{len(geom.THICKNESS_BINS)}_h{geom.HEIGHT_BINS}")
 
 
 def ladder_path(backbone: str, view_key: str, root: Path | str = LADDER_ROOT) -> Path:
@@ -326,9 +511,14 @@ def main() -> None:
     ap.add_argument("--px", type=int, default=224)
     ap.add_argument("--n", type=int, default=64, help="builds per probe rung")
     ap.add_argument("--n-ref", type=int, default=256)
-    ap.add_argument("--reps", type=int, default=12)
+    ap.add_argument("--reps", type=int, default=48,
+                    help="draws used to estimate each metric's noise floor")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-legacy", action="store_true")
+    ap.add_argument("--family", choices=("render", "geometry", "both"),
+                    default="render",
+                    help="render = DINO on views (needs a GPU); "
+                         "geometry = voxel descriptors (CPU only)")
     args = ap.parse_args()
 
     view = ft.ViewConfig(px=args.px)
@@ -345,13 +535,20 @@ def main() -> None:
     probe = splits.split_structures(split, "test", predicate=usable)
     print(f"[ladder] reference {len(ref)}, probe pool {len(probe)}")
 
-    result = run_ladder(ref, probe, view, args.backbone, n=args.n, reps=args.reps,
-                        device=args.device, seed=args.seed,
-                        include_legacy=not args.no_legacy)
-    path = save(result)
-    print()
-    print(render(result))
-    print(f"\n-> {path}")
+    results = []
+    if args.family in ("geometry", "both"):
+        results.append(run_geometry_ladder(ref, probe, n=args.n, reps=args.reps,
+                                           seed=args.seed))
+    if args.family in ("render", "both"):
+        results.append(run_ladder(ref, probe, view, args.backbone, n=args.n,
+                                  reps=args.reps, device=args.device,
+                                  seed=args.seed,
+                                  include_legacy=not args.no_legacy))
+    for result in results:
+        path = save(result)
+        print()
+        print(render(result))
+        print(f"\n-> {path}")
 
 
 if __name__ == "__main__":

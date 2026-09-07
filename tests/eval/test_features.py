@@ -186,3 +186,44 @@ def test_embed_views_shape_and_norm():
                            ft.ViewConfig(px=224), "dinov2b", verbose=False)
     assert feats.shape == (2, 4, 768)
     assert np.allclose(np.linalg.norm(feats, axis=-1), 1.0, atol=1e-4)
+
+
+# --- the render path must not fail open ------------------------------------
+def test_render_views_raises_when_the_renderer_is_broken(monkeypatch):
+    """A blank frame scores as a perfect match, so a broken renderer used to
+    look like a flawless generator. Worse, `load_or_build` verifies the render
+    canary before trusting its cache, so an all-white canary would have silently
+    rebuilt the feature cache from blank frames.
+    """
+    import blockgen.renderer.textured as textured
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated EGL context loss")
+
+    monkeypatch.setattr(textured, "render_structure", boom)
+    ids = np.zeros((4, 4, 4), dtype=np.int32)
+    ids[:, 0, :] = 4
+    structs = [Structure(block_ids=ids, block_data=np.zeros_like(ids))] * 4
+    with pytest.raises(RuntimeError, match="renderer failed"):
+        ft.render_views(structs, ft.ViewConfig(px=32), verbose=False)
+
+
+def test_render_views_tolerates_a_single_pathological_sample(monkeypatch):
+    """A scattered failure on one odd build is not a broken renderer."""
+    import blockgen.renderer.textured as textured
+
+    real = textured.render_structure
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("one bad sample")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(textured, "render_structure", flaky)
+    ids = np.zeros((4, 4, 4), dtype=np.int32)
+    ids[:, 0, :] = 4
+    structs = [Structure(block_ids=ids, block_data=np.zeros_like(ids))] * 32
+    out = ft.render_views(structs, ft.ViewConfig(px=32), verbose=False)
+    assert len(out) == 32 * ft.ViewConfig().n_views
