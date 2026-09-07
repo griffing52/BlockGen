@@ -1,6 +1,8 @@
-# Models — the three tracks
+# Models — the tracks
 
-All three share the tokenizer and the novelty eval. No text conditioning.
+Tracks A/B/C share the tokenizer and the novelty eval. No text conditioning.
+There are now two more ways to make a build: an LLM writing a program (E), and a
+learned growth process (F).
 
 !!! note "There is a fourth way to generate now"
     [Track E — agentic generation](agentic.md) skips training entirely: a frontier
@@ -9,6 +11,14 @@ All three share the tokenizer and the novelty eval. No text conditioning.
     and validity metric, so its samples are directly comparable to A/B/C — but it
     has no learned model, and its cost is measured in tokens and dollars rather
     than epochs.
+
+!!! note "And a fifth: growth instead of coordinates"
+    [Track F — pick-and-place](pick-and-place.md) replaces coordinate tokens with
+    *attachment*: a **picker** chooses a block and a **placer** chooses which open
+    face of the partial build to attach it to. Connectivity is guaranteed by the
+    representation rather than by constrained decoding, and the stream is
+    `n_blocks` long instead of `4·n_blocks`. Summarised below, documented in full
+    on its own page.
 
 ## Track A — Autoregressive token transformer
 
@@ -83,6 +93,33 @@ the same trained net:
 TransformerConv encoder over the block+port graph → Gaussian latent → GRU token decoder
 (+ a `size_head`). Trained as a VAE (reconstruction CE + KL). Size-agnostic, and the graph
 form maps directly to LEGO studs / netlists — the highest-transfer track.
+
+## Track F — Pick-and-place growth
+
+`blockgen/models/pick_n_place.py` · train `blockgen/training/train_pick_n_place.py` ·
+**full page: [Pick-and-place](pick-and-place.md)**
+
+Two heads over one causal graph encoder:
+
+$$ \text{Picker}: G \to P(V) \qquad \text{Placer}: G \times V \to P(E) $$
+
+A build grows one voxel at a time; each new voxel names an **open face** of an
+already-placed voxel. There is no positional encoding — geometry enters as a
+learned per-head attention bias on the *relative 3D offset* between nodes, so
+"adjacent" is just the special case where the offset is a unit vector. The placer
+is a pointer network over the at-most-`6N` open faces with illegal ones set to
+`-inf` **before** the softmax.
+
+- **Strengths:** validity 1.0 by construction (no constrained decoding needed);
+  round-trip IoU exactly 1.000; the placer runs **139× its legal-face chance
+  baseline**, and the picker 3.2× the most-frequent-block baseline; 5.4 M params,
+  trains in under 3 minutes.
+- **Limits:** the dense `[B,N,N,6]` legality tensor forces `max_nodes = 384`
+  against a corpus median of **1,069** blocks, so 86% of builds are truncated,
+  `STOP` is starved, and its benchmark KID (0.532) is confounded with size. The
+  placer's cross-entropy label is also **not identifiable** — a mean of 1.99 open
+  faces point at the same target cell. Both are diagnosed with measurements and
+  fixes in [§8](pick-and-place.md#8-evaluating-the-formulation-what-is-actually-wrong).
 
 ## Evaluation — `blockgen/eval/novelty.py`
 

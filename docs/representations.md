@@ -1,8 +1,8 @@
 # Representations & tokenization
 
 All three tracks read from one `Structure` (a cropped XYZ block volume) and one
-`BlockVocab`, via `blockgen/utils/serialize.py`. There are **three representations**, and
-a fourth proposed.
+`BlockVocab`, via `blockgen/utils/serialize.py`. There are **four representations** in use, and
+a fifth proposed.
 
 ![Tokenization methods](assets/tokenization_methods.png)
 
@@ -38,7 +38,28 @@ The block+port PyG graph: nodes are blocks, edges are adjacency / ports. This ma
 directly onto **LEGO stud connectivity** and **electronics netlists** — the reason Track C
 is the most transferable (see [Roadmap](roadmap.md)).
 
-## 4. (Proposed) delta-coordinate AR
+## 4. Growth sequence (Track F, pick-and-place)
+
+`blockgen/utils/growth_order.py`. A build as an ordered list of **attachments**:
+
+```
+node 0 = seed;   node t = (piece, parent index, which of 6 faces)
+```
+
+Coordinates are *derived*, never emitted — `growth_to_structure` replays the
+stream by walking `parent`/`direction` from the seed and never reads the stored
+coords, which is what makes the round-trip a real test (measured IoU exactly
+**1.000**). Two properties follow directly from the form:
+
+- the build is **connected by construction** — every node is 6-adjacent to an
+  earlier one, so there is no disconnected-component failure mode to fix later;
+- the stream is `n_blocks` long, versus `≈ 4·n_blocks` for the AR token stream.
+
+The cost is that *where* becomes a decision the model has to make, over the open
+faces of the partial build (a median of **1,980** of them by the end of a real
+house). See [Pick-and-place](pick-and-place.md).
+
+## 5. (Proposed) delta-coordinate AR
 
 Emit each voxel's coordinates *relative to the previous voxel* to shorten the AR stream
 and bias toward locality — the planned way to let AR reach 16–24³ without the fidelity
@@ -55,6 +76,7 @@ It depends on the representation — this is a real modeling choice:
 | **AR token sequence** | **No.** Only occupied voxels are emitted; air is the *absence* of a token. This keeps sequences short but means the model never explicitly "places air". |
 | **Fixed grid (diffusion)** | **Yes.** Air is **class 0**, and there is an extra **MASK** class (the absorbing state). ~99% of grid cells are air, so the loss **down-weights the air class** (`air_weight ≈ 0.05`) and sampling uses a calibrated `air_bias` to control density. |
 | **Graph** | **No.** Only blocks are nodes. |
+| **Growth sequence** | **No** — and there is no `NO_BLOCK` token either. A node is always a placed voxel; air is any cell never chosen. The reserved ids are `STOP` (the build is finished) and `PAD`. "Leave this face empty" is the default, not a decision, so *all* termination pressure rests on the single `STOP` token — see [pick-and-place §3](pick-and-place.md#3-are-the-elements-tokenized-yes-and-there-is-no-air-token). |
 
 ## Do we have embeddings for tokens / voxels?
 

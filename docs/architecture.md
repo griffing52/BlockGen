@@ -35,7 +35,7 @@ pipeline end-to-end for a set of *arms* and writes one run directory — see
 |---|---|
 | `blockgen/data/` | raw-corpus → cache builders (schematics, tfrecords, GrabCraft scrape) |
 | `blockgen/curation/` | interactive `Curator` + the cross-corpus house cache builder |
-| `blockgen/utils/` | `Structure`, corpora loaders, block remapping, orderings |
+| `blockgen/utils/` | `Structure`, corpora loaders, block remapping, orderings, `growth_order.py` (attachment streams for [Track F](pick-and-place.md)) |
 | `blockgen/tokenizers/` | standard block vocab, per-voxel serialization, 3D-BPE |
 | `blockgen/models/` | the model zoo (below) |
 | `blockgen/agentic/` | Track E: LLM-written build programs — DSL, canvas, providers, agent loop ([Agentic](agentic.md)) |
@@ -96,6 +96,7 @@ Four interchangeable representations feed the models:
 | `VoxelUNet3D` | `voxel_diffusion.py` | ~5–15M | masked discrete diffusion 3D-UNet, 4 samplers |
 | `LargePyGGraphGenerator` | `large_pyg_graph_generator.py` | few M | graph VAE (TransformerConv → latent → GRU decoder) |
 | `VoxelPortGNN` | `voxel_port_gnn.py` | ~1–2M | starter block+port GNN (legacy) |
+| `PickAndPlace` | `pick_n_place.py` | ~5.4M | Track F: causal graph encoder + picker (`G→P(V)`) and placer (`G×V→P(E)`) heads; relative-offset attention bias instead of positional encoding ([full page](pick-and-place.md)) |
 
 Shared AR defaults (`ARTrainConfig`): `d_model=256, nhead=8, num_layers=6,
 dim_feedforward=1024, dropout=0.1`.
@@ -149,6 +150,7 @@ fit mixed-size corpora; every bad diffusion result in the ledger traces back to 
 | `train_twostage.py` | occupancy → materials | Scaffold-recipe two-stage (didn't beat single-stage, T11) |
 | `train_graph.py` | graph VAE | recon CE + KL, `beta=1e-3` |
 | `train_conditioned.py` | `CondVoxelAR2` | full CLI (see [Labeling](labeling.md) for the data it consumes) |
+| `train_pick_n_place.py` | `PickAndPlace` | `PieceCodec`, `GrowthDataset`, two cross-entropies (pick + place); reports `place_lift` against the legal-face chance baseline, not raw accuracy |
 | `constrained_decode.py` | — (inference only) | **in-loop 6-adjacency constrained sampling**: per-axis factorized coordinate masking keeps every new voxel adjacent to the built structure; EOS gated by `min_blocks`. Validity 1.0 by construction, quality-neutral in raster order (T11) |
 
 ## Evaluation (`blockgen/eval/`)
@@ -161,6 +163,23 @@ nearest training neighbors — the visual novelty proof). The batteries extend i
 real-val-vs-train baseline (what a *real* unseen house scores: ≈0.48 for houses —
 sample scores are read as a fraction of this ceiling). `validity.py` supplies
 `n_components` and the `repair_lcc` gate (keep largest connected component).
+
+`blockgen/eval/bench/` is the cross-track benchmark ([Evaluation suite](benchmark.md)),
+additive by construction — the three modules above are never modified, so T1–T22 stay
+reproducible.
+
+| module | role |
+|---|---|
+| `splits.py` | the canonical group-aware train/val/test split |
+| `topology.py` | connectivity, floating mass, sealed interior — as *distance to real* |
+| `geometry.py` | D4-invariant voxel descriptors, `geom_kid`, aperture-aware interiors |
+| `palette.py` / `stats.py` | palette JSD and co-occurrence; bootstrap / subsample CIs |
+| `features.py` / `distances.py` | render + DINOv2 cache; KID, MMD, FD, PRDC, DINO-NN |
+| `probes.py` | corruption and invariance rungs (`solidify`, `occupancy_noise`, …) |
+| `ladder.py` | the gate: a metric must rank known damage before it may rank anything |
+| `compare.py` | paired head-to-head tests, Holm-corrected |
+| `composite.py` | `BlockScore` — worst pillar in real-sample spreads, with cheat gates |
+| `fast.py` / `full.py` / `runner.py` | the two tiers and the CLI |
 
 ## Rendering (`blockgen/renderer/`)
 

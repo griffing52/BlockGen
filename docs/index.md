@@ -30,6 +30,11 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
   program* that is executed onto a voxel canvas — no training, arbitrary canvas
   sizes, free text/image conditioning, and builds an order of magnitude larger than
   the per-voxel tracks reach ([Agentic generation](agentic.md)).
+- A **pick-and-place track** (F): a *picker* chooses the block and a *placer*
+  chooses which open face of the partial build to attach it to, so connectivity
+  is guaranteed by the representation and geometry enters as a relative-offset
+  attention bias rather than a positional encoding
+  ([Pick-and-place](pick-and-place.md)).
 - A whole-codebase operator's map — every package, model class (incl. the phase4 PE),
   trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)),
   plus a runnable end-to-end walkthrough for adding your own architecture
@@ -48,7 +53,10 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
 | **No cross-medium transfer gain** in the data-rich regime — compression ≠ generation | T12 — finetune ≈ scratch |
 | 3D-BPE cluster tokens = anti-memorization (dup 0 where flat memorizes) | T10 vehicles |
 | Flat token embeddings **don't** learn birch≈oak | within-family cos-sim ≈ random baseline |
+| **Growth gives validity 1.0 without constrained decoding**; placer runs 139× its legal-face chance baseline | T24 — pick-and-place |
 | **Programs beat per-voxel tokens for scale**: 1,070-block coherent house, 0 failed commands, $0.008 | T22 — agentic track (`gpt-5-mini`) |
+| **Render-space realism is structurally blind**: deleting every interior in the corpus is not separable from real | T25 — `solidify` shares a group with `real_test` on MV-DINO-KID |
+| **`geom_kid` sees it at 202 real-sample spreads**, needs no GPU, and is exactly invariant to yaw and to material | T25 — validated on the same ladder |
 
 See [Results](results.md) for the full tables and figures, and
 [Data & curation](data-and-curation.md) for all five Minecraft corpora plus the LEGO
@@ -64,6 +72,7 @@ The AR model generates a house **bottom-up**: foundation → walls → pitched r
 
 Real builds vary wildly in size, which breaks fixed-shape models. BlockGen always
 `crop_to_non_air()` first, then handles size per track — EOS-terminated token streams
-(A), a fixed canonical grid (B), or size-agnostic graphs (C) — and uses **scale
+(A), a fixed canonical grid (B), size-agnostic graphs (C), or a `STOP`-terminated
+attachment stream (F) — and uses **scale
 normalization** (downsample to a canonical grid) to bring dense builds into range of the
 token tracks. This is discussed in [Representations](representations.md).

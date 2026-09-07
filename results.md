@@ -5,7 +5,7 @@ Tables, figures, and ablations backing the paper. Methods/repro live in
 **when**, because the dataset is being migrated (legacy `data/raw` → labeled
 tfrecord cache) and numbers are not comparable across caches.
 
-_Last updated: 2026-07-28._
+_Last updated: 2026-09-07._
 
 Legend: **Legacy** = `small_24.npz` (from `data/raw`, no metadata). **Labeled** =
 `tf_small_24.npz` (from tfrecords, 100% metadata).
@@ -65,6 +65,637 @@ interiors (so GrabCraft is exempt), vs 31% of 3D-Craft and 54% of text2mc — an
 pre-gate visual grid showed exactly that junk (trees, a truck, roof fragments).
 Load: `curation.houses.load_house_structures(max_dim)`.
 Compare to the old labeled-cache `houses` subset (714): **~3.7–4.2× more clean houses.**
+
+---
+
+## T29. Injecting geometry into attention — a null, and the reason is in the parameterization (2026-09-07)
+
+The complementary experiment to T28: instead of reading adjacency out of attention, put
+it in. `scripts/train_llm_geobias.py` holds Track D v2 exactly fixed — same 3D-BPE piece
+vocabulary, same `"<piece_name> <x> <y> <z>"` lines, same LoRA (r32/α16 on q_proj,v_proj),
+same optimizer/schedule, same seed, same 2048-token filter (it rebuilds the identical
+**297/2661** split, train 267 / val 30) — and adds, in the `bias` arm only, a learned
+additive attention bias indexed by the relative 3D offset between the pieces two token
+positions refer to. Zero-initialized, so at step 0 the arms are numerically identical;
+injected through a prepared `{"full_attention": ...}` mask, so it is shared across all
+28 layers and 12 heads.
+
+Causality is the binding constraint: a line's anchor is unknown until its coordinates are
+emitted, so the query-side reference is the anchor of the last **completed** line, and
+keys inside the query's own line get a separate learned scalar. Verified numerically that
+the same-line block is exactly that scalar (no coordinate leaks backward), that the
+dict-mask path reproduces HF's default causal mask bit-for-bit, and that the zero-init
+arm equals the control.
+
+| | control (= Track D v2) | + geometric bias |
+|---|--:|--:|
+| best val loss | 0.3683 @ep8 | **0.3662** @ep8 |
+| final val loss (ep20) | 0.4090 | 0.4048 |
+| mean parse rate | 0.903 | **0.994** |
+| degenerate samples (flat or stick) | 4/8 | 3/8 |
+| median blocks / sample | 169 | 161 |
+| real held-out builds, same measures | 0/30 degenerate | median 699 blocks |
+
+The control's 0.409 final val loss reproduces Track D v2's reported 0.41, so this is a
+faithful re-run and not a different experiment wearing the same name.
+
+**Verdict: null.** −0.0021 best val loss is not a result at one seed, the parse-rate gain
+lands in a metric that was already 0.99 in the original run, and the collapse mode is
+untouched: 3/8 vs 4/8 samples are still a flat slab or a stick against 0/30 for real
+builds, and the median sample is a quarter the size of a real house. n=8 samples cannot
+separate 3/8 from 4/8.
+
+**The diagnostic is worth more than the number.** Reading the learned table back
+(`geobias_table.png`) shows **364 of 729 offset buckets were never updated** — exactly
+zero. The reference point is the *previous* line's anchor and lines are emitted in
+`(y,z,x)` raster order, so `dy ≥ 0` always, and `dz`/`dx` are sign-constrained whenever
+the higher axes tie. Three of the six 6-adjacent offsets — `-x`, `-y`, `-z` — are
+**unreachable by construction**:
+
+| offset | learned bias |
+|---|--:|
+| `+x` | **+0.146** |
+| `+y` | −0.096 |
+| `+z` | −0.106 |
+| `-x`, `-y`, `-z` | +0.000 (never visited) |
+| zero offset | +0.101 |
+| all other reachable buckets (mean) | −0.168 |
+| specials | prompt −0.180 · same-line +0.104 · no-ref +0.173 |
+
+So the arm's whole learned signal is "attend to the piece one step back along the raster
+run" — a reparameterization of recency, which T28 already showed is the weak predictor.
+The bias never got the chance to express neighbourhood.
+
+**The fix this implies, and the next run.** The query reference has to be the *current*
+piece's anchor, not the previous one's, which requires emitting coordinates before the
+piece name (`"<x> <y> <z> <piece_name>"`) so the anchor is causally available at the
+moment the piece type is predicted. That change also makes all 729 buckets reachable. It
+needs its own matched control on the reordered format, since the serialization changes.
+
+Secondary caveat, stated in the script: the bias is shared across all layers and heads,
+so this null bounds a **shared-scalar** bias, not per-head structure.
+
+Figures: `geobias_loss.png`, `geobias_table.png`, and `samples_textured.png` per arm in
+`outputs/run_20260906_222749_llm_geobias_control/` and
+`outputs/run_20260906_232253_llm_geobias_bias/`.
+
+## T28. "Attention as an adjacency matrix" — measured, and dominated by a subtraction (2026-09-06)
+
+The proposal: skip training a structure model, run a pretrained LLM over a serialized
+build, read its self-attention `A[i, j]` as the probability that piece `i` connects to
+piece `j`, and get the structural prior for free. `scripts/probe_llm_attention.py` tests
+it directly — for every held-out house the true answer is known, so each of the
+`28 x 12 = 336` heads is scored by how well it ranks the truly 6-adjacent previous
+pieces above the non-adjacent ones (AUC over the causal candidate set `j < i`, which is
+exactly the pointer-network question "which placed piece does this one attach to").
+
+Setup: Track D's piece serialization and split, held fixed. 120 held-out builds — the
+30 Track D val builds plus 90 the finetune never saw at all — median 171 pieces, 2.89%
+of candidate pairs are true edges. Best head chosen on a train half of the builds,
+reported on the test half (n=60). Adapter = `run_20260722_072022_llm_pieces`.
+
+| predictor | AUC ↑ | distance-stratified AUC ↑ |
+|---|--:|--:|
+| chance | 0.500 | 0.500 |
+| recency `-(i-j)` | 0.831 | 0.557 |
+| base Qwen2.5-Coder-1.5B, best head (L14 H0) | 0.874 | 0.800 |
+| **+ LoRA (Track D), best head** (L14 H0) | **0.884** | 0.801 |
+| base, trained bilinear probe on hidden states (L14) | 0.895 | 0.825 |
+| + LoRA, trained bilinear probe on hidden states (L14) | 0.914 | 0.857 |
+| + LoRA, same probe at the **final** layer (L28) | 0.807 | 0.717 |
+| surface text: # of x/y/z fields that are the same token | 0.881 | 0.832 |
+| **surface text: L1 distance between the two printed anchors** | **0.980** | **0.969** |
+
+The stratified column computes AUC *within* sequence-distance bins and pools them. Lines
+are emitted in `(y,z,x)` raster order, so `i-j` alone is a strong predictor; holding it
+fixed collapses recency to 0.557 and leaves only what a predictor knows beyond position.
+
+**The heads are not at chance — and it does not matter.** A single head in the
+*un-finetuned* model reaches 0.874 (0.800 stratified), well clear of the recency floor.
+But `-||a_i - a_j||_1`, three lines of numpy over the coordinates the serialization
+literally prints on each line, scores **0.980 / 0.969** with no model at all. The
+attention head recovers a lossy fraction of information that is already sitting in the
+prompt in plain text. There is signal; there is nothing to *steal*.
+
+**What the head is probably doing.** Its raw AUC (0.884) is inside the CI of
+`coord_match` (0.881), the count of x/y/z fields that are the identical token — the
+signature of a copying/induction head matching coordinate strings, not a head that
+represents 3D neighbourhood.
+
+**Finetuning does not create an adjacency head.** 20 epochs of LoRA on this exact
+serialization moved the best head by +0.010 raw and **+0.001 stratified**, and the mean
+over all 336 heads by +0.006. The same layer, the same head (L14 H0) wins before and
+after.
+
+**A trained probe beats raw attention, at the layer generation does not use.** The
+supervised bilinear probe wins at every arm (0.914 vs 0.884), replicating the standing
+result of the attention-probing literature. Its best layer is 14 of 28; by the final
+layer — the one the LM head actually reads to emit the next token — it has fallen to
+0.807 / 0.717. The adjacency information is mid-stack and partly gone by the output.
+
+Figures: `head_auc.png` (all 336 heads, both arms), `probe_summary.png` (the table
+above), `example_build.png` (one build's true adjacency vs the winning head vs recency
+vs the printed coordinates) in
+`outputs/run_20260906_221420_attn_adjacency_probe/`.
+
+**Verdict: NEGATIVE for the proposal as stated**, and negative for a specific reason
+worth keeping — not "attention knows nothing", but "attention knows a degraded copy of
+the input, and is weakest exactly where the model would consume it". The direction the
+graph-transformer literature actually runs — *inject* structure into attention — is
+tested separately in T29.
+
+## T27. Block ontology — a *measured* material reference for the agentic model (2026-09-06)
+
+Track E hands the model a list of 70 block names and nothing else; everything it
+believes about those materials is its own prior. `blockgen/ontology` attaches
+knowledge to the names — colour and surface measured from the shipped textures,
+placement behaviour and material affinity mined from `houses_32` (2,661 builds /
+2.78M placements, ~1 s), game rules written once — and renders it as a table that
+**replaces** the bare palette list in the system prompt (1,278 → 4,258 tokens).
+
+Full design: [`docs/ontology.md`](docs/ontology.md). What the corpus said:
+
+| block | layer | form | pairs with (NPMI, palette-closed) |
+|---|---|---|---|
+| `oak_planks` | mid | plate | oak_stairs · oak_log · torch |
+| `oak_stairs` | roof | trim | oak_planks · oak_slab · oak_fence |
+| `spruce_log` | mid | post | spruce_planks · spruce_stairs |
+| `grass_block` | ground | plate | dirt · coarse_dirt · oak_leaves |
+
+### The pilot (run `20260906_184620_ontology_pilot`, gpt-5-mini, 12 detailed prompts/arm, 48³, $0.22)
+
+Four arms, all `oneshot` with one knob moved. `ont_shuffled` is the control: the
+same table with every attribute permuted onto the wrong block, **token-matched to
+`ont_mined` to the character**.
+
+| arm | blocks | coherence_rate | cmd_ok | geom_kid ↓ | palette_jsd_family ↓ | BlockScore ↓ |
+|---|--:|--:|--:|--:|--:|--:|
+| `ont_none` | 1,926 | 0.92 | 0.997 | 6.67 [5.21, 8.71] | 0.243 [0.168, 0.317] | 172 |
+| `ont_mined` | 1,623 | 0.83 | 1.000 | 7.92 [6.35, 10.36] | 0.193 [0.104, 0.281] | 205 |
+| `ont_shuffled` | 2,213 | 0.67 | 1.000 | 8.13 [6.39, 10.50] | 0.186 [0.110, 0.261] | 210 |
+| `ont_stats` | 1,989 | 1.00 | 0.999 | 9.55 [7.85, 12.35] | 0.211 [0.130, 0.291] | 247 |
+
+Bench: `--tier fast --corpus houses_48` (size-matched to the 48³ canvas; scoring
+these against `houses_32` inflates every geometry pillar and was re-run).
+
+**Verdict: no effect, and the run is underpowered by design.** Every interval
+overlaps every other. n = 12 is a plumbing and cost check, not a result — the
+suite needs n ≥ 256 (T23/T26), and at n = 12 a one-build swing moves
+`coherence_rate` by 0.08.
+
+The one thing the pilot does settle is **why the control is mandatory**:
+`ont_mined` and `ont_shuffled` are indistinguishable on every metric, and both
+move `palette_jsd_family` toward the corpus relative to `ont_none` by about the
+same amount. Whatever the table did here, it did not require the attributes to be
+attached to the right blocks. Read without the control, `ont_mined`'s
+0.243 → 0.193 palette improvement would have been reported as the ontology
+working.
+
+Material mix, mean per-build family share (top corpus families):
+
+| family | corpus | `ont_none` | `ont_mined` | `ont_shuffled` |
+|---|--:|--:|--:|--:|
+| wood_oak | 16.6% | 15.4% | 10.2% | 11.3% |
+| wood_spruce | 9.2% | 1.7% | **9.4%** | 6.2% |
+| stone | 6.2% | 9.4% | **6.5%** | 7.1% |
+| cobblestone | 5.6% | 4.2% | **6.6%** | 13.7% |
+| stone_brick | 5.1% | 13.8% | 12.2% | 8.5% |
+
+`ont_mined` lands closest on three of the five, and is the only arm that uses
+spruce at corpus rate. Suggestive, not significant at this n.
+
+**The renders and `geom_kid` disagree, which is itself a datum.** Looking at
+`samples_ont_none.png` next to `samples_ont_mined.png`: the `ont_none` church is a
+roof with a wall under it, its pagoda is a green mass, its arch bridge is a grey
+lump. The `ont_mined` versions of the same three prompts have a bell tower with
+arched windows, a tiered pagoda, and a bridge with a visible arch and lanterns
+along the deck. `geom_kid` ranks `ont_none` *better* (6.67 vs 7.92, overlapping).
+At n = 12 both readings are noise, but this is exactly the kind of case the
+lab's 2AFC page exists to settle — and exactly the failure mode T25 found in the
+render tier. Do not resolve it by argument; run the pairs.
+
+**An arm-independent finding worth more than the ablation:** every agentic arm
+uses ~10 distinct blocks per build against the corpus's **21.5**. Track E builds
+are materially half as rich as real ones regardless of what it is told about
+materials, and no metric in the current scorecard penalizes that directly
+(`palette_size_w1` is in `dataset_stats`, not a pillar).
+
+Next: n ≥ 128 per arm on the two live arms (`ont_none`, `ont_mined`) plus the
+control, ~$2; and the second implementation — the ontology as a *validator* in the
+repair loop rather than context, which costs no prompt budget at all.
+
+## T26. Does the benchmark reward better builds? Dose-response, baselines, humans (2026-08-31)
+
+> ### Bottom line
+> On three of four dose axes both realism metrics are **perfectly monotone**
+> (Spearman +1.000) across 105–226 noise floors. On the fourth — progressively
+> filling interiors — `mv_dino_kid` has Spearman **+0.300, is not monotone, and
+> its total dynamic range is 0 noise floors**, while `geom_kid` is +1.000 over
+> 133. Separately: both metrics are **quadratic in the fraction of an arm that
+> is bad**, so a 25%-failure arm scores only 31% of the way to fully-bad —
+> reporting `sqrt(KID)` recovers the failure rate to a mean error of 0.022.
+> Five procedural baselines and a 2AFC human study are now in place.
+
+**Run:** `python scripts/bench_doseresponse.py --n 64` ·
+`python -m blockgen.eval.bench --tier both --baselines …` ·
+`python scripts/human_study_export.py`
+
+### T26a. Dose-response — the question the ladder does not ask
+
+The ladder asks whether a metric can tell damaged from real. A leaderboard needs
+more: does the number move *smoothly and in the right direction* as quality
+changes? A metric can pass every gate by firing on an artifact while being flat
+across the range that separates two submitted models.
+
+n=64 per rung, 399-build reference. `range (sd)` is best-to-worst span in units
+of the metric's own noise floor.
+
+| axis | metric | Spearman | monotone | range (sd) |
+|---|---|---|---|---|
+| **solidify** (interior filled, 0→100%) | `geom_kid` | **+1.000** | yes | **133** |
+| | `mv_dino_kid` | **+0.300** | **no** | **0** |
+| occupancy noise (0→20% blocks moved) | `geom_kid` | +1.000 | yes | 226 |
+| | `mv_dino_kid` | +1.000 | yes | 143 |
+| decimation (32³→8³) | `geom_kid` | +1.000 | yes | 105 |
+| | `mv_dino_kid` | +1.000 | yes | 121 |
+| **mixture** (fraction of arm that is real) | `geom_kid` | +1.000 | yes | 105 |
+| | `mv_dino_kid` | +1.000 | yes | 121 |
+
+Two readings. **The suite does reward better output**: on the mixture axis —
+the one that most resembles how a generator actually fails, some good builds and
+some bad — both metrics are perfectly monotone in the fraction of the arm that
+is real. And **the solidify row is T25 restated as a curve rather than a point**:
+the render metric's response to progressively deleting every interior in the
+corpus is smaller, end to end, than one draw of its own sampling noise. It is
+not weakly sensitive; it is flat.
+
+The `partial_solidify` probe fills interior cells **inward from the walls**,
+nearest-first, which gives an exactly calibrated dose (interior ratio 0.1175 →
+0.0941 → 0.0708 → 0.0475 → 0.0242). Two earlier designs were rejected: random
+speckle is detected as noise rather than as lost interior, and filling whole
+rooms largest-first made the axis useless — one dominant pocket is typically
+more than a quarter of the interior, so `frac=0.25` already removed 71% of it.
+
+### T26b. Both metrics are quadratic in the failure rate
+
+`MMD²(αP + (1−α)Q, P) = (1−α)²·MMD²(Q,P)`, so a squared-MMD metric responds to
+the *fraction* of bad samples quadratically. Measured on the mixture ladder:
+
+| bad fraction | `mv_dino_kid` | quadratic | linear | measured / linear |
+|---|---|---|---|---|
+| 0.25 | 0.043 | 0.036 | 0.138 | **0.31** |
+| 0.50 | 0.149 | 0.138 | 0.274 | 0.54 |
+| 0.75 | 0.304 | 0.308 | 0.410 | 0.74 |
+| 1.00 | 0.546 | 0.546 | 0.546 | 1.00 |
+
+Total absolute error against a quadratic 0.023, against a linear 0.325 — a 14×
+better fit. **An arm that fails on a quarter of its builds looks 31% as bad as
+one that fails on all of them.** That is the wrong shape for ranking generators,
+which fail on subsets of prompts rather than uniformly.
+
+The fix is free: `MMD = sqrt(MMD²)` is *linear* in the contaminated fraction.
+`sqrt(KID)/sqrt(KID_worst)` recovers the true bad fraction to a mean absolute
+error of **0.022** (`mv_dino_kid`) and **0.028** (`geom_kid`), against 0.119 and
+0.142 for the raw values — five times better. The scorecard now carries `mmd`
+beside every squared-MMD metric as a companion readout. It is a monotone
+transform, so it inherits the ordering gates but not the ladder's noise-floor
+units; read it for "what fraction of this arm is bad", read the metric itself
+for "is this the right distribution".
+
+**Which runs actually carry it.** The readout was added *after* the T26e run was
+launched, so that scorecard does not contain an `mmd` key — the process had
+already imported the old module. Verified separately on
+`outputs/run_mmd_check_bench` (FAST tier, n=96): `real_test` geom_kid −0.145 →
+`mmd` 0.000 (negative KID clamps to zero, as it should), `real@canon8` 17.721 →
+4.210, `real@solidify` 23.542 → 4.852. Any run from this commit onward carries
+it; T26e's does not. Caught by a reviewer of this entry, not by the author.
+
+### T26c. Procedural baselines — the floor a leaderboard needs
+
+Five non-learned arms, seeded, fitted on the **train split only** (a baseline
+that had seen val or test would compete with an advantage no submitted model
+has). Rendered and eyeballed before any number was written down, per T21's
+standing lesson.
+
+| baseline | what it is | blocks | wall_frac | thickness | interior | lcc |
+|---|---|---|---|---|---|---|
+| `uniform_random` | random voxels at real density | 1123 | 0.063 | 1.01 | 0.003 | 0.44 |
+| `shell_box` | hollow box, floor + walls + flat roof | 1783 | 1.000 | 1.00 | 0.666 | 1.00 |
+| `patchwork` | 8³ patches from *different* real builds | 1704 | 0.551 | 1.07 | 0.012 | 0.93 |
+| `gabled_house` | box + pitched roof + door + windows | 1497 | 0.977 | 1.00 | 0.592 | 1.00 |
+| `train_copy_noise` | a train build, 10% of blocks displaced | 1227 | 0.402 | 1.05 | 0.038 | 0.98 |
+| **real** | | 1411 | 0.657 | 1.08 | 0.115 | 1.00 |
+
+`gabled_house` is the bar that matters — it is what a competent afternoon of
+hand-written rules produces, and the renders confirm it reads as a house. Note
+it and `shell_box` are *too* hollow (0.59, 0.67 against a real 0.115): an empty
+shell is as far from a real house as a solid blob, in the other direction, which
+is the whole reason coherence is reported as distance-to-real.
+
+`patchwork` is an **attack, not a baseline**. Every patch is lifted verbatim from
+a real house, so the 2×2×2 pattern statistics that do most of the work in
+`geom_kid` are near-perfect while the global structure is nonsense. Its position
+in the leaderboard is the honest statement of the descriptor's limitation.
+
+### T26d. The human study
+
+Metric-vs-human agreement is the first thing a reviewer asks of a new metric, and
+the ladder cannot supply it — it proves the metrics rank *synthetic corruption*,
+not that they agree with people.
+
+**Design.** `geom_kid` and `mv_dino_kid` are two-sample statistics: they score a
+distribution, so there is no per-build number to correlate with a per-build
+rating. Showing raters a grid from arm A beside a grid from arm B would match
+the metric's level but asks people to eyeball a distribution, which they are poor
+at. So raters compare **individual builds** (easy, reliable) and the judgements
+are **pooled to the arm pair** (the level the metric speaks at). 9 arms → 36
+pairs, 288 trials, 40 per session, sides randomized per trial.
+
+Analysis is fixed in advance, in this order: exclude sessions below 75% on
+real-vs-noise catch trials; fit **Bradley-Terry** arm strengths (not raw win
+rate, which depends on which opponents an arm happened to be drawn against, and
+coverage is always uneven when each session sees a random subset); then report
+pairwise agreement on humanly-decided pairs plus Spearman against the BT scores.
+
+The pipeline is **tested end to end on simulated raters**: 14 sessions, 2 of them
+answering at random, and it dropped exactly those two on catch trials and
+recovered the injected quality ordering. Arm labels are stripped from the page —
+verified by grep — so the condition cannot be read off the source.
+
+Instrument: `scripts/human_study_export.py` (stimuli + self-contained page) and
+`scripts/human_study_analyze.py` (exclusion → Bradley-Terry → agreement).
+
+### T26e. The full leaderboard, with the floor in it
+
+n=128 controls and baselines, 399-build reference, 16 arms, self-validation 9/9.
+
+| # | arm | BlockScore ↓ | worst pillar | appearance | geometry | palette |
+|---|---|---|---|---|---|---|
+| 1 | `real_test` | **0.00** | — | +0.00 | +0.00 | +0.00 |
+| 2 | `real@canon16` | 60.80 | geometry | +36.05 | +60.80 | +0.88 |
+| 3 | **`native_oriented`** | **87.14** | geometry | +62.38 | +87.14 | +6.28 |
+| 4 | `real@canon8` | 170.35 | geometry | +159.06 | +170.35 | +4.46 |
+| 5 | `real@solidify` | 201.80 | geometry | **+0.35** | **+201.80** | +2.51 |
+| 6 | **`pick_n_place`** | **220.29** | geometry | +174.13 | +220.29 | +35.10 |
+| 7 | `real_shuffled_materials` | 220.53 | appearance | **+220.53** | **+0.00** | +0.00 |
+| 8 | `patchwork` | 224.63 | appearance | **+224.63** | **+183.03** | −2.97 |
+| 9 | `gabled_house` | 300.15 | geometry | +291.87 | +300.15 | +25.61 |
+| 10 | `train_copy_noise` | 302.73 | geometry | +145.03 | +302.73 | +1.11 |
+| 11 | `real@monochrome` | 304.62 | appearance | +304.62 | +0.00 | +79.63 |
+| 12 | `shell_box` | 464.49 | appearance | +464.49 | +312.39 | +24.91 |
+| 13 | `uniform_random` | 562.77 | appearance | +562.77 | +344.94 | +23.70 |
+| — | **`agentic_oneshot`** | UNRANKED (n=12) | — | +35.19 | +78.56 | +35.44 |
+| — | `real@single_mode` | **DQ** mode collapse | — | — | — | — |
+| — | `train_verbatim` | **DQ** memorization | — | — | — | — |
+
+**All three learned arms beat all five procedural baselines on BlockScore** —
+which is the first time this project has been able to say that, because until now
+there was no floor to say it against. `pick_n_place` (220) clears `patchwork`
+(225) by very little, and on `geom_kid` alone it is actually *worse*
+(24.06 vs 19.98) — consistent with T24e, where every sample hits the 384-node cap.
+
+**The two blind spots are visible in one table, and they are complementary.**
+`real@solidify` reads +0.35 on appearance and +201.80 on geometry; `patchwork`
+reads +224.63 on appearance and +183.03 on geometry. Each tier is fooled by the
+corruption aimed at it and rescued by the other. The asymmetry is worth noting
+honestly: the render tier's blindness to `solidify` is near-total (a factor of
+~580 between the pillars), whereas the attack on `geom_kid` only moves it about
+1.2× — local-pattern matching buys `patchwork` a better geometry score than
+genuinely coherent but simple builds get, but nothing close to a pass.
+
+`patchwork`'s palette score is **−2.97**, i.e. *closer to real than the held-out
+real set is*, which is exactly right: its blocks are literally real blocks.
+
+### T26f. A pre-registered prediction for the human study
+
+Both metrics rank **`patchwork` significantly above `gabled_house`** — separate
+Holm-corrected groups on both (`geom_kid` e vs g; `mv_dino_kid` g vs h). The
+renders say `gabled_house` is a recognisable house with a pitched roof and
+windows, and `patchwork` is a pile of real fragments that is globally incoherent.
+
+**Prediction, recorded before any human data is collected: human raters will
+reverse this pair.** If they do, it localises a real limitation — both metrics
+are distribution distances, and `gabled_house` is *too regular* to sit in the
+real distribution (wall fraction 0.977 against a real 0.657, perfect bilateral
+symmetry, an empty shell interior of 0.592 against 0.115) while `patchwork`
+inherits real texture statistics wholesale. The metrics would then be rewarding
+*statistically* house-like over *recognisably* a house.
+
+If humans agree with the metrics instead, that is a finding too, and a more
+comfortable one. Either way the pair is the highest-information comparison in the
+study, and it is registered here rather than selected afterwards.
+
+<!--HUMAN-RESULTS-->
+
+---
+
+## T25. The benchmark's realism metric was structurally blind (2026-08-31)
+
+> ### Bottom line
+> Filling every enclosed air cell in the held-out corpus — a median **31% more
+> blocks**, every room deleted, silhouette untouched — leaves **MV-DINO-KID
+> unable to separate it from held-out real** (0.000 vs −0.001; same group after a
+> paired Holm-corrected test that *does* separate `train_verbatim` at a
+> difference of 0.015). A generator that emits solid blobs shaped like houses is
+> invisible to the primary realism metric, and it is not a power problem. `blockgen/eval/bench/geometry.py`
+> adds **`geom_kid`**, the same unbiased estimator on D4-invariant voxel
+> descriptors, which puts the same arm **202 real-sample spreads** from real,
+> passes every ladder gate, and needs no GPU. Three defects were found and fixed
+> along the way, two of them in the ladder's own denominators.
+
+**Run:** `python -m blockgen.eval.bench.ladder --family geometry` ·
+`python -m blockgen.eval.bench --tier both --n 128 --n-ref 399 --arms …`
+
+### T25a. The blindness, measured
+
+`probes.solidify` fills enclosed air with the build's own dominant material, so
+it is not detectable as a palette anomaly either. On 200 held-out real houses it
+adds a median **31%** blocks (mean 37%) and affects **91%** of builds. Scored at
+n=128 against the same 399 val builds:
+
+| arm | `mv_dino_kid` ↓ | `geom_kid` ↓ |
+|---|---|---|
+| `real_test` (floor) | −0.001 [−0.004, 0.003] | −0.09 [−0.22, 0.04] |
+| **`real@solidify`** | **0.000 [−0.002, 0.004]** | **22.1 [20.7, 23.7]** |
+| `real@canon16` | 0.109 | 6.57 |
+| `real_shuffled_materials` | 0.673 | **−0.09** — bit-identical to real |
+| `real@monochrome` | 0.930 | **−0.09** — bit-identical to real |
+
+The bottom two rows are why this is a second tier and not a replacement:
+`geom_kid` reads occupancy only, so a material permutation moves it by *exactly*
+zero. The tiers are complementary halves, and the ladder gates each on the rungs
+it can see — `GEOMETRY_RUNGS` replaces the material-noise triple with an
+occupancy-noise triple and moves material corruptions into its *invariance* set.
+
+This was not a hypothetical risk. T23d recorded `native_oriented` at an
+enclosed-air ratio of 0.005 against a real 0.114 — essentially solid — while it
+scored respectably on KID, and the only thing that caught it was a hand-picked
+scalar with no distributional metric behind it.
+
+### T25b. The geometry ladder (n=64, CPU, ~1 min)
+
+| metric | real | canon16 | canon8 | solidify | occ_noise_10 | jitter_cols | mat-shuffle | rot90 | sd | validity |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **geom_kid** | 0.555 | 13.46 | 21.11 | **23.74** | 32.18 | 37.77 | *0.555* | *0.555* | 0.347 | **PASS** |
+| geom_mmd_rbf | 4.32 | 112.8 | 183.6 | 217.1 | 286.8 | 348.7 | *4.32* | *4.32* | 2.44 | **PASS** |
+
+Italic cells are bit-identical to the real column — exact invariance, not
+approximate. For comparison, the render tier on the same rung: `kid` scores
+`solidify` at **0.6 sd** and does not carry the `S6_resolves_solidify` flag;
+`geom_kid` scores it at **67 sd**.
+
+**Which part of the descriptor does the work** (noise-floor sd, n=64):
+
+| descriptor | dim | canon16 | solidify | occ_noise_10 | jitter_cols | mat-shuffle |
+|---|---|---|---|---|---|---|
+| full | 77 | 51.2 | 92.0 | 125.4 | 147.6 | **0.0** |
+| − pattern block | 22 | 74.8 | 103.8 | 58.7 | 93.0 | **0.0** |
+| − scalars | 68 | 31.4 | 76.7 | 116.2 | 136.2 | **0.0** |
+| pattern block only | 55 | 30.6 | 51.4 | 107.9 | 123.8 | **0.0** |
+| − block count | 76 | 42.0 | 89.8 | 122.7 | 144.2 | **0.0** |
+
+No component carries it alone, and removing the block count barely moves
+`solidify` (92.0 → 89.8), so this is not a size detector in disguise.
+
+### T25c. Three defects, two of them in denominators
+
+**1. The renderer failed open — and would have destroyed the feature cache.**
+`features.render_views` substituted a blank white frame for any exception. A
+PyOpenGL/Python version mismatch made every `render_structure` call raise: every
+image came back white, every DINO feature collapsed to one vector, and every arm
+scored **KID = −4e-13**, i.e. better than real. Worse, `load_or_build` checks a
+`render_canary_sha` before trusting its cache, so the all-white canary would have
+mismatched and the 30 MB cache would have been **silently rebuilt from blank
+frames**. Now raises past a 2% failure rate. Repairing PyOpenGL (3.1.0 → 3.1.7)
+reproduced the stored canary `058d907f0d4bbf54` bit-for-bit, so no previously
+recorded number is affected.
+
+**2. `sd(real)` — the unit every gate is stated in — was mismeasured twice.** It
+came from repeated subsamples of a pool that *excluded* the probe set, so the
+"fresh real draw" G7 tests was not a member of its own null; and overlapping
+draws carry a finite-population factor that shrinks their spread. Corrected,
+`geom_kid` moved from failing G7 at 3.5 sd to passing. A metric separating
+`solidify` at 67 sd had been rejected for noise that was measured wrong.
+
+**3. G8 tested a difference of means against the spread of a single draw** —
+larger by `sqrt(reps)`, so it had almost no power, and it passed `legacy_cmmd`.
+Against the standard error of the difference, the same estimator's documented
+1/n decay is rejected decisively:
+
+| metric | n=16 | n=32 | n=64 | n=128 | verdict |
+|---|---|---|---|---|---|
+| `kid` | 0.0038 | 0.0053 | 0.0043 | 0.0029 | stable |
+| `legacy_cmmd` | 0.1733 | 0.0999 | 0.0583 | 0.0389 | **drifts 14.8 se** |
+| `fd` | 0.1994 | 0.1443 | 0.1078 | 0.0759 | **drifts 16.6 se** |
+| `one_minus_coverage` | 0.7409 | 0.5640 | 0.3311 | 0.1396 | **drifts 16.0 se** |
+
+`legacy_cmmd`'s null mean halves every time n doubles, exactly as the estimator's
+bias predicts. **Correction to T23a:** the earlier fd / coverage / cmmd G8
+failures were right, but for a weaker reason than stated; `one_minus_recall` now
+also fails G8, and `one_minus_coverage` fails G8 rather than G6.
+
+### T25d. Interiors were undercounted on real data too
+
+`enclosed_air_ratio` counts only *fully sealed* air, so a room with an open
+doorway counts as no room. `geometry.interior_volumes` also closes the solid
+(26-connected, sealing openings up to two blocks wide) and reports the air that
+becomes enclosed only then. Calibration on a hollow 9-cube with a 343-cell room:
+a 1×1, 1×2 or 2×2 opening recovers all 343; a 3×3 hole or a missing wall recovers
+0 (correctly an open structure, not a room). On 200 held-out real houses:
+
+* **9.0% have no sealed interior at all — and 94.4% of those do have a room.**
+* Apertures account for **20.5% of all real interior volume.**
+
+Every earlier statement in this project that generated builds "have no interiors"
+was made with the sealed-only counter and understates real houses by that much.
+
+### T25e. BlockScore — a leaderboard the known cheats lose
+
+Realism alone has a trivial winning strategy: T23c measured `train_verbatim`
+scoring second best in the table. So novelty and diversity are **disqualification
+gates**, not terms, and pillars combine by **worst case**, never by average — a
+mean would let an arm buy a bad pillar with a good one, and the trade the render
+tier invites is precisely the dangerous one. Units are real-sample spreads,
+calibrated in-run against `real_test`; there are no weights to tune.
+
+The aggregate is validated like a metric: `composite.validate()` asserts real
+wins and every degenerate control loses, and a run that fails prints a warning
+telling you not to quote the ranking. **It caught two real defects on its first
+run** — a memorization gate silently disabled because the control's duplicate
+rate is exactly 0 with a zero-width interval (so `z` was NaN and
+`train_verbatim`, at duplicate rate 1.000, sailed through), and a blindness check
+being applied to a tier that cannot see it.
+
+**Cross-track, n=128 controls, 399-build reference, 8.5 min wall (both tiers,
+both head-to-head tables). Self-validation 9/9.**
+
+| # | arm | BlockScore ↓ | worst pillar | appearance | geometry | palette | coherence | geom scalars |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `real_test` | **0.00** | — | +0.00 | +0.00 | +0.00 | +0.00 | +0.00 |
+| 2 | `real@canon16` | 60.80 | geometry | +36.26 | +60.80 | +0.88 | +0.79 | +0.68 |
+| 3 | **`native_oriented`** | **87.14** | geometry | +61.87 | +87.14 | +6.28 | +0.50 | +0.37 |
+| 4 | `real@canon8` | 170.35 | geometry | +158.77 | +170.35 | +4.46 | +1.77 | +1.75 |
+| 5 | `real@solidify` | 201.80 | geometry | **+0.30** | **+201.80** | +2.51 | +0.31 | +2.73 |
+| 6 | **`pick_n_place`** | **220.29** | geometry | +174.62 | +220.29 | +35.10 | +0.50 | +0.92 |
+| 7 | `real_shuffled_materials` | 221.37 | appearance | **+221.37** | **+0.00** | +0.00 | +0.00 | +0.00 |
+| 8 | `real@monochrome` | 304.57 | appearance | +304.57 | +0.00 | +79.63 | +0.00 | +0.00 |
+| — | **`agentic_oneshot`** | UNRANKED (n=12) | — | +35.15 | +78.56 | +35.44 | +0.39 | +0.91 |
+| — | `real@single_mode` | **DQ** mode collapse (+45.1) | — | — | — | — | — | — |
+| — | `train_verbatim` | **DQ** memorization (+10.8) | — | — | — | — | — | — |
+
+Rows 5 and 7 are the two blindnesses side by side: `solidify` is +0.30 on
+appearance and +201.80 on geometry; `shuffled_materials` is +221.37 on appearance
+and **exactly** +0.00 on geometry. Neither tier alone ranks both correctly, and
+the max-over-pillars rule is what makes the aggregate catch both.
+
+Cross-track ordering is unchanged from T23d where they overlap — agentic ahead of
+`native_oriented` on both realism metrics — with `pick_n_place` last, consistent
+with T24/T24e (every sample hits the 384-node cap, so its builds are truncated).
+`agentic_oneshot` stays **unranked at n=12**; regenerate at n ≥ 128 before
+quoting it (≈ $0.07).
+
+
+
+### T25f. Head-to-head, and the p-value that made it vacuous
+
+Marginal intervals are not a comparison: non-overlap demands a difference 41%
+larger than significance does. `compare.rank_table` tests every pair with the
+reference draw shared and applies Holm across the family.
+
+The first run put **every arm, from held-out real to a monochrome corpus, in one
+"not separated" group.** A bootstrap sign-balance p is floored at `1/n_rep`, and
+Holm over the 55 pairs of an 11-arm run multiplies 0.005 to 0.275 — nothing can
+reach 0.05 however large the difference. The reported `p` is now studentized and
+is not floored; `p_boot` is kept alongside.
+
+Corrected, the two tiers give the cleanest statement of T25a. Arms sharing a
+letter are not separated at α = 0.05 after Holm:
+
+| arm | `mv_dino_kid` | grp | `geom_kid` | grp |
+|---|---|---|---|---|
+| `real_test` | −0.001 | **a** | −0.095 | **a** |
+| **`real@solidify`** | 0.000 | **a** | **22.03** | **f** |
+| `real_shuffled_materials` | 0.676 | f | −0.095 | **a** |
+| `real@monochrome` | 0.930 | g | −0.095 | **a** |
+| `train_verbatim` | 0.015 | b | 0.960 | b |
+| `agentic_oneshot` | 0.107 | c | 8.52 | c |
+| `real@canon16` | 0.110 | c | 6.57 | c |
+| `native_oriented` | 0.188 | d | 9.46 | d |
+| `real@canon8` | 0.484 | e | 18.58 | e |
+| `pick_n_place` | 0.533 | e | 24.06 | f |
+| `real@single_mode` | 1.805 | h | 41.72 | g |
+
+**`real@solidify` shares group `a` with held-out real on the render metric.** This
+is not a power failure: the same test at the same n separates `train_verbatim` at
+a difference of 0.015 and gives it its own group. The render tier resolves a
+0.015 difference and cannot resolve the deletion of every interior in the corpus.
+On `geom_kid` the same arm is group `f`, Δ = −22.13 [−24.08, −20.72], p ≈ 0.
+
+Two things measured and *not* claimed: pairing the reference changes interval
+width by under 10% and inconsistently in sign, so it is the correct null rather
+than a power gain — but the term it cancels analytically is the expensive one,
+and `distances.kid_arm_term` skips it exactly, taking a 66-pair table from tens
+of minutes to about one.
 
 ---
 
@@ -198,6 +829,73 @@ Caveat: 12 builds and 2 prefix points. Directionally clear, statistically thin.
 Next, in order: sparse candidate list so `max_nodes` can reach ~1024 (unblocks
 both the size confound and the STOP signal), re-run the prefix test at n≥32
 builds, then n≥256 samples before quoting KID.
+
+### T24e. Formulation audit — the placer's label is not identifiable (2026-08-17)
+
+Written up in full at `docs/pick-and-place.md`. Four measurements, all on
+`houses_32` train/val under the canonical split.
+
+**1. The placer is trained on an unidentifiable target.** Several open faces can
+point at the *same* empty cell, so placing block `v` at cell `c` from parent A or
+from parent B yields a byte-identical structure — but cross-entropy names one
+correct and scores the rest as errors. Over 56,223 real placements:
+
+| faces aiming at the target cell | 1 | 2 | 3 | ≥4 |
+|---|---|---|---|---|
+| share | 19.8% | **61.6%** | 18.2% | 0.4% |
+
+Mean multiplicity **1.99** ⇒ a model that treats tied faces as equivalent and
+breaks ties at random tops out at `place_acc` **0.568**. Measured val `place_acc`
+is **0.729**, *above* that ceiling — so part of the reported accuracy is the model
+reproducing **BFS's tie-break convention**, an artifact of the serializer rather
+than a property of houses. Fix: marginalize the loss over cells (`logsumexp` the
+face logits within each `φ⁻¹(c)` fibre) so the label becomes well-defined and
+`place_acc` becomes comparable across orderings. Not yet implemented.
+
+**2. `pick_acc` never had a baseline.** `place_acc` is reported against its chance
+floor, `pick_acc` bare. On val (143,356 nodes, 190 pieces): most-frequent-block =
+**0.189** vs measured **0.607** (3.2×); unigram entropy **3.717 nats** vs measured
+`pick_loss` **1.578**. The picker is genuinely learning — previously unquotable.
+`evaluate()` should emit both, as it does `place_chance`.
+
+**3. Uncapped corpus scale** (400 train builds, largest component):
+
+| | p50 | p90 | max |
+|---|---|---|---|
+| nodes per build | **1,069** | 2,611 | 7,673 |
+| open faces at completion | 1,980 | 4,980 | 9,072 |
+| Σₜ open-faces(t) | 1.1 M | 6.5 M | 32 M |
+
+Σₜ Fₜ ≈ N² exactly (median ratio 1.00 — Fₜ *is* the partial build's surface area),
+which prices the "make every candidate connection a token" idea at 1.1 M tokens
+per median house. Dead. Persistent face tokens cost 6N ≈ 6.4k (linear, but 7× the
+sequence for the same content). A **typed** connection token is tractable: 10,842
+distinct `(parent_piece, dir, child_piece)` triples, 1,386 covering 90%, and it
+prunes the pointer's candidate set from a median 1,928 open faces → 286 (direction
+fixed) → **27** (typed). It cannot replace the pointer, only shrink it.
+
+**4. The window that makes the refactor free.** Recency gap `t − parent`, i.e. how
+far back the true parent is:
+
+| ordering | gap p50 | parent within last K |
+|---|---|---|
+| **bfs** | 122 | K=512 → **100.0%** (bounded by BFS layer width) |
+| dfs | 1 | K=32 → 98.5%, but the tail reaches 4,289 |
+| layered | 86 | K=256 → 71.9% |
+
+So under BFS, `[B,N,N,6]` → `[B,N,512,6]` loses **zero** reachable targets and
+makes placer memory linear in N. That is the sparse-candidate refactor, now with a
+measured K. (Measured on 60 builds / 60,305 placements — re-check on the full
+split before hard-coding 512.)
+
+**Correction to T24d.** Re-running the prefix test on the same `--complete-only`
+checkpoint at **n=24** (was n=12) moves `abs(cont_ratio−1)` from `0.213 → 0.103`
+to `0.169 → 0.105 → 0.129`, and the verdict from `USES THE PREFIX` to `NOT BLIND
+BUT NOT READING LENGTH`. `length_corr` is ≈0 for **both** training sets (−0.05
+all-builds, −0.02 complete-only). The defensible claim is narrower than T24d's:
+`--complete-only` removes the *blindness signature* (the error stops growing with
+prefix length) but does **not** make the model read build length. The n=12
+optimistic reading did not survive doubling the sample.
 
 ---
 
@@ -1825,7 +2523,9 @@ connectivity/validity gate (notes §9.3).
   _StableText2Brick (cuboid `hxw` format) not yet rendered — needs an hxw→LDraw converter._
 
 > Browsable docs: `mkdocs serve` (site under `docs/`, config `mkdocs.yml`) — overview,
-> models, representations (with F6/F7), experiments, and the LEGO roadmap.
+> models, representations (with F6/F7), experiments, the pick-and-place track
+> (`docs/pick-and-place.md` — architecture, I/O contract, formulation audit, and the
+> math), and the LEGO roadmap.
 
 ---
 
@@ -1840,3 +2540,29 @@ connectivity/validity gate (notes §9.3).
       current `--samples 16` default no arm comparison is resolvable below a 0.15 KID gap.
 - [ ] Score the neural AR arms through `bench` (needs `scripts/dump_samples.py` per arm).
 - [ ] Human 2AFC study + metric-vs-human rank correlation, to justify the suite for the paper.
+
+### T26g — BlockLab dataset tree and branches (tooling)
+
+The hub's flat dataset list was replaced by a derivation tree. It also fixed an
+arithmetic error: summing all 35 rows reported **~178,000 builds where 96,103
+exist**, because `raw:all` is the five raw corpora listed beside it and each
+split is part of its corpus. Counts are now per node.
+
+| root | builds | children |
+|---|---|---|
+| `raw:all` | 59,387 | 5 raw corpora (text2mc_schem 28,235 · text2mc_h5 11,092 · legacy 10,963 · grabcraft 6,560 · 3dcraft 2,537) |
+| 9 corpus caches | 36,545 | `houses_32` carries its 3 splits |
+| 13 run dirs | 171 | 17 arms |
+
+Every edge is read off disk. Corpus provenance (`houses_32` ← grabcraft 1,360 ·
+3dcraft 1,267 · text2mc 34, from the manifest's per-row `corpus`) is a
+**multi-parent** relation and is rendered as an annotation, not an edge.
+
+**Branches.** Any node can be subset by rule — labels, source corpus, category,
+title, block count, fits-in-cube, seeded random sample — stored as
+`{parent, rule}` JSON, resolved to parent indices on read, and nestable. `live`
+rules re-run on read (they grow as you label); `frozen` rules store the resolved
+index list and are what an experiment should cite. Verified end to end: a
+grabcraft-only branch of `houses_32` resolves to 1,360, a random-256 branch of
+*that* resolves to 256 all-grabcraft builds, and thumbnails render through the
+branch like any other dataset.
