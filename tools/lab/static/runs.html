@@ -1,0 +1,939 @@
+<meta charset="utf-8">
+<title>BlockLab · Runs</title>
+<link rel="stylesheet" href="/static/lab.css">
+<!-- ONE RUN, in full. The cross-run board lives at /leaderboard and ranks
+     models; this page ranks the arms *inside a single card*, which is what the
+     bench actually measures. Splitting them was the point: "which arm won this
+     experiment" and "which model is best" are different questions, and the old
+     single page answered the first while being named after the second.
+
+     Reading a scorecard means holding three things at once: a rank, the pillar
+     that produced it, and whether the number is even rankable. The page is laid
+     out in that order and refuses to show a metric without its direction -- a
+     coherence column read as "higher is better" is the specific misreading T23b
+     designed the schema against.
+
+     The calibration controls are HIDDEN BY DEFAULT, and this is the one place on
+     the page where something true is not on screen, so it is worth saying why.
+     A real card is 16 rows of which 13 are controls and baselines: damaged
+     copies of real builds whose only job is to prove the ruler still bends the
+     right way. Ranking them beside the three arms someone actually submitted
+     buries the result under its own instrumentation. So the board opens on the
+     submissions, the baselines (a submission that loses to `gabled_house` must
+     see that in the same table) and `real_test` (the zero point, pinned, never
+     hidden) -- and the reader must never be able to think nine rows is all that
+     ran. Three things guarantee that: the checkbox above the board states the
+     count in its own label, the note under the board repeats it, and the
+     Calibration panel lists every self-validation check by name and verdict.
+     Hiding the rows is only honest because that panel says what they decided.
+
+     Everything the page joins -- arm to provenance, to recipe, to its dataset,
+     to its rendered examples, to its models.json entry -- arrives pre-joined in
+     `card.arms_index` (one row per arm, sorted by name). The page used to do
+     four of those joins itself in JS against three separately-fetched
+     documents; `kind` in particular is derived in exactly one place now, in
+     Python, and re-deriving it here from `track` would be a second definition
+     that drifts. -->
+<style>
+  .meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:11px;
+        color:var(--faint);margin:0 0 10px}
+  .meta b{color:var(--dim);font-weight:500}
+  .meta span.dirty{color:var(--unsure)}
+  #runwhen{font-family:var(--mono);font-size:11px}
+  #runtitle{margin:0 0 2px;font-size:16px}
+  #runnote{margin:0 0 12px}
+  .warn{border-left:3px solid var(--unsure);background:var(--unsure-soft);color:var(--unsure);
+        padding:9px 12px;margin:0 0 12px;font-size:12.5px}
+  .warn.stop{border-left-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+  .cmd{font-family:var(--mono);font-size:11.5px;color:var(--dim);background:var(--sunk);
+       border:1px solid var(--rule);padding:8px 10px;margin:2px 0 10px;
+       white-space:pre-wrap;word-break:break-all;-webkit-user-select:all;user-select:all}
+  .checks{display:grid;gap:4px 16px;margin:6px 0 8px;
+          grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .checks div{display:flex;align-items:center;justify-content:space-between;gap:10px;
+              font-family:var(--mono);font-size:11px;color:var(--dim);
+              border-bottom:1px solid var(--rule);padding-bottom:3px}
+  .toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);margin:0 0 8px}
+  tr.pick{cursor:pointer}
+  tr.pick[aria-selected="true"]{background:var(--accent-soft)}
+  tr.pick[aria-selected="true"] td{border-bottom-color:var(--accent)}
+  tr.out td{background:var(--sunk)}
+  tr.out td:first-child{border-left:3px solid var(--bad)}
+  tr.unranked td:first-child{border-left-color:var(--unsure)}
+  .arm{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .armhint{display:block;font-family:var(--sans);font-size:11px;color:var(--faint);
+           max-width:38ch;white-space:normal;line-height:1.35;margin-top:2px}
+  .why{color:var(--dim);font-size:12px}
+  .worst{font-family:var(--mono);font-size:11px;color:var(--bad)}
+  .ci{display:block;font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .gate{color:var(--faint);font-size:10px;font-family:var(--mono)}
+  .pill.sub{color:var(--ink)}
+  th.dir{white-space:normal;min-width:96px}
+  th.dir em{display:block;font-style:normal;letter-spacing:0;text-transform:none;
+            font-size:10px;color:var(--dim)}
+  .grp{font-family:var(--mono);font-weight:600;color:var(--accent)}
+  .cols{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .strip{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}
+  .strip img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;
+             border:1px solid var(--rule);display:block}
+  .strip figure{margin:0}
+  .strip figcaption{font-family:var(--mono);font-size:9.5px;color:var(--faint);padding-top:3px;
+                    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Three 96px thumbs inside a table cell: small enough that the row height is
+     still a row, big enough to tell a house from a pile. */
+  .strip.mini{grid-template-columns:repeat(3,52px);gap:4px;width:max-content}
+  td.ex{width:1%;padding:5px 10px}
+  .idty{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:6px 0 10px}
+  .idty dt{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+           color:var(--faint)}
+  .idty dd{margin:0;font-family:var(--mono);font-size:11.5px;color:var(--dim);word-break:break-all}
+  .prose{font-size:13px;color:var(--ink);margin:0 0 4px;max-width:78ch}
+  .drill{margin-top:14px}
+  details summary{cursor:pointer;font-size:12.5px;color:var(--dim);padding:4px 0}
+</style>
+
+<main class="wrap">
+  <h1>Run</h1>
+  <p class="sub">Everything one benchmark run measured, its arms ranked against
+    each other. BlockScore is the <em>worst</em> pillar, in units of this run's
+    own real sample spread — 0 is held-out real, lower is better. Pillars are
+    never averaged: a mean would let an arm buy a bad pillar with a good one, and
+    the render tier invites exactly that trade (T25e).
+    <a href="/leaderboard">The cross-run leaderboard</a> ranks models instead —
+    these scores are calibrated within this run and are not comparable across
+    runs unless both ran the same protocol.</p>
+
+  <div class="bar">
+    <label class="hint" for="run">Run</label>
+    <select id="run"></select>
+    <span class="spacer"></span>
+    <span id="runwhen" class="hint"></span>
+  </div>
+
+  <div id="page" hidden>
+    <h2 id="runtitle" hidden></h2>
+    <p class="sub" id="runnote" hidden></p>
+    <p class="meta" id="meta"></p>
+    <details id="rerun" hidden>
+      <summary>Re-run this</summary>
+      <div id="rerunbody"></div>
+    </details>
+
+    <div id="warnings"></div>
+    <div id="compat"></div>
+    <div id="calib"></div>
+
+    <h2>BlockScore</h2>
+    <p class="toggle" id="ctltoggle" hidden>
+      <input type="checkbox" id="showctl">
+      <label for="showctl" id="ctllabel"></label>
+    </p>
+    <div class="scroll"><table id="board"></table></div>
+    <p class="hint" id="boardnote"></p>
+
+    <div id="drill" class="drill"></div>
+
+    <h2>Per-metric</h2>
+    <p class="hint">Every cell carries its 95% interval. A metric that failed a
+      ladder gate is <b>—</b> with the gate named: it was not measured, which is
+      not the same as zero.</p>
+    <div id="metrics"></div>
+    <p class="hint" id="notab"></p>
+
+    <h2>Head-to-head</h2>
+    <p class="hint">Arms sharing a letter were <b>not separated</b> at α = 0.05
+      after Holm correction over the whole family of pairs — a shared letter is a
+      failure to distinguish, not a claim that two arms are equal.</p>
+    <div id="h2h" class="cols"></div>
+  </div>
+
+  <div id="empty"></div>
+</main>
+
+<script type="module">
+import { api, chrome, fmt, emptyState, toast } from "/static/lab.js";
+chrome("/runs");
+
+const runSel = document.getElementById("run");
+const page = document.getElementById("page");
+const showctl = document.getElementById("showctl");
+const boxes = {
+  empty: document.getElementById("empty"), warnings: document.getElementById("warnings"),
+  meta: document.getElementById("meta"), board: document.getElementById("board"),
+  boardnote: document.getElementById("boardnote"), drill: document.getElementById("drill"),
+  metrics: document.getElementById("metrics"), h2h: document.getElementById("h2h"),
+  when: document.getElementById("runwhen"), title: document.getElementById("runtitle"),
+  note: document.getElementById("runnote"), rerun: document.getElementById("rerun"),
+  rerunbody: document.getElementById("rerunbody"), compat: document.getElementById("compat"),
+  calib: document.getElementById("calib"), notab: document.getElementById("notab"),
+  ctltoggle: document.getElementById("ctltoggle"), ctllabel: document.getElementById("ctllabel"),
+};
+
+/* The five families the page reports, in the order a run is actually read:
+ * what it looks like, whether it is copying, how it is built, what it is made
+ * of, what it cost. `fidelity` is deliberately absent -- every one of its
+ * metrics failed a ladder gate and is emitted as null (T23c), so a table of it
+ * would be four columns of "—". The list is CURATED, not derived from the card:
+ * a section is on this page because someone decided how to read it. What keeps
+ * that from hiding things is `renderNotTabulated`, which names every section a
+ * card carries and this list does not. */
+const FAMILIES = [
+  ["realism", "Realism — distribution distance to the held-out real set."],
+  ["novelty", "Novelty — a disqualification pillar, not a tiebreak: an arm that recites its training set wins on realism (T23c)."],
+  ["coherence", "Coherence — reported as distance-to-real in both directions. Only 66% of real houses are single-component, so lcc_ratio = 1.0 is as wrong as 0.2 (T23b)."],
+  ["dataset_stats", "Palette and size statistics against the corpus."],
+  ["cost", "Cost — what the arm spent to make these builds. Reported only by arms that call a paid model; it is a budget, never a tiebreak, and a cheaper arm that ranks worse is still worse."],
+];
+
+const DIRECTION = {
+  lower_better: ["↓", "lower is better"],
+  higher_better: ["↑", "higher is better"],
+  distance_to_real: ["→", "distance to real; 0 matches the corpus"],
+};
+
+/* `real_test` is a hard-coded string in five places (composite.leaderboard's
+ * control, composite.validate's C1/C2, human_study_analyze.ALIASES,
+ * bench_report.order_arms, and here). Naming it once locally at least makes the
+ * dependency greppable from this file. */
+const CONTROL_ARM = "real_test";
+
+/* What each `compat.missing` name means to someone reading a run, rather than
+ * to someone reading the schema. */
+const PREDATES = {
+  "run.blockscore": "BlockScore ranking",
+  "run.head_to_head": "pairwise tables",
+  "ladder": "the validation ladder",
+  "run.examples": "example builds",
+  "meta.provenance": "arm provenance",
+  "geometry_scalars": "geometry scalars",
+  "cost": "cost metrics",
+  "fidelity": "fidelity metrics",
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* Scorecard values span 1e-3 (kid) to 1e3 (n_blocks_w1); a fixed precision
+ * either rounds KID to zero or prints a block count to three decimals. */
+function num(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  const a = Math.abs(v);
+  return a >= 1000 ? Number(v).toFixed(0) : a >= 100 ? Number(v).toFixed(1)
+       : a >= 1 ? Number(v).toFixed(2) : Number(v).toFixed(3);
+}
+const ci = (c) => Array.isArray(c) && c[0] !== null && c[0] !== undefined
+  ? `<span class="ci">[${num(c[0])}, ${num(c[1])}]</span>` : "";
+
+/** ISO-8601 UTC down to the minute, as a human reads a date. */
+const stamp = (s) => String(s || "").slice(0, 16).replace("T", " ");
+
+/* Mirrors catalog.parse_build_id: split from the RIGHT, because dataset ids
+ * legitimately contain colons (`split:houses_32:test`). */
+const datasetOfBuild = (b) => String(b).slice(0, String(b).lastIndexOf(":"));
+
+let card = null, datasets = [], selected = null, runList = [], armIndex = new Map();
+
+/** The pre-joined row for an arm. Never undefined, so callers test truthiness
+ *  of fields rather than existence of the row. */
+const idx = (name) => armIndex.get(name) || {};
+
+/* `arms_index` is built by api._scorecard_payload. A card that reached the page
+ * some other way still has raw `arms`, so fall back to the passthrough fields
+ * only -- kind, origin and recipe are derived in Python on purpose (one
+ * definition), and guessing them here would be a second one. An empty `kind`
+ * simply means no row is hidden and the Kind cell reads "—". */
+function buildArmIndex() {
+  const rows = card.arms_index || [];
+  if (rows.length) return new Map(rows.map((r) => [r.name, r]));
+  return new Map(Object.entries(card.arms || {}).map(([name, a]) => {
+    const m = (a || {}).meta || {};
+    return [name, { name, track: m.track, n: m.n, n_empty: m.n_empty,
+                    source: m.source, kind: "", origin: "", recipe: "",
+                    provenance: {}, examples: [], dataset: null, model_card: null }];
+  }));
+}
+
+// --- run picker -------------------------------------------------------------
+/* Date first, because the derived label collides: three cards on disk read
+ * "native_oriented vs agentic_oneshot vs pick_n_place" and two more read
+ * "ont_none vs ont_mined vs ont_shuffled +1". The counts are split into
+ * submissions and reference rows because "16 arms" was really 3 submissions and
+ * 13 calibration rungs. `value` and `title` stay the raw run id: the label is
+ * display only and is never an id, a URL param or a key. */
+function pickerLabel(r) {
+  const when = stamp(r.started || r.when);
+  const ref = (r.n_controls || 0) + (r.n_baselines || 0);
+  const subs = r.n_submissions ?? 0;
+  return `${when} · ${r.label || r.run} · ${subs} submission${subs === 1 ? "" : "s"}`
+       + (ref ? ` + ${ref} reference` : "")
+       + (r.corpus ? ` · ${r.corpus}` : "") + (r.tier ? ` · ${r.tier}` : "");
+}
+
+async function boot() {
+  let runs = [];
+  try { runs = await api.get("/api/scorecards"); } catch (e) { runs = []; }
+  try { datasets = await api.get("/api/datasets"); } catch (e) { datasets = []; }
+  runList = runs;
+  if (!runs.length) {
+    emptyState(boxes.empty, "No scorecards yet",
+      "Run <code>python -m blockgen.eval.bench --tier both --n 128 --name \"my first run\"</code>. " +
+      "The page reads every <code>outputs/*/scorecard.json</code>.");
+    document.querySelector(".bar").hidden = true;
+    return;
+  }
+  runSel.innerHTML = runs.map((r) =>
+    `<option value="${esc(r.run)}" title="${esc(r.run)}">${esc(pickerLabel(r))}</option>`).join("");
+  runSel.addEventListener("change", () => load(runSel.value, runList));
+  showctl.addEventListener("change", applyControls);
+  const params = new URLSearchParams(location.search);
+  const wanted = runs.find((r) => r.run === params.get("run"));
+  runSel.value = (wanted || runs[0]).run;
+  load(runSel.value, runs);
+}
+
+async function load(run, runs) {
+  selected = null;
+  try {
+    card = await api.get(`/api/scorecard/${encodeURIComponent(run)}`);
+  } catch (e) {
+    page.hidden = true;
+    emptyState(boxes.empty, "Could not read that scorecard", esc(e.message));
+    return;
+  }
+  boxes.empty.innerHTML = "";
+  page.hidden = false;
+  history.replaceState(null, "", `?run=${encodeURIComponent(run)}`);
+  armIndex = buildArmIndex();
+  const row = (runs || []).find((r) => r.run === run);
+  const started = card.started || (row && row.started) || "";
+  const id = card.run_id || run;
+  boxes.when.textContent = started
+    ? `${id} · started ${stamp(started)}Z` : `${id} · ${card.when || (row && row.when) || ""}`;
+  renderHeader();
+  renderBoard();
+  renderMetrics();
+  renderH2H();
+  renderDrill();
+}
+
+// --- header, warnings, validation -------------------------------------------
+function renderHeader() {
+  renderTitle();
+  renderMeta();
+  renderWarnings();
+  renderCompat();
+  renderCalibration();
+}
+
+function renderTitle() {
+  /* `run.name` when the run was named, else the label derived from its own
+   * submission arms, else the run id -- and the raw id is still in the bar and
+   * in the meta line, so nothing is lost by showing a friendly one here. */
+  const title = card.label || card.run_id || "";
+  boxes.title.textContent = title;
+  boxes.title.hidden = !title;
+  boxes.note.textContent = card.note || "";
+  boxes.note.hidden = !card.note;
+}
+
+function renderMeta() {
+  const ctx = card.context || {}, meta = card.run || {};
+  const arms = (card.arm_names || []).length;
+  // A sha on a dirty tree does not describe the code that ran. `git_dirty` is
+  // null on every legacy card, and null means "could not ask", not "clean", so
+  // only an explicit `true` earns the chip.
+  const dirty = meta.git_dirty === true;
+  const bits = [
+    ["run", card.run_id],
+    ["started", stamp(card.started)],
+    ["corpus", ctx.corpus], ["tier", meta.tier], ["arms", arms],
+    ["submissions", card.n_submissions === undefined || card.n_submissions === null
+      ? "" : `${card.n_submissions} of ${arms}`],
+    ["ref", ctx.n_ref_used && `${ctx.n_ref_used} val builds`],
+    ["min n", ctx.min_n], ["split", ctx.split_key],
+    ["wall", meta.elapsed_s && `${(meta.elapsed_s / 60).toFixed(1)} min`],
+    ["host", meta.host], ["device", meta.device],
+    ["git", meta.git_sha && (String(meta.git_sha).slice(0, 8) + (dirty ? " (dirty)" : "")),
+      dirty ? "dirty" : "",
+      dirty ? "working tree was dirty; this sha does not describe the code that ran" : ""],
+  ].filter(([, v]) => v !== undefined && v !== null && v !== "" && v !== 0);
+  boxes.meta.innerHTML = bits.map(([k, v, cls, title]) =>
+    `<span${cls ? ` class="${esc(cls)}"` : ""}${title ? ` title="${esc(title)}"` : ""}>` +
+    `<b>${esc(k)}</b> ${esc(v)}</span>`).join("");
+
+  // `rerun` is copy-pasteable; `cmd` is not, and saying so is the only thing
+  // that stops someone pasting an absolute path to __main__.py into a shell.
+  const rerun = meta.rerun || "";
+  const legacy = !rerun && meta.cmd;
+  boxes.rerun.hidden = !rerun && !legacy;
+  boxes.rerun.open = false;
+  if (rerun) {
+    boxes.rerunbody.innerHTML = `<pre class="cmd">${esc(rerun)}</pre>`;
+  } else if (legacy) {
+    boxes.rerunbody.innerHTML = `<pre class="cmd">${esc(meta.cmd)}</pre>
+      <p class="hint">legacy: this string's argv[0] is an absolute path and is not
+      copy-pasteable. Runs from <code>bench/2</code> onward record a
+      <code>rerun</code> command instead.</p>`;
+  }
+}
+
+function renderWarnings() {
+  const out = [];
+  const val = (card.run || {}).blockscore_validation || {};
+  const failed = Object.entries(val).filter(([, ok]) => ok === false).map(([k]) => k);
+  if (failed.length) {
+    out.push(`<div class="warn stop"><b>Do not quote this ranking.</b>
+      BlockScore self-validation failed ${failed.length}/${Object.keys(val).length}
+      checks: <code>${failed.map(esc).join("</code>, <code>")}</code>. The aggregate is
+      validated like a metric — a control that should lose did not.</div>`);
+  } else if (Object.keys(val).length) {
+    out.push(`<div class="warn" style="border-left-color:var(--good);background:var(--good-soft);color:var(--good)">
+      Self-validation ${Object.keys(val).length}/${Object.keys(val).length}: real wins and
+      every degenerate control loses.</div>`);
+  }
+  for (const w of card.warnings || []) out.push(`<div class="warn">${esc(w)}</div>`);
+  const failing = (card.ladder || {}).failing || {};
+  if (Object.keys(failing).length) {
+    out.push(`<div class="warn">Metrics excluded by the validation ladder and reported
+      as <b>—</b>: ${Object.entries(failing)
+        .map(([m, g]) => `<code>${esc(m)}</code> (${esc(g)})`).join(", ")}.</div>`);
+  }
+  boxes.warnings.innerHTML = out.join("");
+}
+
+/* Nothing on disk is ever rewritten, so a card written months ago simply lacks
+ * blocks this page knows how to draw. Naming what it predates is the difference
+ * between "this run had no examples" and "this run is older than examples". */
+function renderCompat() {
+  const compat = card.compat || {};
+  const out = [];
+  if (compat.unsupported) {
+    // `unsupported` is already a whole sentence, written by cards.migrate
+    // ("written by a newer BlockGen (bench/3); this page reads bench/2 and is
+    // showing whatever parses"). Restating it here would be a second copy that
+    // drifts, so the banner only frames it.
+    out.push(`<div class="warn"><b>Unsupported schema.</b> This card was
+      ${esc(compat.unsupported)}.</div>`);
+  }
+  const missing = compat.missing || [];
+  if (missing.length) {
+    const named = missing.map((m) => `<b>${esc(PREDATES[m] || m)}</b>`).join(", ");
+    const when = stamp(card.started).slice(0, 10);
+    // Three different sentences, because `missing` answers only "is it here?" and
+    // that one answer has three different causes. A card from the future does not
+    // predate anything. And neither does a CURRENT card: `ladder`, `fidelity` and
+    // `cost` are absent from every fast-tier run by construction, so telling the
+    // reader that today's run is older than bench/2 is both false and -- once
+    // every fresh run carries the banner -- corrosive to the amber channel, which
+    // has to keep meaning "look at this".
+    const current = (compat.version || "") === (compat.read_as || "");
+    out.push(compat.unsupported
+      ? `<div class="warn">Not present in this card: ${named}.</div>`
+      : current
+      ? `<div class="warn">Not produced by this run: ${named}. A bench run writes
+        these only on the tier or flags that measure them — re-run with a wider
+        tier to fill them in. Everything below is complete.</div>`
+      : `<div class="warn">This run predates part of the current scorecard
+        (<code>${esc(compat.version || "bench/1")}</code>${when ? `, ${esc(when)}` : ""}).
+        Unavailable here: ${named}. The per-metric tables below still read.</div>`);
+  }
+  boxes.compat.innerHTML = out.join("");
+}
+
+/* The panel that makes hiding the controls honest: every self-validation check
+ * by name and verdict, whether or not any of them failed. The red "do not quote
+ * this ranking" banner above is unchanged and is not replaced by this -- a
+ * failure has to be loud, and a pass has to be visible. */
+function renderCalibration() {
+  const val = (card.run || {}).blockscore_validation || {};
+  const names = Object.keys(val);
+  if (!names.length) { boxes.calib.innerHTML = ""; return; }
+  const checks = names.map((k) => {
+    const ok = val[k] !== false;
+    return `<div><span>${esc(k)}</span>
+      <span class="pill ${ok ? "good" : "bad"}">${ok ? "pass" : "fail"}</span></div>`;
+  }).join("");
+  boxes.calib.innerHTML = `<div class="panel" style="margin-bottom:12px">
+    <p class="eyebrow">Calibration — did the ruler stay straight?</p>
+    <div class="checks">${checks}</div>
+    <p class="hint" id="calibnote"></p></div>`;
+}
+
+// --- BlockScore -------------------------------------------------------------
+const PILLARS = ["appearance", "geometry", "palette", "coherence", "geometry_scalars"];
+const KIND_PILL = { submission: "sub", control: "unsure", baseline: "" };
+
+/* The recipe sentences are long by design -- they are the prose that used to sit
+ * unread in a docstring -- so the row shows the first clause and the cell's
+ * title carries the whole thing. */
+function clause(text, max = 96) {
+  const s = String(text || "").split(/ -- |; /)[0].trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return (space > 0 ? cut.slice(0, space) : cut) + "…";
+}
+
+/** The `run_*` directory a checkpoint path came out of, if any. */
+function runSegment(path) {
+  return String(path || "").split("/").find((seg) => seg.startsWith("run_")) || "";
+}
+
+/** One line under the arm name: where an npz arm came from, or what an
+ *  in-process arm actually is. */
+function armHint(row) {
+  if (row.origin === "in_memory") return clause(row.recipe);
+  const p = row.provenance || {};
+  const ckpt = row.source_run_id || runSegment(p.checkpoint);
+  const t = p.temperature, k = p.top_k;
+  const sampling = t === undefined || t === null ? ""
+    : `T=${t}` + (k === undefined || k === null ? "" : ` k=${k}`);
+  return [p.model, ckpt && `ckpt ${ckpt}`, sampling].filter(Boolean).join(" · ");
+}
+
+function armCell(name) {
+  const row = idx(name);
+  const hint = armHint(row);
+  // The prose title is whichever long form exists: models.json for a checkpoint
+  // arm, the full recipe for an in-process one.
+  const title = row.origin === "in_memory"
+    ? (row.recipe || "") : ((row.model_card || {}).description || "");
+  return `<td class="arm"${title ? ` title="${esc(title)}"` : ""}>${esc(name)}${
+    hint ? `<span class="armhint">${esc(hint)}</span>` : ""}</td>`;
+}
+
+function kindCell(name) {
+  const kind = idx(name).kind || "";
+  const floor = name === CONTROL_ARM
+    ? ` <span class="pill accent" title="the zero point: held-out real builds scored against themselves">floor</span>`
+    : "";
+  if (!kind) return `<td class="hint">—${floor}</td>`;
+  const cls = KIND_PILL[kind] ?? "";
+  return `<td><span class="pill${cls ? " " + cls : ""}">${esc(kind)}</span>${floor}</td>`;
+}
+
+/* Up to three 96px thumbs of this arm's own builds. An em dash on every card
+ * written before `bench/2`: there is nothing to show, and an empty box would
+ * read as a rendering failure. */
+function exampleCell(name) {
+  const ids = (idx(name).examples || []).slice(0, 3);
+  if (!ids.length) return `<td class="ex hint">—</td>`;
+  return `<td class="ex"><div class="strip mini">${ids.map((b) => {
+    const ds = datasetOfBuild(b);
+    return `<a href="/curate?dataset=${encodeURIComponent(ds)}&build=${encodeURIComponent(b)}"
+      title="${esc(name)} — open in Curate"><img loading="lazy"
+      src="/api/thumb/${encodeURIComponent(b)}?px=96" alt=""></a>`;
+  }).join("")}</div></td>`;
+}
+
+function renderBoard() {
+  const rows = card.leaderboard || [];
+  if (!rows.length) {
+    boxes.board.innerHTML = "";
+    boxes.boardnote.textContent = "This run carries no BlockScore block.";
+    applyControls();   // no rows to hide, but the counts and the panel still read
+    return;
+  }
+  // Ranked arms keep numeric order; DQ and UNRANKED are pulled out entirely.
+  // Sorting a refusal-to-rank in among scores is the exact error the design
+  // avoids -- a disqualification is not a bad score (T25e).
+  const ranked = rows.filter((r) => r.status === "ok");
+  const other = rows.filter((r) => r.status !== "ok");
+  ranked.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity));
+  // `real_test` is the zero point, not a competitor: it is pinned above the
+  // ranked block and numbered "—". The comparator above is untouched -- real
+  // scores 0.0 and already sorts first -- this only refuses to call it #1.
+  const floor = ranked.filter((r) => r.arm === CONTROL_ARM);
+  const rest = ranked.filter((r) => r.arm !== CONTROL_ARM);
+
+  const head = `<thead><tr><th>#</th><th>Examples</th><th>Arm</th><th>Kind</th>
+    <th>Track</th><th class="num">n</th>
+    <th class="num">BlockScore ↓</th><th>Worst pillar</th>
+    ${PILLARS.map((p) => `<th class="num">${esc(p.replace("_", " "))}</th>`).join("")}
+    </tr></thead>`;
+  const cells = (r) => PILLARS.map((p) => {
+    const v = (r.pillars || {})[p];
+    const worst = r.worst_pillar === p;
+    return `<td class="num"${worst ? ' style="color:var(--bad)"' : ""}>${
+      v === undefined ? "—" : (v >= 0 ? "+" : "") + num(v)}</td>`;
+  }).join("");
+  // A control other than `real_test` is hideable; submissions and baselines
+  // never are.
+  const hideable = (name) => idx(name).kind === "control" && name !== CONTROL_ARM;
+  const open = (r, rank) => `
+    <tr class="pick" data-arm="${esc(r.arm)}"${hideable(r.arm) ? ' data-ctl="1"' : ""}>
+      <td class="num">${rank}</td>${exampleCell(r.arm)}${armCell(r.arm)}${kindCell(r.arm)}
+      <td class="hint">${esc(idx(r.arm).track || "")}</td>
+      <td class="num">${fmt.int(idx(r.arm).n)}</td>
+      <td class="num"><b>${num(r.score)}</b></td>
+      <td class="worst">${esc(r.worst_pillar || "—")}</td>${cells(r)}</tr>`;
+
+  const body = floor.map((r) => open(r, "—")).join("")
+    + rest.map((r, i) => open(r, i + 1)).join("")
+    + other.map((r) => {
+      const dq = r.status === "DQ";
+      return `<tr class="pick out ${dq ? "dq" : "unranked"}" data-arm="${esc(r.arm)}"${
+        hideable(r.arm) ? ' data-ctl="1"' : ""}>
+        <td>—</td>${exampleCell(r.arm)}${armCell(r.arm)}${kindCell(r.arm)}
+        <td class="hint">${esc(idx(r.arm).track || "")}</td>
+        <td class="num">${fmt.int(idx(r.arm).n)}</td>
+        <td><span class="pill ${dq ? "bad" : "unsure"}">${dq ? "DQ" : "unranked"}</span></td>
+        <td colspan="${PILLARS.length + 1}" class="why">${
+          esc(r.disqualified || r.unranked || "no reason recorded")}</td></tr>`;
+    }).join("");
+  boxes.board.innerHTML = head + `<tbody>${body}</tbody>`;
+  boxes.boardnote.innerHTML = `<span id="boardcounts"></span>
+    ${ranked.length} ranked · ${other.length} not ranked.
+    A <b>DQ</b> row failed a gate — memorization or mode collapse — and is a refusal to
+    rank, not a last place; an <b>unranked</b> row has too few samples for its intervals
+    to mean anything. Click any arm to see its builds and its pairwise verdicts.`;
+  for (const tr of boxes.board.querySelectorAll("tr.pick")) {
+    tr.addEventListener("click", () => select(tr.dataset.arm));
+  }
+  applyControls();
+}
+
+/* Hidden by default. The count is stated three times on purpose -- in this
+ * label, under the board, and in the Calibration panel -- because the one way
+ * this page could lie is by letting a reader think nine rows is all that ran. */
+function applyControls() {
+  const hideable = boxes.board.querySelectorAll("tr[data-ctl]");
+  const n = hideable.length;
+  const show = showctl.checked;
+  for (const tr of hideable) tr.hidden = !show;
+  const kinds = {};
+  for (const r of armIndex.values()) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
+  // The label counts every control the run scored, which is the number the
+  // Calibration panel and the board note also use. `real_test` is one of them
+  // and never hides, so checking the box reveals one fewer than the label
+  // names -- the title says so, and the panel gives the exact hidden count.
+  const ctl = kinds.control || 0;
+  boxes.ctltoggle.hidden = !n;
+  boxes.ctltoggle.title = n < ctl
+    ? `${CONTROL_ARM} is one of them and stays pinned above; ${n} are hidden` : "";
+  boxes.ctllabel.textContent = `show ${ctl} calibration control${ctl === 1 ? "" : "s"}`;
+  const counts = [
+    kinds.submission && `${kinds.submission} submission${kinds.submission === 1 ? "" : "s"}`,
+    kinds.baseline && `${kinds.baseline} baseline${kinds.baseline === 1 ? "" : "s"}`,
+    kinds.control && `${kinds.control} control${kinds.control === 1 ? "" : "s"}${
+      n ? (show ? " (shown)" : " (hidden)") : ""}`,
+  ].filter(Boolean).join(" · ");
+  const el = document.getElementById("boardcounts");
+  if (el) el.textContent = counts ? `${counts}.` : "";
+  const note = document.getElementById("calibnote");
+  if (note) {
+    note.textContent = `${kinds.control || 0} calibration control${
+      (kinds.control || 0) === 1 ? "" : "s"} scored this run; ${
+      show ? 0 : n} hidden below.`;
+  }
+}
+
+function select(arm) {
+  selected = selected === arm ? null : arm;
+  for (const tr of boxes.board.querySelectorAll("tr.pick")) {
+    tr.setAttribute("aria-selected", String(tr.dataset.arm === selected));
+  }
+  renderDrill();
+  renderH2H();
+}
+
+// --- drill-down: the builds behind a row ------------------------------------
+/* The reason a leaderboard belongs in a tool that can render: a pillar number
+ * says an arm is 200 spreads from real, and only the builds say why. */
+function datasetFor(arm) {
+  // The exact-string join from `meta.source` to a browsable dataset now happens
+  // in Python (`catalog.source_dataset_id`), so this is a lookup, not a scan.
+  const row = idx(arm);
+  if (row.dataset) {
+    return { id: row.dataset, why: `<code>${esc(row.source || row.dataset)}</code>` };
+  }
+  const corpus = (card.context || {}).corpus;
+  if (arm === CONTROL_ARM) {
+    const split = datasets.find((d) => d.id === `split:${corpus}:test`);
+    if (split) return { id: split.id, why: `the held-out <code>test</code> split these controls are drawn from` };
+  }
+  return null;
+}
+
+/* Titles for the example rows come from the examples dataset itself, one fetch
+ * per dataset per page load. The thumbs do not wait on it. */
+const TITLES = new Map();
+async function titlesFor(dsId) {
+  if (TITLES.has(dsId)) return TITLES.get(dsId);
+  let map = new Map();
+  try {
+    const res = await api.get(`/api/builds?dataset=${encodeURIComponent(dsId)}&limit=500`);
+    map = new Map((res.items || []).map((b) => [b.build_id, b.title || ""]));
+  } catch (e) { /* captions degrade to the row index; the thumbs still render */ }
+  TITLES.set(dsId, map);
+  return map;
+}
+
+const TILE_NOTE = `<p class="hint">Tiles render on demand; a striped tile means the
+  renderer could not draw that build.</p>`;
+
+function identityBlock(row) {
+  const prov = row.provenance || {};
+  const hasProv = Object.keys(prov).length > 0;
+  const out = [];
+  const dl = [];
+  if (row.origin === "in_memory") {
+    // Built from the corpus at run time. The recipe is the whole identity, and
+    // on a legacy card it comes from the static map rather than the card.
+    if (row.recipe) out.push(`<p class="prose">${esc(row.recipe)}</p>`);
+    dl.push(["builder", esc(prov.builder || "in-process")]);
+    if (prov.drawn_from) dl.push(["drawn from", `<code>${esc(prov.drawn_from)}</code>`]);
+    if (prov.n_requested !== undefined) dl.push(["requested", esc(prov.n_requested)]);
+    if (prov.seed !== undefined) dl.push(["seed", esc(prov.seed)]);
+  } else {
+    const mc = row.model_card || {};
+    if (mc.description) out.push(`<p class="prose">${esc(mc.description)}</p>`);
+    if (mc.notes) out.push(`<p class="hint">${esc(mc.notes)}</p>`);
+    if (prov.checkpoint) dl.push(["checkpoint", `<code>${esc(prov.checkpoint)}</code>`]);
+    const sid = row.source_run_id || runSegment(prov.checkpoint);
+    if (sid) {
+      // A link only when that run left a scorecard of its own; otherwise the id
+      // is still worth printing, it just is not a place you can go.
+      const known = runList.some((r) => r.run === sid);
+      dl.push(["training run", known
+        ? `<a href="?run=${encodeURIComponent(sid)}">${esc(sid)}</a>` : esc(sid)]);
+    }
+    const t = prov.temperature, k = prov.top_k, s = prov.seed;
+    const sampling = [s === undefined || s === null ? "" : `seed ${s}`,
+                      t === undefined || t === null ? "" : `T ${t}`,
+                      k === undefined || k === null ? "" : `top-k ${k}`].filter(Boolean);
+    if (sampling.length) dl.push(["sampling", esc(sampling.join(" · "))]);
+    if (row.source) dl.push(["source npz", `<code>${esc(row.source)}</code>`]);
+    if (prov.written_at) dl.push(["written at", esc(prov.written_at)]);
+  }
+  if (row.structures_sha) dl.push(["structures sha", esc(row.structures_sha)]);
+  if (dl.length) {
+    out.push(`<dl class="idty">${dl.map(([k, v]) =>
+      `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`);
+  }
+  if (!hasProv) {
+    out.push(`<p class="hint">This run predates arm provenance
+      (<code>bench/1</code>)${row.recipe ? " — the description above is this lab's own record of what the arm is" : ""}.
+      Re-run the bench to record it.</p>`);
+  }
+  return out.join("");
+}
+
+async function renderDrill() {
+  if (!selected) { boxes.drill.innerHTML = ""; return; }
+  const mine = selected;
+  const row = idx(mine);
+  const meta = ((card.arms || {})[mine] || {}).meta || {};
+  const pct = (v) => v === undefined || v === null ? undefined : `${(v * 100).toFixed(2)}%`;
+  const bits = Object.entries({
+    kind: row.kind, track: row.track,
+    n: row.n === undefined || row.n === null ? undefined
+      : `${fmt.int(row.n)} · ${fmt.int(row.n_empty ?? 0)} empty`,
+    "palette OOV": pct(meta.palette_oov_frac_exact),
+    "family unclassified": pct(meta.family_unclassified_frac),
+  }).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join("");
+
+  boxes.drill.innerHTML = `<div class="panel">
+    <p class="eyebrow">${esc(mine)}</p>
+    <p class="meta">${bits}</p>
+    ${identityBlock(row)}
+    <div id="stripbox"></div></div>`;
+  const strip = document.getElementById("stripbox");
+
+  // Tier 1: this run's own rendered examples. The only tier that covers the
+  // in-process arms, which is 13 of 16 rows on a real card.
+  const ids = row.examples || [];
+  if (ids.length) {
+    const ex = (card.run || {}).examples || {};
+    const dsId = datasetOfBuild(ids[0]);
+    const sub = `${ids.length} of ${fmt.int(row.n)}${
+      ex.seed === undefined ? "" : `, drawn with seed ${ex.seed}`} — a sample, not a best-of.`;
+    const tiles = (titles) => ids.slice(0, 12).map((b, i) => {
+      const title = (titles && titles.get(b)) || `${mine} #${i}`;
+      return `<figure><a href="/curate?dataset=${encodeURIComponent(dsId)}&build=${
+        encodeURIComponent(b)}" title="${esc(title)}">
+        <img loading="lazy" src="/api/thumb/${encodeURIComponent(b)}?px=192" alt="">
+        </a><figcaption>${esc(title)}</figcaption></figure>`;
+    }).join("");
+    const shell = (inner) => `<p class="hint">${esc(sub)}
+      <a href="/curate?dataset=${encodeURIComponent(dsId)}">open in Curate →</a></p>
+      <div class="strip">${inner}</div>${TILE_NOTE}`;
+    strip.innerHTML = shell(tiles(null));
+    const titles = await titlesFor(dsId);
+    if (selected !== mine) return;   // the reader clicked another arm meanwhile
+    strip.innerHTML = shell(tiles(titles));
+    return;
+  }
+
+  // Tier 2: the arm's own npz, browsable as a dataset.
+  const ds = datasetFor(mine);
+  if (!ds) {
+    // Tier 3: nothing to browse. Two different reasons, and calling the second
+    // one "generated in-process" would be a lie about a file that exists.
+    const onDisk = row.source && row.source !== "in-memory";
+    strip.innerHTML = onDisk
+      ? `<p class="hint">This arm's builds were written to
+        <code>${esc(row.source)}</code>, but no browsable dataset resolves to that
+        path — the <code>.npz</code> has most likely moved or been deleted. Re-run the
+        bench with <code>--examples 8</code> to have it keep its own copy of a few
+        builds inside the run directory.</p>`
+      // With the recipe this explains rather than apologises.
+      : `<p class="hint">Generated in-process — the controls and procedural
+        baselines are built from the corpus at run time and never written to an
+        <code>.npz</code>, so there is nothing on disk to show.${
+          row.recipe ? " What it is instead is described above." : ""} Re-run the bench
+        with <code>--examples 8</code> to have it write rendered examples, or
+        regenerate the stimuli with <code>scripts/human_study_export.py</code>.</p>`;
+    return;
+  }
+  strip.innerHTML = `<p class="hint">From ${ds.why} —
+    <a href="/curate?dataset=${encodeURIComponent(ds.id)}">open in Curate →</a></p>
+    <p class="hint">rendering…</p>`;
+  try {
+    const res = await api.get(`/api/builds?dataset=${encodeURIComponent(ds.id)}&limit=12`);
+    if (selected !== mine) return;
+    const items = res.items || [];
+    strip.innerHTML = `<p class="hint">${fmt.int(res.total)} builds in ${ds.why} —
+      <a href="/curate?dataset=${encodeURIComponent(ds.id)}">open in Curate →</a></p>
+      <div class="strip">${items.map((b) => `
+        <a href="/curate?dataset=${encodeURIComponent(ds.id)}&build=${encodeURIComponent(b.build_id)}"
+           title="${esc(b.title || b.build_id)}">
+          <img loading="lazy" src="/api/thumb/${encodeURIComponent(b.build_id)}?px=192" alt="">
+        </a>`).join("")}</div>${TILE_NOTE}`;
+  } catch (e) {
+    strip.innerHTML = `<p class="hint">Could not load builds: ${esc(e.message)}</p>`;
+  }
+}
+
+// --- per-metric tables ------------------------------------------------------
+/* Arms are rows and metrics are columns so that each metric's direction can sit
+ * once in its header, where it is read before any value under it. */
+function metricCell(leaf) {
+  if (!leaf || typeof leaf !== "object") return `<td class="num">—</td>`;
+  if (leaf.gate_failed) {
+    return `<td class="num">—<span class="gate">${esc(leaf.gate_failed)}</span></td>`;
+  }
+  if (leaf.direction === "distance_to_real") {
+    const g = (leaf.gen || {}).mean, r = (leaf.real || {}).mean;
+    return `<td class="num">${num(leaf.w1_norm)} sd
+      <span class="ci">${num(g)} vs real ${num(r)}</span></td>`;
+  }
+  if (leaf.value === null || leaf.value === undefined) return `<td class="num">—</td>`;
+  return `<td class="num">${num(leaf.value)}${ci(leaf.ci)}</td>`;
+}
+
+function renderMetrics() {
+  const arms = card.arms || {};
+  const order = orderedArms();
+  const out = [];
+  for (const [family, blurb] of FAMILIES) {
+    const keys = [];
+    for (const name of order) {
+      for (const k of Object.keys(arms[name][family] || {})) if (!keys.includes(k)) keys.push(k);
+    }
+    if (!keys.length) continue;
+    const head = keys.map((k) => {
+      const leaf = order.map((a) => (arms[a][family] || {})[k]).find(Boolean) || {};
+      const [glyph, words] = DIRECTION[leaf.direction] || ["", leaf.direction || ""];
+      return `<th class="num dir" title="${esc(leaf.note || "")}">${esc(k)}
+        <em>${glyph} ${esc(words)}</em></th>`;
+    }).join("");
+    const body = order.map((a) => `<tr class="pick" data-arm="${esc(a)}"
+        ${a === selected ? 'aria-selected="true"' : ""}>
+        <td class="arm">${esc(a)}</td>
+        ${keys.map((k) => metricCell((arms[a][family] || {})[k])).join("")}</tr>`).join("");
+    out.push(`<h3 class="eyebrow" style="margin-top:16px">${esc(family)}</h3>
+      <p class="hint">${blurb}</p>
+      <div class="scroll"><table><thead><tr><th>Arm</th>${head}</tr></thead>
+      <tbody>${body}</tbody></table></div>`);
+  }
+  boxes.metrics.innerHTML = out.join("") ||
+    `<p class="hint">This scorecard has no per-arm metric blocks.</p>`;
+  for (const tr of boxes.metrics.querySelectorAll("tr.pick")) {
+    tr.addEventListener("click", () => select(tr.dataset.arm));
+  }
+  renderNotTabulated();
+}
+
+/* The price of a curated FAMILIES list is that a card can carry a section this
+ * page has no table for. Naming them is what keeps "curated" from becoming
+ * "silently dropped". `geometry_scalars` is not named here: it is on the board
+ * as a BlockScore pillar, so it is reported, just not per-metric. */
+const TABULATED = new Set(FAMILIES.map(([f]) => f).concat(PILLARS, ["meta"]));
+
+function sectionUnion() {
+  const seen = [];
+  for (const a of Object.values(card.arms || {})) {
+    for (const k of Object.keys(a || {})) if (!seen.includes(k)) seen.push(k);
+  }
+  return seen;
+}
+
+function renderNotTabulated() {
+  const present = (card.compat || {}).sections || sectionUnion();
+  const extra = present.filter((s) => !TABULATED.has(s));
+  if (!extra.length) { boxes.notab.innerHTML = ""; boxes.notab.hidden = true; return; }
+  boxes.notab.hidden = false;
+  boxes.notab.innerHTML = `Also present in this card and not tabulated above:
+    <code>${extra.map(esc).join("</code>, <code>")}</code>. The families on this page are a
+    curated list — a section is here because someone decided how to read its direction.` +
+    (extra.includes("fidelity")
+      ? ` <code>fidelity</code> is withheld deliberately: every one of its metrics failed a
+         ladder gate and is emitted as null, so its table would be four columns of “—”.`
+      : "");
+}
+
+/** Leaderboard order when there is one, so the metric tables read the same way. */
+function orderedArms() {
+  const arms = card.arms || {};
+  const board = (card.leaderboard || []).map((r) => r.arm).filter((a) => arms[a]);
+  return board.concat(Object.keys(arms).filter((a) => !board.includes(a)));
+}
+
+// --- head-to-head -----------------------------------------------------------
+function renderH2H() {
+  const tables = card.head_to_head || [];
+  if (!tables.length) {
+    boxes.h2h.innerHTML = `<p class="hint">No pairwise tables in this run
+      (they come from <code>compare.rank_table</code>, both tiers).</p>`;
+    return;
+  }
+  boxes.h2h.innerHTML = tables.map((t) => {
+    const [glyph, words] = DIRECTION[t.direction] || ["", t.direction || ""];
+    const rows = (t.order || []).map((a) => `
+      <tr class="pick" data-arm="${esc(a)}" ${a === selected ? 'aria-selected="true"' : ""}>
+        <td class="arm">${esc(a)}</td>
+        <td class="num">${num((t.scores || {})[a])}</td>
+        <td class="grp">${esc((t.groups || {})[a] || "")}</td></tr>`).join("");
+    const mine = selected ? (t.comparisons || []).filter((c) => c.a === selected || c.b === selected) : [];
+    const detail = !selected ? "" : `<details ${mine.length ? "" : "hidden"}><summary>
+      ${esc(selected)} vs each arm (Holm-corrected)</summary>
+      <div class="scroll"><table><thead><tr><th>Against</th><th class="num">Δ</th>
+      <th class="num">95% CI</th><th class="num">p (Holm)</th><th></th></tr></thead><tbody>
+      ${mine.map((c) => {
+        const other = c.a === selected ? c.b : c.a;
+        const d = c.a === selected ? c.delta : -c.delta;
+        const lo = c.a === selected ? c.ci[0] : -c.ci[1];
+        const hi = c.a === selected ? c.ci[1] : -c.ci[0];
+        const sep = c.p_adj !== undefined && c.p_adj < 0.05;
+        return `<tr><td class="arm">${esc(other)}</td><td class="num">${num(d)}</td>
+          <td class="num">[${num(lo)}, ${num(hi)}]</td>
+          <td class="num">${c.p_adj < 1e-4 ? c.p_adj.toExponential(1) : num(c.p_adj)}</td>
+          <td>${sep ? `<span class="pill accent">separated</span>`
+                    : `<span class="pill">not separated</span>`}</td></tr>`;
+      }).join("")}</tbody></table></div></details>`;
+    return `<div class="panel"><p class="eyebrow">${esc(t.metric)} ${glyph} ${esc(words)}</p>
+      <div class="scroll"><table><thead><tr><th>Arm</th><th class="num">score</th>
+      <th>group</th></tr></thead><tbody>${rows}</tbody></table></div>${detail}</div>`;
+  }).join("");
+  for (const tr of boxes.h2h.querySelectorAll("tr.pick")) {
+    tr.addEventListener("click", () => select(tr.dataset.arm));
+  }
+}
+
+boot().catch((e) => {
+  toast(e.message);
+  emptyState(boxes.empty, "Leaderboard failed to load", esc(e.message));
+});
+</script>
