@@ -50,6 +50,19 @@ ARMS: Dict[str, dict] = {
     "repair":    dict(plan=False, n_examples=0, repair_rounds=2, critique_rounds=0),
     "critique":  dict(plan=False, n_examples=0, repair_rounds=1, critique_rounds=1),
     "full":      dict(plan=True,  n_examples=1, repair_rounds=2, critique_rounds=1),
+    # Ontology arms. All three are `oneshot` with one knob moved, so the
+    # comparison isolates the block reference table and nothing else. The
+    # shuffled arm is the control that matters: it is TOKEN-MATCHED to `ont_mined`
+    # (same table, attributes permuted onto the wrong blocks), so if it scores the
+    # same, the gain was context length rather than knowledge.
+    "ont_none":     dict(plan=False, n_examples=1, repair_rounds=0, critique_rounds=0,
+                         ontology="none"),
+    "ont_mined":    dict(plan=False, n_examples=1, repair_rounds=0, critique_rounds=0,
+                         ontology="mined"),
+    "ont_shuffled": dict(plan=False, n_examples=1, repair_rounds=0, critique_rounds=0,
+                         ontology="shuffled"),
+    "ont_stats":    dict(plan=False, n_examples=1, repair_rounds=0, critique_rounds=0,
+                         ontology="stats"),
 }
 
 DEFAULT_ARMS = "zeroshot,oneshot,plan,repair,full"
@@ -65,6 +78,8 @@ def run_arm(name: str, overrides: dict, prompts: List[str], args) -> List[BuildR
         temperature=args.temperature,
         target_blocks=args.target_blocks,
         critique_mode=args.critique_mode,
+        ontology_path=args.ontology_path,
+        ontology_seed=args.ontology_seed,
         cache=not args.no_cache,
         verbose=not args.quiet,
         **overrides,
@@ -112,6 +127,10 @@ def main() -> None:
     ap.add_argument("--target-blocks", type=int, default=None,
                     help="nudge the model towards a build of roughly this mass")
     ap.add_argument("--critique-mode", default="rewrite", choices=["rewrite", "patch"])
+    ap.add_argument("--ontology-path", default=None,
+                    help="ontology JSON (default: data/ontology/minecraft_houses_32.json)")
+    ap.add_argument("--ontology-seed", type=int, default=0,
+                    help="permutation seed for the shuffled-ontology control")
     ap.add_argument("--name", default="agentic", help="run-directory suffix")
     ap.add_argument("--no-cache", action="store_true", help="bypass the response cache")
     ap.add_argument("--no-render", action="store_true", help="skip sample sheets")

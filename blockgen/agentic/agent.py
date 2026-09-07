@@ -61,6 +61,12 @@ class AgentConfig:
     temperature: Optional[float] = None
     reasoning_effort: Optional[str] = "medium"
     critique_px: int = 384
+    #: Block-ontology variant shown in the system prompt: one of
+    #: ``blockgen.ontology.VARIANTS`` ("none", "mined", "shuffled", "stats").
+    #: "none" reproduces the bare palette list the track shipped with.
+    ontology: str = "none"
+    ontology_path: Optional[str] = None   # default: data/ontology/minecraft_houses_32.json
+    ontology_seed: int = 0                # permutation seed for the shuffled control
     cache: bool = True
     verbose: bool = True
 
@@ -119,6 +125,12 @@ class BuildResult:
     def cached(self) -> bool:
         return bool(self.rounds) and all(r.response.cached for r in self.rounds)
 
+    @property
+    def cost_known(self) -> bool:
+        """False when any round used a model missing from the price table, so a
+        reported cost of 0 means "unpriced", not "free"."""
+        return bool(self.rounds) and all(r.response.priced for r in self.rounds)
+
     def metrics(self, connectivity: bool = True) -> Dict[str, Any]:
         """Per-build metrics, shared with the rest of the repo's eval vocabulary.
 
@@ -148,6 +160,7 @@ class BuildResult:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cost_usd": round(self.cost_usd, 6),
+            "cost_known": self.cost_known,
             "elapsed_s": round(self.elapsed_s, 2),
             "cached": self.cached,
             "error": self.error,
@@ -196,9 +209,31 @@ class BuildAgent:
                   f"{resp.completion_tokens} completion tokens{tag}")
         return resp
 
+    def _ontology_block(self) -> str:
+        """The ontology table for this arm, or "" for the bare-palette baseline.
+
+        A missing catalog file is fatal *here* rather than silently degrading: an
+        arm named ``mined`` that quietly ran without an ontology would land in the
+        results table as a null result, which is the worst possible outcome. Build
+        it with ``python -m blockgen.ontology``.
+        """
+        if self.config.ontology in ("none", "", None):
+            return ""
+        from blockgen.ontology import default_path, prompt_block, variant_catalog
+
+        catalog = variant_catalog(self.config.ontology, self.config.ontology_path,
+                                  seed=self.config.ontology_seed)
+        if catalog is None:
+            raise FileNotFoundError(
+                f"ontology arm '{self.config.ontology}' needs a catalog at "
+                f"{self.config.ontology_path or default_path()}; build it with "
+                f"`python -m blockgen.ontology`")
+        return prompt_block(catalog)
+
     def _system(self) -> Message:
         return system_prompt(tuple(self.config.canvas_size),
-                             extra=scale_hint(self.config.target_blocks))
+                             extra=scale_hint(self.config.target_blocks),
+                             ontology=self._ontology_block())
 
     def _render(self, structure: Structure) -> List[bytes]:
         """Textured renders for visual critique; empty list if rendering is
@@ -226,8 +261,13 @@ class BuildAgent:
 
     # --- the loop ---------------------------------------------------------
     def build(self, description: str, images: Sequence[bytes] = (),
-              image_note: str = "") -> BuildResult:
-        """Generate one structure for ``description`` (optionally image-conditioned)."""
+              image_note: str = "", seed: Optional[int] = None) -> BuildResult:
+        """Generate one structure for ``description`` (optionally image-conditioned).
+
+        ``seed`` asks for a distinct design and, because it changes the request, gets
+        past the response cache — without it, N samples of one prompt are N copies of
+        the same build (see :func:`~blockgen.agentic.prompts.build_prompt`).
+        """
         cfg = self.config
         t0 = time.time()
         transcript: List[Dict[str, Any]] = []
@@ -248,7 +288,7 @@ class BuildAgent:
         # --- stage 2: generate --------------------------------------------
         examples = select_examples(description, cfg.n_examples, self.example_pool)
         gen_msgs = build_prompt(description, plan=plan_text or None, examples=examples,
-                                images=images, image_note=image_note)
+                                images=images, image_note=image_note, variation=seed)
         messages.extend(gen_msgs)
         self._log(f"generating (plan={bool(plan_text)}, examples={len(examples)}, "
                   f"images={len(images)})")
@@ -340,13 +380,14 @@ class BuildAgent:
 
 def build_one(description: str, *, provider: Optional[LLMProvider] = None,
               config: Optional[AgentConfig] = None,
-              images: Sequence[bytes] = ()) -> BuildResult:
+              images: Sequence[bytes] = (),
+              seed: Optional[int] = None) -> BuildResult:
     """One-liner entry point: build ``description`` with a config's provider."""
     from blockgen.agentic.providers import get_provider
     cfg = config or AgentConfig()
     if provider is None:
         provider = get_provider(cfg.provider, cache=cfg.cache, **cfg.provider_params())
-    return BuildAgent(provider, cfg).build(description, images=images)
+    return BuildAgent(provider, cfg).build(description, images=images, seed=seed)
 
 
 __all__ = ["AgentConfig", "BuildAgent", "BuildResult", "Round", "build_one"]

@@ -39,8 +39,9 @@ AIR: IdData = (0, 0)
 AIR_NAMES = frozenset({"air", "minecraft:air", "empty", "none"})
 
 # Families whose legacy data value we can synthesize from a modern property.
-_STAIRS_IDS = frozenset({53, 67, 108, 109, 114, 128, 134, 135, 136, 156, 163,
-                         164, 180, 203})
+STAIRS_IDS = frozenset({53, 67, 108, 109, 114, 128, 134, 135, 136, 156, 163,
+                        164, 180, 203})
+_STAIRS_IDS = STAIRS_IDS   # internal alias, kept so _apply_props reads naturally
 _LOG_IDS = frozenset({17, 162})
 _SLAB_IDS = frozenset({44, 126, 182, 205})
 

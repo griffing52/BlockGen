@@ -64,8 +64,15 @@ def _palette_block(palette: Sequence[str] = PALETTE) -> str:
 
 def system_prompt(canvas_size: Tuple[int, int, int],
                   palette: Sequence[str] = PALETTE,
-                  extra: str = "") -> Message:
-    """The shared system message: language + canvas + palette + method."""
+                  extra: str = "", ontology: str = "") -> Message:
+    """The shared system message: language + canvas + palette + method.
+
+    ``ontology`` (rendered by :func:`blockgen.ontology.prompt_block`) *replaces*
+    the bare palette list rather than joining it: the ontology table's first
+    column IS the palette, so printing both would spend ~300 tokens repeating 70
+    block names. That keeps the arm difference honest -- the ontology arm pays for
+    the knowledge, not for a second copy of the vocabulary.
+    """
     sx, sy, sz = canvas_size
     body = f"""\
 You are a master Minecraft builder. You do not place blocks by hand — you write a
@@ -82,7 +89,7 @@ Commands:
 
 {METHOD}
 
-{_palette_block(palette)}"""
+{ontology or _palette_block(palette)}"""
     if extra:
         body += f"\n\n{extra}"
     return text_message("system", body)
@@ -107,14 +114,26 @@ Plain text only. No commands yet.""")
 def build_prompt(description: str, *, plan: Optional[str] = None,
                  examples: Sequence[Example] = (),
                  images: Sequence[bytes] = (),
-                 image_note: str = "") -> List[Message]:
+                 image_note: str = "",
+                 variation: Optional[int] = None) -> List[Message]:
     """The generation turn: optional examples, optional plan, optional reference
-    images, then the request."""
+    images, then the request.
+
+    ``variation`` is the seed rider. LLM sampling is not seedable, and the response
+    cache keys on the exact request — so without this, asking for N samples of one
+    prompt returns the *same* build N times. Putting the number in the request both
+    asks for a different design and changes the cache key, which is what makes
+    ``--n 4`` mean four builds instead of one build four times.
+    """
     messages: List[Message] = []
     for ex in examples:
         messages.append(text_message("user", f"Build: {ex.caption}"))
         messages.append(text_message("assistant", ex.program.strip()))
     ask = f"Build: {description}"
+    if variation is not None:
+        ask += (f"\n\n(Design variation #{variation}: make deliberately different "
+                f"choices — massing, proportions, materials — from any other "
+                f"variation of this request.)")
     if plan:
         ask += (f"\n\nYour plan:\n{plan.strip()}\n\nNow write the program that "
                 f"realizes this plan. Output only command lines.")

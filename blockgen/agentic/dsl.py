@@ -34,11 +34,12 @@ a build plus a precise list of what to fix.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from blockgen.agentic.blockstate import AIR, UnknownBlockError, resolve_block
+from blockgen.agentic.blockstate import (AIR, STAIRS_IDS, UnknownBlockError,
+                                         parse_block, resolve_block)
 from blockgen.agentic.canvas import Canvas, Coord, DEFAULT_SIZE
 
 _REQUIRED = object()
@@ -270,6 +271,23 @@ def _cmd_line(canvas: Canvas, a: Dict[str, Any]) -> int:
     return canvas.set_coords(sorted(pts), resolve_block(a["block"]))
 
 
+def _stair_slopes(spec: str, block: Tuple[int, int], axis: str
+                  ) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+    """Per-slope facings for a stairs roof: ``(low-side block, high-side block)``.
+
+    A roof whose stairs all share one facing reads as a staircase, not a roof — the
+    two slopes have to face opposite ways. Legacy facing bits are ``0=east 1=west
+    2=south 3=north`` and a stair faces the direction you ascend, so the low-x side
+    of a z-ridge roof rises toward +x (east) and its opposite falls west. An explicit
+    ``[facing=…]`` in the program wins: the model asked for something specific.
+    """
+    block_id, data = block
+    if block_id not in STAIRS_IDS or "facing" in parse_block(spec).props:
+        return block, block
+    low, high = (2, 3) if axis == "x" else (0, 1)   # x-ridge slopes across z
+    return ((block_id, (data & ~3) | low), (block_id, (data & ~3) | high))
+
+
 # --- commands: shapes ------------------------------------------------------
 @register(
     "sphere", (Param("block", "block"), Param("cx", "int"), Param("cy", "int"),
@@ -362,6 +380,7 @@ def _cmd_pyramid(canvas: Canvas, a: Dict[str, Any]) -> int:
 def _cmd_gable(canvas: Canvas, a: Dict[str, Any]) -> int:
     lo, hi = _region(a)
     block = resolve_block(a["block"])
+    block_lo, block_hi = _stair_slopes(a["block"], block, a["axis"])
     over = max(0, int(a["overhang"]))
     x0, x1 = lo[0] - over, hi[0] + over
     z0, z1 = lo[2] - over, hi[2] + over
@@ -383,12 +402,12 @@ def _cmd_gable(canvas: Canvas, a: Dict[str, Any]) -> int:
                 n += canvas.fill_box((x0, y, za), (x1, y, zb), block)
                 continue
             if riser and level:
-                n += canvas.fill_box((x0, y, za - 1), (x1, y, za - 1), block)
+                n += canvas.fill_box((x0, y, za - 1), (x1, y, za - 1), block_lo)
                 if zb != za:
-                    n += canvas.fill_box((x0, y, zb + 1), (x1, y, zb + 1), block)
-            n += canvas.fill_box((x0, y, za), (x1, y, za), block)
+                    n += canvas.fill_box((x0, y, zb + 1), (x1, y, zb + 1), block_hi)
+            n += canvas.fill_box((x0, y, za), (x1, y, za), block_lo)
             if zb != za:
-                n += canvas.fill_box((x0, y, zb), (x1, y, zb), block)
+                n += canvas.fill_box((x0, y, zb), (x1, y, zb), block_hi)
     else:  # ridge along z, slope across x
         for level in range(((x1 - x0) // 2) + 1):
             y = y0 + level
@@ -399,12 +418,12 @@ def _cmd_gable(canvas: Canvas, a: Dict[str, Any]) -> int:
                 n += canvas.fill_box((xa, y, z0), (xb, y, z1), block)
                 continue
             if riser and level:
-                n += canvas.fill_box((xa - 1, y, z0), (xa - 1, y, z1), block)
+                n += canvas.fill_box((xa - 1, y, z0), (xa - 1, y, z1), block_lo)
                 if xb != xa:
-                    n += canvas.fill_box((xb + 1, y, z0), (xb + 1, y, z1), block)
-            n += canvas.fill_box((xa, y, z0), (xa, y, z1), block)
+                    n += canvas.fill_box((xb + 1, y, z0), (xb + 1, y, z1), block_hi)
+            n += canvas.fill_box((xa, y, z0), (xa, y, z1), block_lo)
             if xb != xa:
-                n += canvas.fill_box((xb, y, z0), (xb, y, z1), block)
+                n += canvas.fill_box((xb, y, z0), (xb, y, z1), block_hi)
     return n
 
 
@@ -641,33 +660,113 @@ class ExecutionReport:
         }
 
 
+@dataclass
+class Step:
+    """One executed command and the voxels it actually changed.
+
+    ``voxels`` are ``(x, y, z, block_id, block_data)`` rows — *including* voxels set
+    back to air, because a ``clear`` that cuts a doorway is as much a part of the
+    build as the wall it cuts. A consumer replaying these in order reproduces the
+    build the way the program wrote it: foundation, then shell, then openings, then
+    roof.
+    """
+
+    index: int
+    total: int
+    call: Call
+    voxels: List[Tuple[int, int, int, int, int]] = field(default_factory=list)
+    changed: int = 0
+    issue: Optional[Issue] = None
+
+    @property
+    def failed(self) -> bool:
+        return self.issue is not None and self.issue.severity == "error"
+
+
+class ProgramRunner:
+    """Executes a program, optionally one command at a time.
+
+    Both :func:`execute` (batch) and the live-streaming consumers go through this
+    class, so there is exactly ONE implementation of the execution semantics. Two
+    implementations of the same grammar drift, and the drift is quiet — the same
+    reasoning ``deploy/inference/blockgen_server/decode.py`` documents for the
+    streaming vs batch token decoders.
+    """
+
+    def __init__(self, program: Program, canvas: Optional[Canvas] = None, *,
+                 size: Sequence[int] = DEFAULT_SIZE, track_voxels: bool = False):
+        self.program = program
+        self.canvas = canvas if canvas is not None else Canvas(size)
+        self.track_voxels = track_voxels
+        self.report = ExecutionReport(n_skipped_lines=program.n_skipped)
+        self.report.issues.extend(program.issues)
+
+    def steps(self) -> Iterator[Step]:
+        """Run the program, yielding one :class:`Step` per command."""
+        total = len(self.program.calls)
+        for i, call in enumerate(self.program.calls):
+            self.report.n_commands += 1
+            before = None
+            if self.track_voxels:
+                before = (self.canvas.block_ids.copy(), self.canvas.block_data.copy())
+            step = Step(index=i, total=total, call=call)
+            try:
+                changed = int(call.spec.handler(self.canvas, call.args))
+            except (UnknownBlockError, ValueError, KeyError, IndexError) as exc:
+                self.report.n_failed += 1
+                issue = Issue(call.line_no, call.text, str(exc))
+                self.report.issues.append(issue)
+                step.issue = issue
+                yield step
+                continue
+            self.report.voxels_written += max(changed, 0)
+            self.report.per_command.append((call.line_no, call.spec.name, changed))
+            step.changed = changed
+            if changed == 0:
+                self.report.n_noop += 1
+                issue = Issue(
+                    call.line_no, call.text,
+                    "changed 0 blocks (region empty, out of bounds, or already that block)",
+                    severity="warning")
+                self.report.issues.append(issue)
+                step.issue = issue
+            if before is not None:
+                step.voxels = self._diff(before)
+            yield step
+        self.finish()
+
+    def _diff(self, before) -> List[Tuple[int, int, int, int, int]]:
+        """Voxels this command actually altered (a diff, not the command's own idea
+        of what it wrote — ``replace`` and overlapping fills only touch some of the
+        region, and re-sending unchanged voxels would make the live build stutter)."""
+        old_ids, old_data = before
+        mask = (self.canvas.block_ids != old_ids) | (self.canvas.block_data != old_data)
+        coords = np.argwhere(mask)
+        if coords.size == 0:
+            return []
+        ids = self.canvas.block_ids[coords[:, 0], coords[:, 1], coords[:, 2]]
+        data = self.canvas.block_data[coords[:, 0], coords[:, 1], coords[:, 2]]
+        return [(int(x), int(y), int(z), int(b), int(d))
+                for (x, y, z), b, d in zip(coords.tolist(), ids.tolist(), data.tolist())]
+
+    def finish(self) -> ExecutionReport:
+        """Fill in the whole-canvas totals. Idempotent."""
+        self.report.clipped_writes = self.canvas.clipped_writes
+        self.report.blocks = self.canvas.block_count()
+        self.report.bbox = self.canvas.bbox()
+        self.report.palette = self.canvas.palette_counts()
+        return self.report
+
+    def run(self) -> Tuple[Canvas, ExecutionReport]:
+        for _ in self.steps():
+            pass
+        return self.canvas, self.report
+
+
 def execute(program: Program, canvas: Optional[Canvas] = None, *,
             size: Sequence[int] = DEFAULT_SIZE) -> Tuple[Canvas, ExecutionReport]:
     """Run a parsed program. A failing line is recorded and skipped, never fatal."""
-    canvas = canvas if canvas is not None else Canvas(size)
-    report = ExecutionReport(n_skipped_lines=program.n_skipped)
-    report.issues.extend(program.issues)
-    for call in program.calls:
-        report.n_commands += 1
-        try:
-            changed = int(call.spec.handler(canvas, call.args))
-        except (UnknownBlockError, ValueError, KeyError, IndexError) as exc:
-            report.n_failed += 1
-            report.issues.append(Issue(call.line_no, call.text, str(exc)))
-            continue
-        report.voxels_written += max(changed, 0)
-        report.per_command.append((call.line_no, call.spec.name, changed))
-        if changed == 0:
-            report.n_noop += 1
-            report.issues.append(Issue(
-                call.line_no, call.text,
-                "changed 0 blocks (region empty, out of bounds, or already that block)",
-                severity="warning"))
-    report.clipped_writes = canvas.clipped_writes
-    report.blocks = canvas.block_count()
-    report.bbox = canvas.bbox()
-    report.palette = canvas.palette_counts()
-    return canvas, report
+    return ProgramRunner(program, canvas, size=size).run()
 
 
 def run_program(text: str, *, size: Sequence[int] = DEFAULT_SIZE,
@@ -680,5 +779,5 @@ def run_program(text: str, *, size: Sequence[int] = DEFAULT_SIZE,
 
 
 __all__ = ["COMMANDS", "Call", "CommandSpec", "ExecutionReport", "Issue", "Param",
-           "Program", "command_reference", "execute", "lookup", "parse_line",
-           "parse_program", "register", "run_program"]
+           "Program", "ProgramRunner", "Step", "command_reference", "execute",
+           "lookup", "parse_line", "parse_program", "register", "run_program"]

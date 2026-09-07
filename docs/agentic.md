@@ -143,6 +143,16 @@ keeps palette drift visible in the metrics instead of hiding it in grey blobs.
 the system prompt; a test asserts every entry resolves and that they do not collapse
 onto each other.
 
+That list is the model's entire view of the material world. [Block
+ontology](ontology.md) replaces it, under `--ontology mined`, with the same 70
+names plus what each one *is* — colour and surface measured from the shipped
+textures, placement behaviour and material affinity mined from the corpus:
+
+```bash
+.venv/bin/python -m blockgen.ontology          # mine it (~1 s over 2661 builds)
+.venv/bin/python scripts/run_agentic.py "a spruce lodge" --ontology mined
+```
+
 ### Failure handling (why the loop can learn from it)
 
 * **Parse** and **execute** are separate. Bad syntax is caught with a line number
@@ -263,6 +273,21 @@ comparison isolates the loop rather than the request.
 | `critique` | – | 0 | 1 | 1 |
 | `full` | ✓ | 1 | 2 | 1 |
 
+Plus the **ontology** arms, which move a different knob — what the model is told
+about the *materials* rather than how many passes it gets. All four are `oneshot`
+with one setting changed, so the comparison isolates the block reference table:
+
+| Arm | block reference in the system prompt | prompt size |
+|---|---|---|
+| `ont_none` | the bare 70-name palette list (as shipped) | ~1.3k tokens |
+| `ont_mined` | the measured catalog — colour, layer, form, affinity, rules | ~4.3k |
+| `ont_shuffled` | **the control**: the same table, attributes permuted onto the wrong blocks, token-matched to `ont_mined` | ~4.3k |
+| `ont_stats` | mined fields only — no colours, no game rules | ~3.2k |
+
+`ont_mined` beating `ont_none` is not a result; `ont_mined` beating `ont_shuffled`
+is. See [Block ontology](ontology.md), and build the catalog with
+`python -m blockgen.ontology` before running these.
+
 A new ablation is one dict entry in `ARMS`, not a new code path.
 
 ### Prompt sets (`blockgen/agentic/tasks.py`)
@@ -286,6 +311,7 @@ under the same `--seed`, which is what makes the prompt-detail ablation paired
 .venv/bin/python -m blockgen.experiments_agentic --config agentic-detail --prompts captions:0 --name agentic_detail_short
 .venv/bin/python -m blockgen.experiments_agentic --config agentic-detail --prompts captions:2 --name agentic_detail_rich
 .venv/bin/python -m blockgen.experiments_agentic --config agentic-large        # 96³ canvas, long-horizon builds
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-ontology    # does a mined block ontology beat the model's priors?
 ```
 
 Same layered YAML system as every other battery (`blockgen/config.py`): CLI flags
@@ -337,6 +363,46 @@ tooling with no converter.
 
 ---
 
+## In Minecraft (the live server)
+
+The agentic track is servable through the same inference server and Fabric mod as the
+trained checkpoints (the `deploy/` stack) — `deploy/inference/models.json`
+carries two entries, `agentic` and `agentic_plus`, and each is a **group** that serves
+every model in its list:
+
+```
+/model agentic list                      # the models it serves + availability
+/model agentic gemini-3.5-flash          # -> agentic:gemini-3.5-flash
+/gen a wooden windmill on a stone base   # real text conditioning
+```
+
+The vendor is inferred from the model name, so you type `gemini-3.5-flash`, not
+`gemini:gemini-3.5-flash`. A member whose API key is missing lists as unavailable with
+that reason instead of failing at generate time.
+
+**The build goes up command by command.** The server does not dump the finished
+structure: it re-executes the program through
+`ProgramRunner(..., track_voxels=True)` and sends one batch per command, labelled
+with the command that produced it. In world you watch the foundation appear, then the
+walls, then the doorway being *cut* (cleared voxels are streamed as
+`minecraft:air`, so openings really open), then the roof.
+
+```
+  [1/48] fill cobblestone 15 0 15 25 4 25
+  [2/48] replace cobblestone mossy_cobblestone 15 0 15 25 1 25
+  ...
+Done: 2915 blocks in 65.1s from agentic:gemini-3.5-flash (seed 11).
+  gemini:gemini-3.5-flash  48 commands  2147+1071 tokens  cost unknown (model not in the price table)
+```
+
+Batch metadata (`step`) and the closing accounting (`stats`) ride as optional fields
+on message types that already existed, so a mod built before this change still works.
+Cost is printed per build because an API model spends real money on `/gen`; a model
+missing from `providers.PRICES` reports **cost unknown** rather than `$0.00`.
+
+One honest caveat: this streams *execution*, not *generation*. The LLM call completes
+before the first block appears (25–70 s), then the replay is fast.
+
 ## Where it plugs into the rest of the repo
 
 | Seam | How |
@@ -344,9 +410,10 @@ tooling with no converter.
 | `Structure` | `Canvas.to_structure()` — agentic output *is* the repo's structure type |
 | Rendering | `blockgen/eval/cond_render.textured_prompt_grid`, same sheets as every conditioned run |
 | Eval | novelty / perceptual / validity all take `Structure` lists |
-| Live Minecraft | `deploy/` maps legacy `(id, data)` → modern block states; the block-state support here is aligned with `deploy/…/blockmap.py`, so builds are servable |
+| Live Minecraft | Served as `agentic:<model>` by `deploy/inference` — see [In Minecraft](#in-minecraft-the-live-server). Block-state bits are aligned with `deploy/…/blockmap.py`, so a program's `[facing=north]` survives into the world |
 | **Editing an existing build** | `structure_to_canvas(structure)` seeds the canvas from a real corpus build — the agent can then *extend, in-fill or restyle* it instead of building from scratch |
 | Retrieval | `examples.select_examples` is keyword-overlap today; swapping in CLIP text embeddings (`blockgen/labeling/embed_conditions.py`) touches nothing else |
+| **Materials** | `blockgen/ontology` mines the corpus for what each block *is* and renders it into the system prompt in place of the bare palette list — see [Block ontology](ontology.md) |
 
 ## Relationship to the LLM baseline (Track D)
 

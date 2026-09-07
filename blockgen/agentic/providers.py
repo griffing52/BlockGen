@@ -44,6 +44,11 @@ DEFAULT_CACHE_DIR = _REPO / "outputs" / "agentic_cache"
 
 # Approximate list prices in USD per 1M tokens, (input, output). Used only for the
 # cost line in run reports -- update freely, nothing depends on the numbers.
+#
+# A model that is NOT in this table is reported as *unpriced*, not as free: printing
+# "$0.00" for a paid API call is worse than saying you do not know. Vendors ship
+# models faster than this table is maintained, so unpriced is the normal case for
+# anything new -- add a row when you care about the number.
 PRICES: Dict[str, Tuple[float, float]] = {
     "gpt-5": (1.25, 10.0),
     "gpt-5-mini": (0.25, 2.0),
@@ -126,6 +131,11 @@ class LLMResponse:
     finish_reason: str = ""
 
     @property
+    def priced(self) -> bool:
+        """Whether :data:`PRICES` knows this model — see the note on that table."""
+        return self.model in PRICES
+
+    @property
     def cost_usd(self) -> float:
         price = PRICES.get(self.model)
         if price is None:  # unknown model -> unpriced, not guessed
@@ -136,7 +146,7 @@ class LLMResponse:
         return {"model": self.model, "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens, "cached": self.cached,
                 "latency_s": round(self.latency_s, 2), "cost_usd": round(self.cost_usd, 6),
-                "finish_reason": self.finish_reason}
+                "priced": self.priced, "finish_reason": self.finish_reason}
 
 
 # --- env / keys ------------------------------------------------------------

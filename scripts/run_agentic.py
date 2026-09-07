@@ -72,6 +72,11 @@ def main() -> None:
     ap.add_argument("--critique-rounds", type=int, default=0,
                     help="rounds of visual (rendered) self-critique")
     ap.add_argument("--critique-mode", default="rewrite", choices=["rewrite", "patch"])
+    ap.add_argument("--ontology", default="none",
+                    help="block-ontology variant in the system prompt: "
+                         "none | mined | shuffled | stats (build it with "
+                         "`python -m blockgen.ontology`)")
+    ap.add_argument("--ontology-path", default=None, help="ontology JSON override")
     ap.add_argument("--image", action="append", default=[],
                     help="reference image (repeatable) — image-conditioned build")
     ap.add_argument("--target-blocks", type=int, default=None)
@@ -107,7 +112,9 @@ def main() -> None:
         repair_rounds=args.repair_rounds, critique_rounds=args.critique_rounds,
         critique_mode=args.critique_mode, target_blocks=args.target_blocks,
         max_tokens=args.max_tokens, reasoning_effort=args.reasoning_effort,
-        temperature=args.temperature, cache=not args.no_cache, verbose=not args.quiet)
+        temperature=args.temperature, ontology=args.ontology,
+        ontology_path=args.ontology_path,
+        cache=not args.no_cache, verbose=not args.quiet)
 
     images = [Path(p).read_bytes() for p in args.image]
     provider = get_provider(cfg.provider, cache=cfg.cache, **cfg.provider_params())
@@ -117,7 +124,10 @@ def main() -> None:
     for i in range(max(1, args.n)):
         if args.n > 1:
             print(f"--- sample {i + 1}/{args.n} ---", flush=True)
-        results.append(agent.build(args.prompt, images=images))
+        # Pass the sample index as the variation seed: the response cache keys on the
+        # request, so without it every sample of one prompt is the same build.
+        results.append(agent.build(args.prompt, images=images,
+                                   seed=i if args.n > 1 else None))
 
     run = new_run_dir(args.name)
     metrics = write_run(run, arms={"build": results},
