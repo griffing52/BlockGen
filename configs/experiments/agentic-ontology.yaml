@@ -1,0 +1,30 @@
+# Does a grounded block ontology beat the model's own priors?
+#
+# Four arms, all `oneshot` with one knob moved, so the only difference is the
+# block reference table in the system prompt:
+#
+#   ont_none      today's bare 70-name palette list          ~1.3k token prompt
+#   ont_mined     the full catalog (mined + texture + rules)  ~4.3k
+#   ont_shuffled  THE CONTROL: same table, attributes permuted onto the wrong
+#                 blocks. Token-matched to ont_mined to the character, so a tie
+#                 between them means the gain was context length, not knowledge.
+#   ont_stats     mined fields only, no colours and no game rules  ~3.2k
+#
+# Build the catalog first (it is not in git — 250 KB of derived data):
+#   .venv/bin/python -m blockgen.ontology
+#   .venv/bin/python -m blockgen.experiments_agentic --config agentic-ontology
+#
+# n: 12 is a pilot, not a result. The bench needs n>=256 per arm before any of
+# these differences mean anything (T23/T25); read this run for plumbing, cost and
+# effect *direction*, then scale the arms that look alive.
+extends:
+  - agentic/loop-cheap
+description: Agentic — does a mined block ontology beat the model's priors?
+arms: "ont_none,ont_mined,ont_shuffled,ont_stats"
+prompts: detailed
+n: 12
+canvas: 48
+canvas_height: 48
+critique_mode: rewrite
+provider: "openai:gpt-5-mini"
+name: agentic_ontology
