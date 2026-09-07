@@ -1,0 +1,135 @@
+{
+ "max_dim": 4,
+ "count": 8,
+ "report": {
+  "kind": "bench_examples",
+  "run": "run_20260102_000000_bench_fixture",
+  "run_name": "fixture run",
+  "k": 2,
+  "seed": 0,
+  "arms": {
+   "real_test": [
+    0,
+    1
+   ],
+   "real@canon8": [
+    2,
+    3
+   ],
+   "gabled_house": [
+    4,
+    5
+   ],
+   "fixture_ar": [
+    6,
+    7
+   ]
+  }
+ },
+ "items": [
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "real_test",
+   "title": "real_test #0",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "real_test",
+   "title": "real_test #2",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "real@canon8",
+   "title": "real@canon8 #0",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "real@canon8",
+   "title": "real@canon8 #2",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "gabled_house",
+   "title": "gabled_house #0",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "gabled_house",
+   "title": "gabled_house #2",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "fixture_ar",
+   "title": "fixture_ar #0",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "houses_32",
+   "category": "fixture_ar",
+   "title": "fixture_ar #1",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+ "max_dim": 4,
+ "count": 2,
+ "report": {
+  "model": "fixture_ar",
+  "checkpoint": "outputs/run_20260101_000000_fixture_train/model.pt",
+  "n": 2,
+  "n_empty": 0,
+  "seed": 7,
+  "temperature": 0.9,
+  "top_k": 40,
+  "note": "synthetic fixture arm; no model was run"
+ },
+ "items": [
+  {
+   "source_path": "",
+   "corpus": "",
+   "category": "",
+   "title": "",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  },
+  {
+   "source_path": "",
+   "corpus": "",
+   "category": "",
+   "title": "",
+   "url": "",
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "n_blocks": 29
+  }
+ ]
+}

@@ -1,0 +1,1203 @@
+{
+  "schema_version": "bench/2",
+  "run": {
+    "dir": "outputs/run_20260102_000000_bench_fixture",
+    "name": "fixture run",
+    "note": "synthesized by tests/fixtures/make_scorecard_fixtures.py",
+    "git_sha": "0000000",
+    "git_branch": "main",
+    "git_dirty": false,
+    "started_at": "2026-01-02T00:00:00Z",
+    "finished_at": "2026-01-02T00:00:12Z",
+    "cmd": "/abs/path/blockgen/eval/bench/__main__.py --tier both --n 3 --min-n 2 --name fixture run",
+    "rerun": "python -m blockgen.eval.bench --tier both --n 3 --min-n 2 --name 'fixture run'",
+    "argv": [
+      "--tier",
+      "both",
+      "--n",
+      "3",
+      "--min-n",
+      "2",
+      "--name",
+      "fixture run"
+    ],
+    "tier": "both",
+    "host": "fixture",
+    "device": "cpu",
+    "elapsed_s": 12.0,
+    "blockscore": [
+      {
+        "arm": "real_test",
+        "score": 0.0,
+        "status": "ok",
+        "pillars": {
+          "appearance": 0.0,
+          "geometry": 0.0,
+          "palette": 0.0,
+          "coherence": 0.0,
+          "geometry_scalars": 0.0
+        },
+        "worst_pillar": "appearance",
+        "disqualified": null,
+        "unranked": null,
+        "missing_pillars": []
+      },
+      {
+        "arm": "fixture_ar",
+        "score": 2.0,
+        "status": "ok",
+        "pillars": {
+          "appearance": 2.0,
+          "geometry": 2.0,
+          "palette": 1.9999999999999998,
+          "coherence": 2.0,
+          "geometry_scalars": 2.0
+        },
+        "worst_pillar": "appearance",
+        "disqualified": null,
+        "unranked": null,
+        "missing_pillars": []
+      },
+      {
+        "arm": "real@canon8",
+        "score": 3.0,
+        "status": "ok",
+        "pillars": {
+          "appearance": 3.0,
+          "geometry": 3.0,
+          "palette": 3.0,
+          "coherence": 3.0,
+          "geometry_scalars": 3.0
+        },
+        "worst_pillar": "appearance",
+        "disqualified": null,
+        "unranked": null,
+        "missing_pillars": []
+      },
+      {
+        "arm": "gabled_house",
+        "score": 6.0,
+        "status": "ok",
+        "pillars": {
+          "appearance": 6.0,
+          "geometry": 6.0,
+          "palette": 6.0,
+          "coherence": 6.0,
+          "geometry_scalars": 6.0
+        },
+        "worst_pillar": "appearance",
+        "disqualified": null,
+        "unranked": null,
+        "missing_pillars": []
+      }
+    ],
+    "blockscore_validation": {
+      "C1_real_is_near_zero": true,
+      "C3_real@canon8_worse_than_real": true
+    },
+    "head_to_head": [
+      {
+        "metric": "geom_kid",
+        "direction": "lower_better",
+        "order": [
+          "real_test",
+          "real@canon8",
+          "gabled_house",
+          "fixture_ar"
+        ],
+        "scores": {
+          "real_test": 0.07800657420628376,
+          "real@canon8": 1.4590964614237727,
+          "gabled_house": 2.989049623973192,
+          "fixture_ar": 4.52799325057316
+        },
+        "groups": {
+          "real_test": "a",
+          "real@canon8": "b",
+          "gabled_house": "c",
+          "fixture_ar": "d"
+        },
+        "comparisons": [
+          {
+            "a": "real_test",
+            "b": "real@canon8",
+            "delta": -1.381089887217489,
+            "ci": [
+              -1.9582770748347644,
+              0.013577404519885782
+            ],
+            "p": 0.018851129856335448,
+            "p_adj": 0.018851129856335448,
+            "p_boot": 0.2,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "real_test",
+            "paired_on": "reference"
+          },
+          {
+            "a": "real_test",
+            "b": "gabled_house",
+            "delta": -2.911043049766908,
+            "ci": [
+              -3.151959287404971,
+              -1.499365643272578
+            ],
+            "p": 1.217955136567708e-07,
+            "p_adj": 4.871820546270833e-07,
+            "p_boot": 0.05,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "real_test",
+            "paired_on": "reference"
+          },
+          {
+            "a": "real_test",
+            "b": "fixture_ar",
+            "delta": -4.449986676366876,
+            "ci": [
+              -5.027750168053967,
+              -2.3458760611972016
+            ],
+            "p": 1.6968939761261347e-08,
+            "p_adj": 1.0181363856756808e-07,
+            "p_boot": 0.05,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "real_test",
+            "paired_on": "reference"
+          },
+          {
+            "a": "real@canon8",
+            "b": "gabled_house",
+            "delta": -1.5299531625494192,
+            "ci": [
+              -2.0236993161849184,
+              -0.31022079764139465
+            ],
+            "p": 0.0011832706648451513,
+            "p_adj": 0.003549811994535454,
+            "p_boot": 0.05,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "real@canon8",
+            "paired_on": "reference"
+          },
+          {
+            "a": "real@canon8",
+            "b": "fixture_ar",
+            "delta": -3.0688967891493872,
+            "ci": [
+              -3.7989998129765925,
+              -2.0092893923406407
+            ],
+            "p": 3.429005991343274e-08,
+            "p_adj": 1.714502995671637e-07,
+            "p_boot": 0.05,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "real@canon8",
+            "paired_on": "reference"
+          },
+          {
+            "a": "gabled_house",
+            "b": "fixture_ar",
+            "delta": -1.538943626599968,
+            "ci": [
+              -2.4149898766853983,
+              -0.6659277323294097
+            ],
+            "p": 0.007434181559755742,
+            "p_adj": 0.014868363119511485,
+            "p_boot": 0.05,
+            "n_rep": 20,
+            "direction": "lower_better",
+            "winner": "gabled_house",
+            "paired_on": "reference"
+          }
+        ]
+      }
+    ],
+    "examples": {
+      "npz": "examples_4.npz",
+      "manifest": "examples_4_manifest.json",
+      "k": 2,
+      "count": 8,
+      "seed": 0
+    }
+  },
+  "context": {
+    "corpus": "houses_32",
+    "seed": 0,
+    "grid": 24,
+    "min_n": 2,
+    "n_ref": 512,
+    "palette_level": "exact",
+    "dup_threshold": 0.95,
+    "split_key": "houses_32.s0.70-15-15.v1",
+    "split_sha": "dc0cca4bb8671d39",
+    "sizes": {
+      "train": 6,
+      "val": 3,
+      "test": 3
+    },
+    "bootstrap": {
+      "n_boot": 1000,
+      "alpha": 0.05,
+      "unit": "structure"
+    },
+    "n_train": 6,
+    "n_val": 3,
+    "n_test": 3,
+    "n_ref_used": 3,
+    "vocab_size": 8,
+    "palette_keys_exact": 3,
+    "palette_keys_family": 2,
+    "view": {
+      "key": "o4x224",
+      "px": 224,
+      "views": [
+        [
+          45,
+          30
+        ],
+        [
+          135,
+          30
+        ],
+        [
+          225,
+          30
+        ],
+        [
+          315,
+          30
+        ]
+      ]
+    },
+    "backbone": {
+      "image": "dinov2b",
+      "text": "clipL",
+      "pool": "mean"
+    },
+    "mmd_sigma": 12.44,
+    "noise_floor_sd": {
+      "realism.geom_kid": 1.0
+    }
+  },
+  "ladder": {
+    "path": "outputs/analysis/ladder/fixture.json",
+    "passing": [
+      "kid",
+      "mmd_rbf"
+    ],
+    "failing": {
+      "fd": "G8_n_stability"
+    }
+  },
+  "arms": {
+    "real_test": {
+      "meta": {
+        "track": "control",
+        "n": 3,
+        "n_empty": 0,
+        "source": "in-memory",
+        "has_prompts": false,
+        "palette_oov_frac_exact": 0.0,
+        "palette_oov_frac_family": 0.0,
+        "family_unclassified_frac": 0.0,
+        "kind": "control",
+        "origin": "in_memory",
+        "source_run_id": null,
+        "structures_sha": "84171bb941568b77",
+        "provenance": {
+          "writer": "in_memory",
+          "builder": "blockgen.eval.bench.fast.control_arms",
+          "recipe": "genuinely held-out real builds from the test split, disjoint from the val reference they are scored against, so the floor is a fresh real sample rather than the reference scored against itself (which is an exact zero everywhere and calibrates nothing)",
+          "drawn_from": "split:houses_32:test",
+          "n_requested": 3,
+          "seed": 0
+        },
+        "examples": {
+          "rows": [
+            0,
+            1
+          ],
+          "source_rows": [
+            0,
+            2
+          ]
+        }
+      },
+      "realism": {
+        "geom_kid": {
+          "value": 1.0,
+          "ci": [
+            -0.96,
+            2.96
+          ],
+          "direction": "lower_better",
+          "x": 1000,
+          "note": "synthetic fixture value; see make_scorecard_fixtures.ARMS",
+          "mmd": 1.0
+        },
+        "mv_dino_kid": {
+          "value": 0.2,
+          "ci": [
+            -1.76,
+            2.16
+          ],
+          "direction": "lower_better",
+          "x": 1000
+        }
+      },
+      "coherence": {
+        "lcc_ratio": {
+          "gen": {
+            "mean": 0.98,
+            "ci": [
+              0.88,
+              1.08
+            ]
+          },
+          "real": {
+            "mean": 0.98,
+            "ci": [
+              0.88,
+              1.08
+            ]
+          },
+          "w1": 0.2,
+          "w1_norm": 0.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        },
+        "n_components": {
+          "gen": {
+            "mean": 2.7,
+            "ci": [
+              2.6,
+              2.8000000000000003
+            ]
+          },
+          "real": {
+            "mean": 2.7,
+            "ci": [
+              2.6,
+              2.8000000000000003
+            ]
+          },
+          "w1": 0.2,
+          "w1_norm": 0.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "geometry_scalars": {
+        "thickness_mean": {
+          "gen": {
+            "mean": 1.05,
+            "ci": [
+              0.9500000000000001,
+              1.1500000000000001
+            ]
+          },
+          "real": {
+            "mean": 1.05,
+            "ci": [
+              0.9500000000000001,
+              1.1500000000000001
+            ]
+          },
+          "w1": 0.2,
+          "w1_norm": 0.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "dataset_stats": {
+        "palette_jsd_exact": {
+          "value": 0.05,
+          "ci": [
+            -1.91,
+            2.01
+          ],
+          "direction": "lower_better",
+          "level": "exact",
+          "n_symbols": 3
+        },
+        "palette_jsd_family": {
+          "value": 0.02,
+          "ci": [
+            -1.94,
+            1.98
+          ],
+          "direction": "lower_better",
+          "level": "family",
+          "n_symbols": 2
+        }
+      },
+      "novelty": {
+        "voxel_nn_iou_mean": {
+          "value": 0.35,
+          "ci": [
+            -1.6099999999999999,
+            2.31
+          ],
+          "direction": "lower_better",
+          "grid": 24,
+          "note": "IoU to nearest TRAIN build; high = memorized"
+        },
+        "voxel_dup_rate": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.0
+          ],
+          "direction": "lower_better",
+          "threshold": 0.95
+        },
+        "voxel_diversity": {
+          "value": 0.9,
+          "ci": [
+            -1.06,
+            2.86
+          ],
+          "direction": "higher_better"
+        },
+        "dino_nn_percentile": {
+          "value": 0.5,
+          "ci": [
+            -1.46,
+            2.46
+          ],
+          "direction": "higher_better"
+        }
+      },
+      "fidelity": {
+        "density": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "density failed G8_n_stability"
+        },
+        "coverage": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "coverage failed G8_n_stability"
+        },
+        "precision": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "precision failed G8_n_stability"
+        },
+        "recall": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "recall failed G8_n_stability"
+        }
+      }
+    },
+    "real@canon8": {
+      "meta": {
+        "track": "control",
+        "n": 3,
+        "n_empty": 0,
+        "source": "in-memory",
+        "has_prompts": false,
+        "palette_oov_frac_exact": 0.0,
+        "palette_oov_frac_family": 0.0,
+        "family_unclassified_frac": 0.0,
+        "kind": "control",
+        "origin": "in_memory",
+        "source_run_id": null,
+        "structures_sha": "06c17c8cf1bc704f",
+        "provenance": {
+          "writer": "in_memory",
+          "builder": "blockgen.eval.bench.fast.control_arms",
+          "recipe": "the same canonicalisation taken down to 8 blocks: the same kind of damage, harder, so the two rungs together show whether a metric orders damage as well as detecting it",
+          "drawn_from": "split:houses_32:test",
+          "n_requested": 3,
+          "seed": 0
+        },
+        "examples": {
+          "rows": [
+            2,
+            3
+          ],
+          "source_rows": [
+            0,
+            2
+          ]
+        }
+      },
+      "realism": {
+        "geom_kid": {
+          "value": 4.0,
+          "ci": [
+            2.04,
+            5.96
+          ],
+          "direction": "lower_better",
+          "x": 1000,
+          "note": "synthetic fixture value; see make_scorecard_fixtures.ARMS",
+          "mmd": 2.0
+        },
+        "mv_dino_kid": {
+          "value": 3.2,
+          "ci": [
+            1.2400000000000002,
+            5.16
+          ],
+          "direction": "lower_better",
+          "x": 1000
+        }
+      },
+      "coherence": {
+        "lcc_ratio": {
+          "gen": {
+            "mean": 3.98,
+            "ci": [
+              3.88,
+              4.08
+            ]
+          },
+          "real": {
+            "mean": 0.98,
+            "ci": [
+              0.88,
+              1.08
+            ]
+          },
+          "w1": 3.2,
+          "w1_norm": 3.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        },
+        "n_components": {
+          "gen": {
+            "mean": 5.7,
+            "ci": [
+              5.6000000000000005,
+              5.8
+            ]
+          },
+          "real": {
+            "mean": 2.7,
+            "ci": [
+              2.6,
+              2.8000000000000003
+            ]
+          },
+          "w1": 3.2,
+          "w1_norm": 3.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "geometry_scalars": {
+        "thickness_mean": {
+          "gen": {
+            "mean": 4.05,
+            "ci": [
+              3.9499999999999997,
+              4.1499999999999995
+            ]
+          },
+          "real": {
+            "mean": 1.05,
+            "ci": [
+              0.9500000000000001,
+              1.1500000000000001
+            ]
+          },
+          "w1": 3.2,
+          "w1_norm": 3.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "dataset_stats": {
+        "palette_jsd_exact": {
+          "value": 3.05,
+          "ci": [
+            1.0899999999999999,
+            5.01
+          ],
+          "direction": "lower_better",
+          "level": "exact",
+          "n_symbols": 3
+        },
+        "palette_jsd_family": {
+          "value": 3.02,
+          "ci": [
+            1.06,
+            4.98
+          ],
+          "direction": "lower_better",
+          "level": "family",
+          "n_symbols": 2
+        }
+      },
+      "novelty": {
+        "voxel_nn_iou_mean": {
+          "value": 0.35,
+          "ci": [
+            -1.6099999999999999,
+            2.31
+          ],
+          "direction": "lower_better",
+          "grid": 24,
+          "note": "IoU to nearest TRAIN build; high = memorized"
+        },
+        "voxel_dup_rate": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.0
+          ],
+          "direction": "lower_better",
+          "threshold": 0.95
+        },
+        "voxel_diversity": {
+          "value": 0.9,
+          "ci": [
+            -1.06,
+            2.86
+          ],
+          "direction": "higher_better"
+        },
+        "dino_nn_percentile": {
+          "value": 0.5,
+          "ci": [
+            -1.46,
+            2.46
+          ],
+          "direction": "higher_better"
+        }
+      },
+      "fidelity": {
+        "density": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "density failed G8_n_stability"
+        },
+        "coverage": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "coverage failed G8_n_stability"
+        },
+        "precision": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "precision failed G8_n_stability"
+        },
+        "recall": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "recall failed G8_n_stability"
+        }
+      }
+    },
+    "gabled_house": {
+      "meta": {
+        "track": "baseline",
+        "n": 3,
+        "n_empty": 0,
+        "source": "in-memory",
+        "has_prompts": false,
+        "palette_oov_frac_exact": 0.0,
+        "palette_oov_frac_family": 0.0,
+        "family_unclassified_frac": 0.0,
+        "kind": "baseline",
+        "origin": "in_memory",
+        "source_run_id": null,
+        "structures_sha": "3e7a19c2608757e1",
+        "provenance": {
+          "writer": "in_memory",
+          "builder": "blockgen.eval.bench.baselines.build_arms",
+          "recipe": "shell box plus a pitched roof, a door and a row of windows -- what a competent afternoon of hand-written rules produces, and therefore the bar a learned model actually has to clear before the leaderboard is measuring anything a learned model is good for",
+          "drawn_from": "split:houses_32:test",
+          "n_requested": 3,
+          "seed": 0
+        },
+        "examples": {
+          "rows": [
+            4,
+            5
+          ],
+          "source_rows": [
+            0,
+            2
+          ]
+        }
+      },
+      "realism": {
+        "geom_kid": {
+          "value": 7.0,
+          "ci": [
+            5.04,
+            8.96
+          ],
+          "direction": "lower_better",
+          "x": 1000,
+          "note": "synthetic fixture value; see make_scorecard_fixtures.ARMS",
+          "mmd": 2.6457513110645907
+        },
+        "mv_dino_kid": {
+          "value": 6.2,
+          "ci": [
+            4.24,
+            8.16
+          ],
+          "direction": "lower_better",
+          "x": 1000
+        }
+      },
+      "coherence": {
+        "lcc_ratio": {
+          "gen": {
+            "mean": 6.98,
+            "ci": [
+              6.880000000000001,
+              7.08
+            ]
+          },
+          "real": {
+            "mean": 0.98,
+            "ci": [
+              0.88,
+              1.08
+            ]
+          },
+          "w1": 6.2,
+          "w1_norm": 6.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        },
+        "n_components": {
+          "gen": {
+            "mean": 8.7,
+            "ci": [
+              8.6,
+              8.799999999999999
+            ]
+          },
+          "real": {
+            "mean": 2.7,
+            "ci": [
+              2.6,
+              2.8000000000000003
+            ]
+          },
+          "w1": 6.2,
+          "w1_norm": 6.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "geometry_scalars": {
+        "thickness_mean": {
+          "gen": {
+            "mean": 7.05,
+            "ci": [
+              6.95,
+              7.1499999999999995
+            ]
+          },
+          "real": {
+            "mean": 1.05,
+            "ci": [
+              0.9500000000000001,
+              1.1500000000000001
+            ]
+          },
+          "w1": 6.2,
+          "w1_norm": 6.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "dataset_stats": {
+        "palette_jsd_exact": {
+          "value": 6.05,
+          "ci": [
+            4.09,
+            8.01
+          ],
+          "direction": "lower_better",
+          "level": "exact",
+          "n_symbols": 3
+        },
+        "palette_jsd_family": {
+          "value": 6.02,
+          "ci": [
+            4.06,
+            7.9799999999999995
+          ],
+          "direction": "lower_better",
+          "level": "family",
+          "n_symbols": 2
+        }
+      },
+      "novelty": {
+        "voxel_nn_iou_mean": {
+          "value": 0.35,
+          "ci": [
+            -1.6099999999999999,
+            2.31
+          ],
+          "direction": "lower_better",
+          "grid": 24,
+          "note": "IoU to nearest TRAIN build; high = memorized"
+        },
+        "voxel_dup_rate": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.0
+          ],
+          "direction": "lower_better",
+          "threshold": 0.95
+        },
+        "voxel_diversity": {
+          "value": 0.9,
+          "ci": [
+            -1.06,
+            2.86
+          ],
+          "direction": "higher_better"
+        },
+        "dino_nn_percentile": {
+          "value": 0.5,
+          "ci": [
+            -1.46,
+            2.46
+          ],
+          "direction": "higher_better"
+        }
+      },
+      "fidelity": {
+        "density": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "density failed G8_n_stability"
+        },
+        "coverage": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "coverage failed G8_n_stability"
+        },
+        "precision": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "precision failed G8_n_stability"
+        },
+        "recall": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "recall failed G8_n_stability"
+        }
+      }
+    },
+    "fixture_ar": {
+      "meta": {
+        "track": "ar",
+        "n": 2,
+        "n_empty": 0,
+        "source": "tests/fixtures/scorecards/run_20260102_000000_bench_fixture/fixture_ar_4.npz",
+        "has_prompts": false,
+        "palette_oov_frac_exact": 0.0,
+        "palette_oov_frac_family": 0.0,
+        "family_unclassified_frac": 0.0,
+        "kind": "submission",
+        "origin": "npz",
+        "source_run_id": "run_20260101_000000_fixture_train",
+        "structures_sha": "6fc9e73c0d0645b3",
+        "provenance": {
+          "writer": "npz",
+          "npz": "tests/fixtures/scorecards/run_20260102_000000_bench_fixture/fixture_ar_4.npz",
+          "manifest": "tests/fixtures/scorecards/run_20260102_000000_bench_fixture/fixture_ar_4_manifest.json",
+          "written_at": "2026-01-02T00:00:00Z",
+          "count": 2,
+          "max_dim": 4,
+          "report": {
+            "model": "fixture_ar",
+            "checkpoint": "outputs/run_20260101_000000_fixture_train/model.pt",
+            "n": 2,
+            "n_empty": 0,
+            "seed": 7,
+            "temperature": 0.9,
+            "top_k": 40,
+            "note": "synthetic fixture arm; no model was run"
+          },
+          "model": "fixture_ar",
+          "checkpoint": "outputs/run_20260101_000000_fixture_train/model.pt",
+          "seed": 7,
+          "temperature": 0.9,
+          "top_k": 40
+        },
+        "examples": {
+          "rows": [
+            6,
+            7
+          ],
+          "source_rows": [
+            0,
+            1
+          ]
+        }
+      },
+      "realism": {
+        "geom_kid": {
+          "value": 3.0,
+          "ci": [
+            1.04,
+            4.96
+          ],
+          "direction": "lower_better",
+          "x": 1000,
+          "note": "synthetic fixture value; see make_scorecard_fixtures.ARMS",
+          "mmd": 1.7320508075688772
+        },
+        "mv_dino_kid": {
+          "value": 2.2,
+          "ci": [
+            0.2400000000000002,
+            4.16
+          ],
+          "direction": "lower_better",
+          "x": 1000
+        }
+      },
+      "coherence": {
+        "lcc_ratio": {
+          "gen": {
+            "mean": 2.98,
+            "ci": [
+              2.88,
+              3.08
+            ]
+          },
+          "real": {
+            "mean": 0.98,
+            "ci": [
+              0.88,
+              1.08
+            ]
+          },
+          "w1": 2.2,
+          "w1_norm": 2.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        },
+        "n_components": {
+          "gen": {
+            "mean": 4.7,
+            "ci": [
+              4.6000000000000005,
+              4.8
+            ]
+          },
+          "real": {
+            "mean": 2.7,
+            "ci": [
+              2.6,
+              2.8000000000000003
+            ]
+          },
+          "w1": 2.2,
+          "w1_norm": 2.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "geometry_scalars": {
+        "thickness_mean": {
+          "gen": {
+            "mean": 3.05,
+            "ci": [
+              2.9499999999999997,
+              3.15
+            ]
+          },
+          "real": {
+            "mean": 1.05,
+            "ci": [
+              0.9500000000000001,
+              1.1500000000000001
+            ]
+          },
+          "w1": 2.2,
+          "w1_norm": 2.2,
+          "real_spread": 1.0,
+          "direction": "distance_to_real"
+        }
+      },
+      "dataset_stats": {
+        "palette_jsd_exact": {
+          "value": 2.05,
+          "ci": [
+            0.08999999999999986,
+            4.01
+          ],
+          "direction": "lower_better",
+          "level": "exact",
+          "n_symbols": 3
+        },
+        "palette_jsd_family": {
+          "value": 2.02,
+          "ci": [
+            0.06000000000000005,
+            3.98
+          ],
+          "direction": "lower_better",
+          "level": "family",
+          "n_symbols": 2
+        }
+      },
+      "novelty": {
+        "voxel_nn_iou_mean": {
+          "value": 0.35,
+          "ci": [
+            -1.6099999999999999,
+            2.31
+          ],
+          "direction": "lower_better",
+          "grid": 24,
+          "note": "IoU to nearest TRAIN build; high = memorized"
+        },
+        "voxel_dup_rate": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.0
+          ],
+          "direction": "lower_better",
+          "threshold": 0.95
+        },
+        "voxel_diversity": {
+          "value": 0.9,
+          "ci": [
+            -1.06,
+            2.86
+          ],
+          "direction": "higher_better"
+        },
+        "dino_nn_percentile": {
+          "value": 0.5,
+          "ci": [
+            -1.46,
+            2.46
+          ],
+          "direction": "higher_better"
+        }
+      },
+      "fidelity": {
+        "density": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "density failed G8_n_stability"
+        },
+        "coverage": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "coverage failed G8_n_stability"
+        },
+        "precision": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "precision failed G8_n_stability"
+        },
+        "recall": {
+          "value": null,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "higher_better",
+          "gate_failed": "recall failed G8_n_stability"
+        }
+      },
+      "cost": {
+        "cost_usd": {
+          "value": 0.0049,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "lower_better"
+        },
+        "elapsed_s": {
+          "value": 18.16,
+          "ci": [
+            null,
+            null
+          ],
+          "direction": "lower_better"
+        }
+      }
+    }
+  },
+  "warnings": [
+    "synthesized fixture: no arm was generated by a model, and no metric here was measured"
+  ]
+}

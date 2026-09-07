@@ -81,6 +81,14 @@ blockgen/
   eval/         novelty (NN-IoU + diversity + duplicate rate), validity (connectivity, LCC repair)
   renderer/     textured (pyrender/EGL real textures), textures (atlas + fetch),
                 grid (dense sample grids), render (legacy matplotlib)
+  agentic/      Track E — an LLM writes the build PROGRAM (no training):
+                dsl (WorldEdit-style command language), canvas, blockstate,
+                providers (OpenAI/Gemini/Anthropic/mock), prompts, examples,
+                tasks (prompt sets), agent (plan→generate→execute→repair→critique), report
+  ontology/     what each block IS, measured not asserted: mine (corpus statistics —
+                layer, form, NPMI affinity, style lift), appearance (colour/surface from
+                the shipped textures), authored (game rules), minecraft (composes the
+                catalog), schema (domain-agnostic Part/Catalog + the shuffled control)
   experiments_*.py   reproducible run drivers (see §6)
 ```
 
@@ -106,6 +114,7 @@ blockgen/
 | **A′. AR + grammar PE** | `VoxelTransformerAR2` | same, `pe ∈ {learned, sin, phase4, rope, alibi}` | **phase4** = pos%4 phase + pos//4 block-index embeddings |
 | **B. Discrete diffusion** | `VoxelUNet3D` | 48 base ch, grid 24–32, 18 sample steps | MaskGIT-style; air class down-weighted |
 | **C. Graph VAE** | `LargePyGGraphGenerator` | block+6-port graph | decodes shared token stream |
+| **E. Agentic program** | — (frontier LLM) | any canvas, `--provider openai:gpt-5-mini` | writes a build *program*; executed onto a canvas — see `docs/agentic.md` |
 
 **Proven methodology (see `notes.md §7`, `results.md`):**
 - **Adjacency-constrained decoding** (`training/constrained_decode.py`): masks the next-voxel
@@ -138,9 +147,18 @@ resumable from their per-arm `novelty.json`.
 # Pool-pretrain → finetune on houses_32 (cross-medium transfer evidence)
 .venv/bin/python -m blockgen.experiments_transfer --stamp $(date +%Y%m%d_%H%M%S)
 .venv/bin/python -m blockgen.experiments_transfer --stamp smoke --quick   # fast wiring check
+
+# Track E — agentic build programs (API tokens instead of GPU hours; responses cached)
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
+.venv/bin/python -m blockgen.experiments_agentic --quick --provider mock   # offline, no API key
+.venv/bin/python scripts/run_agentic.py "a small oak cottage" --plan --examples 1
+
+# Block ontology — mine what each block IS from the corpus, then feed it to the model
+.venv/bin/python -m blockgen.ontology                                       # ~1 s
+.venv/bin/python -m blockgen.experiments_agentic --config agentic-ontology  # vs. a shuffled control
 ```
 
-Configs for parameterized runs live in `configs/{datasets,experiments,models,training}/*.yaml`
+Configs for parameterized runs live in `configs/{datasets,experiments,models,training,agentic}/*.yaml`
 (loaded via `blockgen/config.py`).
 
 ---
@@ -197,6 +215,15 @@ gives connectivity (`n_components`), largest-connected-component repair (`repair
 `gated_sample` (resample until valid). Lower val NN-IoU + high diversity + zero duplicates =
 genuinely new structures, not memorized copies.
 
+`blockgen/eval/bench` is the cross-track benchmark on top of that (BlockScore, the calibration
+controls, the procedural baselines — see `docs/benchmark.md`). **Always `--name` a run**: it
+labels the run directory and the leaderboard row, and an unnamed run is anonymous forever.
+
+```bash
+.venv/bin/python -m blockgen.eval.bench --tier fast --n 128 --name "ontology arms v2"
+.venv/bin/python -m tools.lab --open        # http://127.0.0.1:8765/leaderboard?run=<dir>
+```
+
 ---
 
 ## Documentation map
@@ -212,4 +239,8 @@ genuinely new structures, not memorized copies.
 | `references.md` | paper bibliography |
 | `data/lego/README.md` | LEGO corpora, licenses, connectivity-coverage stats |
 | `configs/README.md` | experiment config schema |
+| `docs/agentic.md` | **Track E** — the build DSL, the agent loop, providers/caching/cost, arms & metrics |
+| `docs/ontology.md` | the block ontology — what is mined, why the shuffled control exists, how it reaches the prompt |
+| `docs/benchmark.md` | the evaluation suite — BlockScore, the ladder, run identity/provenance, example builds |
+| `docs/lab.md` | **BlockLab** — the local app for curating, labelling and reading a benchmark run |
 ```

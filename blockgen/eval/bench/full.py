@@ -87,6 +87,7 @@ def build_reference(
 def score_full(arm: sc.ArmSpec, ref: FullReference, corpus: str = "houses_32",
                device: str = "cuda", card: sc.Scorecard | None = None,
                captions: Dict[str, List[str]] | None = None,
+               sink: Dict[str, np.ndarray] | None = None,
                ) -> Dict[str, Dict[str, sc.Metric]]:
     ctx = ref.ctx
     structs = [s.crop_to_non_air() for s in arm.load()]
@@ -102,6 +103,8 @@ def score_full(arm: sc.ArmSpec, ref: FullReference, corpus: str = "houses_32",
     rng = ctx.rng()
     feats = ft.pooled(ft.embed_views(structs, ref.view, ref.backbone, device,
                                      verbose=False), "mean")
+    if sink is not None:
+        sink[arm.name] = feats
 
     too_small = n < ctx.min_n
     if too_small:
@@ -114,11 +117,15 @@ def score_full(arm: sc.ArmSpec, ref: FullReference, corpus: str = "houses_32",
             return sc.skipped(f"{name} failed {reason}", direction=direction)
         triple = stats.subsample_ci(fn, feats, ref.ref_feats, frac=0.8, n_rep=200,
                                     rng=rng)
-        return sc.from_ci(triple, direction=direction,
-                          resolves=ref.resolves(name), **extra)
+        m = sc.from_ci(triple, direction=direction,
+                       resolves=ref.resolves(name), **extra)
+        return sc.with_mmd(m) if name in ("kid", "mmd_rbf") else m
 
     realism = {
-        "mv_dino_kid": gated("kid", lambda a, b: D.kid(a, b), x=1000),
+        "mv_dino_kid": gated("kid", lambda a, b: D.kid(a, b), x=1000,
+                             note="render-space; measured NOT to resolve the "
+                                  "`solidify` rung (0.6 sd) -- read beside "
+                                  "geom_kid, never alone"),
         "mv_dino_mmd_rbf": gated("mmd_rbf", lambda a, b: D.mmd_rbf(a, b, sigma=ref.sigma),
                                  sigma=ref.sigma, x=1000),
         # Frechet distance is n-dependent even when it passes, so it carries the
@@ -184,4 +191,12 @@ def score_full(arm: sc.ArmSpec, ref: FullReference, corpus: str = "houses_32",
 
 
 def ctx_text_backbone(ctx: sc.BenchContext) -> str:
-    return getattr(ctx, "text_backbone", "clipL")
+    """The text backbone this run's faithfulness metrics were computed with.
+
+    `text_backbone` is a declared `BenchContext` field as of `bench/2`, so the
+    `getattr` default that used to stand here is gone: the runner monkey-set the
+    attribute from outside and this read it back through a fallback, which meant
+    neither end could be sure the other had run. The `or` remains only to turn an
+    empty string into the default the loader expects.
+    """
+    return ctx.text_backbone or "clipL"
