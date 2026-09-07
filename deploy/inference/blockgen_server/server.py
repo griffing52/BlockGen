@@ -6,18 +6,26 @@ Run it on the GPU box; the mod connects from wherever Minecraft runs.
 
 Protocol (JSON over a single WebSocket, ``/ws``). Client -> server:
 
-    {"type": "models"}
+    {"type": "models", "group": null}          # group: list one group's members
     {"type": "generate", "model": "native_bpe", "prompt": null, "seed": 7,
      "temperature": 1.0, "top_k": 40, "cfg_scale": 3.0, "max_tokens": null}
     {"type": "cancel"}
 
 Server -> client:
 
-    {"type": "models",  "default": "native_bpe", "models": [...]}
+    {"type": "models",  "default": "native_bpe", "models": [...], "groups": {...}}
     {"type": "begin",   "model": "native_bpe", "seed": 7, "supports_text": false}
-    {"type": "blocks",  "blocks": [[x, y, z, "minecraft:oak_planks"], ...]}
-    {"type": "done",    "blocks": 1752, "elapsed": 10.4, "reason": "complete"}
+    {"type": "blocks",  "blocks": [[x, y, z, "minecraft:oak_planks"], ...],
+                        "step": {"index": 3, "total": 41, "command": "walls …"}}
+    {"type": "done",    "blocks": 1752, "elapsed": 10.4, "reason": "complete",
+                        "stats": {"cost_usd": 0.004, "completion_tokens": 1863, …}}
     {"type": "error",   "message": "..."}
+
+``step`` and ``stats`` are OPTIONAL and only the agentic backend sets them: the
+program it executes has named commands, so the client can show *what* is being
+built, and an API model costs money, so the client can show what the build cost.
+Both ride as extra fields on messages that already existed, which keeps a mod built
+before they were added working unchanged.
 
 Coordinates are the model's local frame (0-based, y-up); the mod anchors them.
 
@@ -45,7 +53,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from blockgen_server.backends import Block, GenerateRequest
+from blockgen_server.backends import Block, GenerateRequest, as_batch
 from blockgen_server.registry import Registry
 
 HERE = Path(__file__).resolve().parents[1]
@@ -74,9 +82,10 @@ def health() -> dict:
 
 
 @app.get("/models")
-def models() -> dict:
+def models(group: Optional[str] = None) -> dict:
     reg = get_registry()
-    return {"default": reg.default, "models": reg.describe()}
+    return {"default": reg.default, "models": reg.describe(group),
+            "groups": reg.groups(), "group": group}
 
 
 def _encode(blocks: List[Block]) -> list:
@@ -93,17 +102,33 @@ def _worker(backend, req: GenerateRequest, loop: asyncio.AbstractEventLoop,
     pending: List[Block] = []
     last = time.time()
     try:
-        for batch in backend.stream(req):
+        for item in backend.stream(req):
             if cancel.is_set():
                 put(("done", "cancelled"))
                 return
-            pending.extend(batch)
+            batch = as_batch(item)
+            if batch.stats is not None:
+                put(("stats", batch.stats))
+            if batch.step is not None:
+                # A labelled step is flushed on its own so the command and the blocks
+                # it placed stay together -- merging steps into a size-based batch
+                # would mislabel them, and the labels are the point.
+                if pending:
+                    put(("blocks", (pending, None)))
+                    pending = []
+                if batch.blocks:
+                    put(("blocks", (list(batch.blocks), batch.step)))
+                else:
+                    put(("step", batch.step))
+                last = time.time()
+                continue
+            pending.extend(batch.blocks)
             now = time.time()
             if len(pending) >= BATCH_BLOCKS or (now - last) >= BATCH_SECONDS:
-                put(("blocks", pending))
+                put(("blocks", (pending, None)))
                 pending, last = [], now
         if pending:
-            put(("blocks", pending))
+            put(("blocks", (pending, None)))
         put(("done", "complete"))
     except Exception as exc:  # noqa: BLE001 - surface to the client, never hang it
         put(("error", f"{type(exc).__name__}: {exc}"))
@@ -142,21 +167,34 @@ async def _generate(ws: WebSocket, msg: dict, cancel: threading.Event) -> None:
     cancel.clear()
     t0 = time.time()
     total = 0
+    stats: Optional[dict] = None
     thread = threading.Thread(target=_worker, args=(backend, req, loop, queue, cancel),
                               daemon=True)
     thread.start()
     while True:
         kind, payload = await queue.get()
         if kind == "blocks":
-            total += len(payload)
-            await ws.send_json({"type": "blocks", "blocks": _encode(payload)})
+            blocks, step = payload
+            total += len(blocks)
+            msg = {"type": "blocks", "blocks": _encode(blocks)}
+            if step is not None:
+                msg["step"] = step
+            await ws.send_json(msg)
+        elif kind == "step":
+            # A command that changed nothing (or only failed) still gets reported:
+            # a silent gap in the step sequence looks like a dropped message.
+            await ws.send_json({"type": "blocks", "blocks": [], "step": payload})
+        elif kind == "stats":
+            stats = payload
         elif kind == "error":
             await ws.send_json({"type": "error", "message": payload})
             return
         else:
-            await ws.send_json({"type": "done", "blocks": total,
-                                "elapsed": round(time.time() - t0, 2),
-                                "reason": payload})
+            done = {"type": "done", "blocks": total,
+                    "elapsed": round(time.time() - t0, 2), "reason": payload}
+            if stats is not None:
+                done["stats"] = stats
+            await ws.send_json(done)
             return
 
 
@@ -171,8 +209,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
             kind = msg.get("type")
             if kind == "models":
                 reg = get_registry()
+                try:
+                    rows = reg.describe(msg.get("group"))
+                except KeyError as exc:
+                    await ws.send_json({"type": "error", "message": str(exc)})
+                    continue
                 await ws.send_json({"type": "models", "default": reg.default,
-                                    "models": reg.describe()})
+                                    "models": rows, "groups": reg.groups(),
+                                    "group": msg.get("group")})
             elif kind == "generate":
                 if task and not task.done():
                     await ws.send_json({"type": "error", "message":

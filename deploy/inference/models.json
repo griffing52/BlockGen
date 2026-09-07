@@ -10,10 +10,31 @@
     "checkpoint's lm_head, which catches swapped files but NOT a same-size mismatch.",
     "",
     "'d_model'/'layers'/'nhead'/'dim_feedforward' must match how the run was trained",
-    "(ARTrainConfig defaults: 256/6/8/1024) or load_state_dict will reject the weights."
+    "(ARTrainConfig defaults: 256/6/8/1024) or load_state_dict will reject the weights.",
+    "",
+    "An entry with a 'models' list is a GROUP: it shows as one row in /model and",
+    "serves every member as '<entry>:<model>' (e.g. agentic:gemini-3.5-flash).",
+    "'/model agentic list' asks the server for the members. Set strict_models=false",
+    "to let any model name through instead of just the curated list.",
+    "Group members are bare model names; the vendor is inferred from the name",
+    "(gpt-* -> openai, gemini* -> gemini, claude* -> anthropic). Write",
+    "'<vendor>:<model>' explicitly for anything that does not match."
   ],
-  "default": "native_bpe",
+  "default": "native_oriented",
   "models": {
+    "native_oriented": {
+      "kind": "piece_ar",
+      "description": "3D-BPE piece AR, native 32^3, ORIENTED. Generates block orientation -- stairs face different ways, logs sit on different axes. Improved successor to native_bpe.",
+      "notes": "Trained by: python -m blockgen.experiments_native (oriented arm, run_20260721_013119). Its ClusterVocab has oriented=true, so the decoder maps legacy facing/axis data bits into modern blockstate facing=/axis=/type= properties.",
+      "checkpoint": "outputs/run_20260721_013119_native_oriented_native/native_bpe/model.pt",
+      "piece_vocab": "outputs/run_20260721_013119_native_oriented_native/native_bpe/piece_vocab.json",
+      "max_seq_len": 5480,
+      "pe": "phase4",
+      "d_model": 256,
+      "nhead": 8,
+      "layers": 6,
+      "dim_feedforward": 1024
+    },
     "native_bpe": {
       "kind": "piece_ar",
       "description": "3D-BPE piece AR, native 32^3 (T18 arm B). Big builds, chunky streaming.",
@@ -55,6 +76,64 @@
       "cond_dim": 512,
       "n_prefix": 1,
       "clip": "openai/clip-vit-base-patch32"
+    },
+    "agentic": {
+      "kind": "agentic",
+      "description": "Track E: a frontier LLM writes a WorldEdit-style build PROGRAM, executed one command at a time. Real text conditioning -- use /gen <anything>.",
+      "notes": "No checkpoint and no training: this is an API model plus blockgen/agentic. Costs money per build (reported in the done message). One in-context example + one repair round by default; see docs/agentic.md for the loop knobs, which are set per entry here.",
+      "provider": "gpt-5-mini",
+      "models": [
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-5-nano",
+        "gpt-4.1-mini",
+        "gemini-3.5-flash",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "mock"
+      ],
+      "strict_models": false,
+      "canvas": 48,
+      "canvas_height": 48,
+      "examples": 1,
+      "repair_rounds": 1,
+      "critique_rounds": 0,
+      "plan": false,
+      "reasoning_effort": "low",
+      "max_tokens": 16000
+    },
+    "agentic_plus": {
+      "kind": "agentic",
+      "description": "Agentic with the full loop: plan, one example, two repair rounds and a VISUAL self-critique. Slower and ~4x the cost; use it for the good demo.",
+      "notes": "Same group mechanism as 'agentic' -- agentic_plus:<model> works too. The critique round renders the build and shows it back to the model, so the server needs the textured renderer (EGL) available; without it that round is skipped and logged.",
+      "provider": "gpt-5-mini",
+      "models": [
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-5-nano",
+        "gpt-4.1-mini",
+        "gemini-3.5-flash",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "mock"
+      ],
+      "strict_models": false,
+      "canvas": 64,
+      "canvas_height": 48,
+      "examples": 1,
+      "repair_rounds": 2,
+      "critique_rounds": 1,
+      "plan": true,
+      "reasoning_effort": "medium",
+      "max_tokens": 24000
     }
   }
 }

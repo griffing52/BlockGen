@@ -101,20 +101,26 @@ def main() -> None:
         sys.exit(1)
 
     table, problems, fallbacks = {}, [], []
+    # Key on (oriented, bid, data): the same pair means a plain block in a
+    # texture-variant vocab but an oriented facing in an oriented vocab, so the two
+    # regimes must be validated separately -- an oriented model emits facing=/axis=/
+    # type= that a non-oriented one never does.
     pairs = set()
     for vp in vocab_paths:
         blob = json.load(open(vp))
-        vpairs = [tuple(p) for p in blob["block_index_to_pair"]]
+        oriented = bool(blob.get("oriented", False))
+        vpairs = [(oriented,) + tuple(p) for p in blob["block_index_to_pair"]]
         pairs.update(vpairs)
-        print(f"  {len(vpairs):4d} pairs  {os.path.relpath(vp)}")
+        print(f"  {len(vpairs):4d} pairs  oriented={str(oriented):5s}  {os.path.relpath(vp)}")
 
-    for bid, data in sorted(pairs):
-        state = modern_state(bid, data)
-        table[f"{bid}:{data}"] = state
-        problems.extend([f"{bid}:{data} ({legacy_display_name(bid, data)}) -> {p}"
+    for oriented, bid, data in sorted(pairs):
+        state = modern_state(bid, data, oriented=oriented)
+        tag = f"{bid}:{data}{'/o' if oriented else ''}"
+        table[tag] = state
+        problems.extend([f"{tag} ({legacy_display_name(bid, data)}) -> {p}"
                          for p in validate(state, registry)])
         if is_fallback(bid, data):
-            fallbacks.append(f"{bid}:{data}")
+            fallbacks.append(tag)
 
     print(f"\nvocabularies     : {len(vocab_paths)}")
     print(f"distinct pairs   : {len(pairs)}")

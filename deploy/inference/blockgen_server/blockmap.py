@@ -29,12 +29,31 @@ plant, while modern ``tall_grass`` is the two-block plant. Both are pinned in
 ``_OVERRIDES``. Run ``scripts/export_blockmap.py`` to regenerate and re-validate
 the table against a real block registry report.
 
-**Orientation is not recoverable.** The corpora derive ``block_data`` from
-GrabCraft texture-variant indices, not true legacy metadata: every stairs id in
-the piece vocab carries exactly one data value (53 -> {2}, 114 -> {7}), where
-real metadata would spread over 0..7. So stairs/logs/doors get default states
-rather than fabricated facings. Colors (wool, concrete, terracotta: data 0-15)
-*are* faithful and are mapped exactly.
+**Orientation depends on the model.** The *non-oriented* corpora derive
+``block_data`` from GrabCraft texture-variant indices, not true legacy metadata:
+every stairs id in such a vocab carries exactly one data value (53 -> {2},
+114 -> {7}), where real metadata would spread over 0..7. For those models
+``modern_state`` is called with ``oriented=False`` (the default) and stairs/logs/
+doors get default states rather than fabricated facings -- inventing a facing from
+a texture index would be wrong.
+
+The *oriented* models (``ClusterVocab.oriented == True``) instead train on true
+legacy metadata: stairs id 53 spreads over data 0..7, logs id 17 over 0..15. For
+them ``modern_state(..., oriented=True)`` translates the legacy facing/axis bits
+into the modern blockstate property (``facing=``/``axis=``/``type=``). The legacy
+bit conventions handled are:
+
+* Stairs: ``data & 3`` -> facing (0=east,1=west,2=south,3=north); ``data & 4``
+  -> upside-down (half=top).
+* Logs:   ``(data >> 2) & 3`` -> axis (0=y,1=x,2=z,3=all-bark ``*_wood``);
+  ``data & 3`` -> species (already resolved by the name families).
+* Slabs:  ``data & 8`` -> top half (type=top); ``data & 7`` -> variant.
+* Doors/trapdoors: facing is entangled with open/hinge bits the corpus
+  force-merged, so they keep their default (valid) state rather than risk an
+  illegal one.
+
+Colors (wool, concrete, terracotta: data 0-15) *are* faithful in both regimes and
+are mapped exactly.
 """
 
 from __future__ import annotations
@@ -87,10 +106,12 @@ _OVERRIDES_ID: Dict[int, str] = {
     # a technical block: air means the decoder drops it.
     36: "air",
     # Doors: legacy stored upper/lower halves in data; place the lower half and
-    # let the mod's placement pass leave the (broken) upper half alone.
+    # let the mod's placement pass leave the (broken) upper half alone. Facing is
+    # entangled with open/hinge bits, so it is left default even for oriented models.
     64: "oak_door", 193: "spruce_door", 194: "birch_door", 195: "jungle_door",
     196: "acacia_door", 197: "dark_oak_door",
-    # Stairs: data is a texture-variant index here, so facing is not recoverable.
+    # Stairs: base (unoriented) name. For non-oriented models data is a texture
+    # variant so this is final; oriented models add facing/half via _orient().
     53: "oak_stairs", 134: "spruce_stairs", 135: "birch_stairs",
     136: "jungle_stairs", 163: "acacia_stairs", 164: "dark_oak_stairs",
 }
@@ -225,13 +246,68 @@ def legacy_display_name(block_id: int, block_data: int) -> Optional[str]:
     return (m.group(1) if m else raw).strip()
 
 
-@lru_cache(maxsize=4096)
-def modern_state(block_id: int, block_data: int) -> str:
+# --- orientation (oriented models only) -------------------------------------
+# Legacy facing/axis bit conventions. Only consulted when ``oriented=True``; the
+# non-oriented corpora put a texture-variant index in these same bits, so applying
+# them there would fabricate a wrong facing.
+_STAIRS_IDS = frozenset({53, 67, 108, 109, 114, 128, 134, 135, 136, 156,
+                         163, 164, 180, 203})
+_LOG_IDS = frozenset({17, 162})
+_SLAB_IDS = frozenset({44, 126, 182, 205})
+# Doors/trapdoors: facing entangled with open/hinge bits the corpus force-merged,
+# so we leave their default (valid) state rather than emit an illegal one.
+_DOOR_IDS = frozenset({64, 71, 193, 194, 195, 196, 197, 96, 167})
+
+_STAIR_FACING = {0: "east", 1: "west", 2: "south", 3: "north"}
+_LOG_AXIS = {0: "y", 1: "x", 2: "z"}
+
+
+def _orient(block_id: int, block_data: int, state: str) -> str:
+    """Refine a base state with the legacy facing/axis bits (oriented models).
+
+    Never emits an illegal state: if the base did not resolve to the expected
+    family (e.g. it fell back to stone), the base is returned unchanged.
+    """
+    # Stairs: species is fixed by the id (53=oak, 134=spruce, ...), so the base
+    # name is data-independent; only facing/half come from the data bits.
+    name = block_name(state)  # namespace- and property-stripped
+    if block_id in _STAIRS_IDS and name.endswith("_stairs"):
+        facing = _STAIR_FACING[block_data & 3]
+        half = "top" if block_data & 4 else "bottom"
+        return f"minecraft:{name}[facing={facing},half={half}]"
+    # Logs: species is in the low 2 bits (axis is in the high bits), and the
+    # display-name table only keys the plain species, so resolve the species name
+    # from ``data & 3`` before applying the axis.
+    if block_id in _LOG_IDS:
+        species = block_name(modern_state(block_id, block_data & 3))
+        if species.endswith("_log"):
+            axis = (block_data >> 2) & 3
+            if axis == 3:  # all-sided bark -> the *_wood block
+                return f"minecraft:{species[:-4]}_wood"
+            return f"minecraft:{species}[axis={_LOG_AXIS[axis]}]"
+    # Slabs: variant is in ``data & 7`` (bit 3 selects the top half). Re-resolve
+    # the variant from the low bits so a top slab keeps its material.
+    if block_id in _SLAB_IDS:
+        variant = modern_state(block_id, block_data & 7)
+        vname = block_name(variant)
+        if vname.endswith("_slab") and "double" not in variant:
+            half = "top" if block_data & 8 else "bottom"
+            return f"minecraft:{vname}[type={half}]"
+    return state
+
+
+@lru_cache(maxsize=8192)
+def modern_state(block_id: int, block_data: int, oriented: bool = False) -> str:
     """Map a legacy pair to a modern block state string (``minecraft:`` prefixed).
 
     Always returns something placeable; unmappable blocks degrade to stone rather
     than raising, so a single odd voxel can never abort a generation. Use
     ``is_fallback`` to measure how often that happens.
+
+    With ``oriented=True`` (an oriented model's vocabulary), the legacy facing/axis
+    bits in ``block_data`` are translated into modern blockstate properties for
+    stairs/logs/slabs. With ``oriented=False`` (the default, for texture-variant
+    vocabularies) behaviour is unchanged -- those bits are not facings.
     """
     block_id, block_data = int(block_id), int(block_data)
     if block_id == 0:
@@ -241,18 +317,26 @@ def modern_state(block_id: int, block_data: int) -> str:
     if hit is None:
         hit = _OVERRIDES_ID.get(block_id)
     if hit is not None:
-        return f"minecraft:{hit}"
+        state = f"minecraft:{hit}"
+    else:
+        name = legacy_display_name(block_id, block_data)
+        if name and name in _BY_NAME:
+            state = f"minecraft:{_BY_NAME[name]}"
+        elif name:
+            state = None
+            for pattern, template in _FAMILIES:
+                m = pattern.match(name)
+                if m:
+                    state = f"minecraft:{template.format(_snake(m.group(1)))}"
+                    break
+            if state is None:
+                state = f"minecraft:{_snake(name)}"
+        else:
+            state = "minecraft:stone"
 
-    name = legacy_display_name(block_id, block_data)
-    if name:
-        if name in _BY_NAME:
-            return f"minecraft:{_BY_NAME[name]}"
-        for pattern, template in _FAMILIES:
-            m = pattern.match(name)
-            if m:
-                return f"minecraft:{template.format(_snake(m.group(1)))}"
-        return f"minecraft:{_snake(name)}"
-    return "minecraft:stone"
+    if oriented:
+        state = _orient(block_id, block_data, state)
+    return state
 
 
 def is_fallback(block_id: int, block_data: int) -> bool:

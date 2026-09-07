@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from blockgen_server.backends import GenerateRequest
+from blockgen_server.backends import GenerateRequest, as_batch
 from blockgen_server.registry import Registry
 
 HERE = Path(__file__).resolve().parents[1]
@@ -40,15 +40,23 @@ def main() -> None:
     ap.add_argument("--cfg", type=float, default=3.0)
     ap.add_argument("--max-tokens", type=int, default=None)
     ap.add_argument("--list", action="store_true", help="list models and exit")
+    ap.add_argument("--group", default=None,
+                    help="with --list, list the members of a model group (e.g. agentic)")
+    ap.add_argument("--steps", action="store_true",
+                    help="print each command as it executes (agentic models)")
     args = ap.parse_args()
 
     reg = Registry(HERE / "models.json", REPO)
     if args.list:
-        for row in reg.describe():
+        for row in reg.describe(args.group):
             mark = "*" if row["default"] else " "
             status = "ok" if row["available"] else row.get("unavailable_reason", "?")
-            print(f"{mark} {row['name']:16s} {row['kind']:14s} [{status}]")
+            group = f" ({row['group_size']} models)" if row.get("group_size") else ""
+            print(f"{mark} {row['name']:24s} {row['kind']:14s} [{status}]{group}")
             print(f"    {row['description']}")
+        if not args.group and reg.groups():
+            print(f"\ngroups: {', '.join(reg.groups())} "
+                  f"-- list one with --list --group <name>")
         return
 
     t0 = time.time()
@@ -62,12 +70,20 @@ def main() -> None:
                           temperature=args.temperature, top_k=args.top_k,
                           cfg_scale=args.cfg, max_tokens=args.max_tokens)
     t0 = time.time()
-    blocks, batches = [], 0
-    for batch in backend.stream(req):
-        blocks.extend(batch)
+    blocks, batches, stats = [], 0, None
+    for item in backend.stream(req):
+        batch = as_batch(item)
+        if batch.stats is not None:
+            stats = batch.stats
+        blocks.extend(batch.blocks)
         batches += 1
         if batches == 1:
             print(f"first blocks after {time.time() - t0:.2f}s")
+        if args.steps and batch.step:
+            s = batch.step
+            flag = f"  ERROR: {s['error']}" if s.get("error") else ""
+            print(f"  [{s['index']:3d}/{s['total']}] {s['command'][:60]:62s} "
+                  f"{len(batch.blocks):5d} blocks{flag}")
     dt = time.time() - t0
 
     if not blocks:
@@ -83,6 +99,10 @@ def main() -> None:
     print("top palette:")
     for state, n in palette.most_common(8):
         print(f"  {n:6d}  {state}")
+    if stats:
+        print("\nstats:")
+        for k, v in stats.items():
+            print(f"  {k}: {v}")
 
 
 if __name__ == "__main__":

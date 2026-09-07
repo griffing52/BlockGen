@@ -37,6 +37,13 @@ public class BlockGenConfig {
     public int yOffset = 0;
     /** How many past builds {@code /blockgen undo} can walk back. */
     public int undoHistory = 5;
+    /**
+     * Print each build step in chat as it is placed (agentic models only -- the
+     * neural backends have no named steps to print). Watching "walls oak_planks
+     * ..." scroll past as the walls go up is most of the demo, so it defaults on;
+     * turn it off with {@code /blockgen steps off} for a quiet build.
+     */
+    public boolean showSteps = true;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static BlockGenConfig instance;

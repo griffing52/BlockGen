@@ -74,6 +74,44 @@ def test_air_is_air_not_stone() -> None:
     assert modern_state(36, 0) == "minecraft:air"
 
 
+@pytest.mark.parametrize("pair,expected", [
+    # Stairs (oriented model): data & 3 = facing (0e/1w/2s/3n), bit 4 = upside-down.
+    ((53, 0), "minecraft:oak_stairs[facing=east,half=bottom]"),
+    ((53, 1), "minecraft:oak_stairs[facing=west,half=bottom]"),
+    ((53, 2), "minecraft:oak_stairs[facing=south,half=bottom]"),
+    ((53, 3), "minecraft:oak_stairs[facing=north,half=bottom]"),
+    ((53, 4), "minecraft:oak_stairs[facing=east,half=top]"),
+    ((114, 7), "minecraft:nether_brick_stairs[facing=north,half=top]"),
+    # Logs: (data>>2)&3 = axis (0y/1x/2z/3=all-bark *_wood); data&3 = species.
+    ((17, 0), "minecraft:oak_log[axis=y]"),
+    ((17, 4), "minecraft:oak_log[axis=x]"),
+    ((17, 8), "minecraft:oak_log[axis=z]"),
+    ((17, 12), "minecraft:oak_wood"),          # axis 3 = all-sided bark
+    ((17, 5), "minecraft:spruce_log[axis=x]"),  # species preserved with axis set
+    ((162, 9), "minecraft:dark_oak_log[axis=z]"),
+    # Slabs: bit 3 (value 8) = top half; data & 7 keeps the variant.
+    ((44, 0), "minecraft:smooth_stone_slab[type=bottom]"),
+    ((44, 8), "minecraft:smooth_stone_slab[type=top]"),
+    ((44, 9), "minecraft:sandstone_slab[type=top]"),
+])
+def test_oriented_facing(pair, expected) -> None:
+    assert modern_state(*pair, oriented=True) == expected
+
+
+def test_oriented_false_is_unchanged() -> None:
+    """The non-oriented models must see NO facing -- their data is a texture index."""
+    assert modern_state(53, 2) == "minecraft:oak_stairs"
+    assert modern_state(53, 2, oriented=False) == "minecraft:oak_stairs"
+    assert modern_state(17, 4) == "minecraft:oak_log"
+    assert modern_state(44, 0) == "minecraft:smooth_stone_slab"
+
+
+def test_oriented_doors_stay_default_valid() -> None:
+    """Facing is entangled with open/hinge bits, so doors keep a valid default."""
+    assert modern_state(64, 3, oriented=True) == "minecraft:oak_door"
+    assert modern_state(96, 2, oriented=True) == "minecraft:oak_trapdoor"
+
+
 def test_unknown_ids_degrade_to_stone_rather_than_raise() -> None:
     """A single odd voxel must never abort a live generation."""
     assert modern_state(9999, 0) == "minecraft:stone"

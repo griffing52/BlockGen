@@ -13,6 +13,18 @@ Three kinds exist today:
   embedding. With no prompt it samples its learned *null* condition, which is the
   same unconditional branch classifier-free guidance uses, so one checkpoint serves
   both ``/gen`` and ``/gen <text>``.
+* ``agentic``       — no checkpoint at all: a frontier LLM writes a build *program*
+  (``blockgen.agentic``) which is then executed command by command. It is a *group*:
+  one registry entry serves every model the vendor offers, addressed as
+  ``agentic:<model>`` (see ``registry.py``).
+
+**The agentic backend streams differently, and deliberately.** The neural backends
+stream because sampling is incremental — blocks appear as tokens arrive. The agentic
+backend has the whole program before it places anything, and replays it *one command
+at a time* instead of dumping the result: the foundation appears, then the walls,
+then the openings are cut, then the roof. That is the build order the model actually
+wrote, and watching it is the demo. Each batch carries the command that produced it
+so the mod can name the step.
 
 **A checkpoint is not self-describing.** Nothing in a ``model.pt`` records its
 vocabulary, and a piece token id is meaningless without the patterns it expands to,
@@ -24,7 +36,7 @@ garbage from a vocabulary it was never trained on.
 
 from __future__ import annotations
 
-import json
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -35,6 +47,27 @@ from blockgen_server.decode import Block, PieceDecoder, VoxelDecoder
 from blockgen_server.sampling import stream_cond_tokens, stream_tokens
 
 BOS_TOKEN, EOS_TOKEN = 1, 2
+
+
+@dataclass
+class BlockBatch:
+    """A batch of placements plus optional metadata for the client.
+
+    ``stream()`` may yield a bare ``List[Block]`` (what every neural backend does) or
+    one of these. ``step`` names the command that produced the batch; ``stats`` is
+    end-of-build accounting (tokens, dollars) that the server attaches to ``done``.
+    Both ride on existing message types as extra JSON fields, so a mod built before
+    this change still works — it just ignores them.
+    """
+
+    blocks: List[Block] = field(default_factory=list)
+    step: Optional[dict] = None
+    stats: Optional[dict] = None
+
+
+def as_batch(item) -> BlockBatch:
+    """Normalize whatever a backend yielded into a :class:`BlockBatch`."""
+    return item if isinstance(item, BlockBatch) else BlockBatch(blocks=list(item))
 
 
 @dataclass
@@ -52,7 +85,9 @@ class ModelSpec:
     """One entry from models.json."""
     name: str
     kind: str
-    checkpoint: str
+    # Empty for kinds that have no weights (``agentic``); the registry's
+    # missing-file check skips empty paths.
+    checkpoint: str = ""
     description: str = ""
     piece_vocab: Optional[str] = None
     block_vocab: Optional[str] = None
@@ -100,6 +135,18 @@ class Backend:
 
     def is_loaded(self) -> bool:
         return self.model is not None
+
+    def unavailable_reason(self) -> Optional[str]:
+        """Why this backend cannot serve right now, beyond missing files.
+
+        The registry shows unusable entries *with a reason* rather than hiding them
+        — a model that needs an API key you have not set should say so.
+        """
+        return None
+
+    def group_members(self) -> List[str]:
+        """Sub-models this entry can serve as ``<name>:<member>`` (empty = not a group)."""
+        return []
 
     def info(self) -> dict:
         return {"name": self.spec.name, "kind": self.spec.kind,
@@ -254,10 +301,188 @@ class CondPieceARBackend(Backend):
                 yield blocks
 
 
+class AgenticBackend(Backend):
+    """Track E: an LLM writes a build program, which is executed command by command.
+
+    No weights, no vocabulary — the "model" is a provider string
+    (``openai:gpt-5-mini``, ``gemini:gemini-3.5-flash``). One registry entry serves
+    every model in ``extra["models"]``; the registry derives ``agentic:<model>``
+    on demand, so adding a model is a list entry, not a new backend.
+
+    Two things differ from the neural backends and both are on purpose:
+
+    * **Text is required, not optional.** This is the only backend with real text
+      conditioning, so a bare ``/gen`` picks a prompt from the built-in short set
+      (reported back in ``begin``) rather than erroring — an empty demo is worse
+      than an arbitrary house.
+    * **The stream is the program, replayed.** Generation finishes before the first
+      block is placed, so batching by command is what makes the build legible in
+      world: one batch per command, in the order the model wrote them.
+    """
+
+    supports_text = True
+
+    # A short, curated allowlist. These are the models worth pointing at for this
+    # task, not everything the vendors sell; `/model agentic list` shows exactly
+    # this, and an unlisted model still works when `strict_models` is off.
+    DEFAULT_MODEL = "gpt-5-mini"
+
+    # Vendor inferred from the model name, so `/model agentic gemini-3.5-flash` is
+    # what you type instead of `agentic:gemini:gemini-3.5-flash`. An explicit
+    # "vendor:model" always wins, which is the escape hatch for a name that does not
+    # match any prefix.
+    _VENDOR_PREFIXES = (
+        ("gpt-", "openai"), ("o1", "openai"), ("o3", "openai"), ("o4", "openai"),
+        ("gemini", "gemini"), ("claude", "anthropic"), ("mock", "mock"),
+    )
+
+    def __init__(self, spec: ModelSpec, repo_root: Path) -> None:
+        super().__init__(spec, repo_root)
+        e = spec.extra
+        self.model_name: str = e.get("provider") or self.DEFAULT_MODEL
+        self.provider_spec: str = self.qualify(self.model_name)
+        self.models: List[str] = list(e.get("models") or [self.model_name])
+        self._provider = None
+
+    @classmethod
+    def qualify(cls, model: str) -> str:
+        """``"gemini-3.5-flash"`` -> ``"gemini:gemini-3.5-flash"``; pass through
+        anything already vendor-qualified."""
+        model = model.strip()
+        if ":" in model:
+            return model
+        low = model.lower()
+        for prefix, vendor in cls._VENDOR_PREFIXES:
+            if low.startswith(prefix):
+                return f"{vendor}:{model}" if vendor != "mock" else "mock"
+        raise ValueError(
+            f"cannot tell which vendor serves {model!r}; qualify it as "
+            f"'<vendor>:{model}' (openai, gemini, anthropic)")
+
+    # --- config ----------------------------------------------------------
+    def agent_config(self):
+        """Build the :class:`AgentConfig` this entry pins (all loop knobs)."""
+        from blockgen.agentic.agent import AgentConfig
+        e = self.spec.extra
+        canvas = int(e.get("canvas", 48))
+        height = int(e.get("canvas_height", canvas))
+        return AgentConfig(
+            provider=self.provider_spec,
+            canvas_size=(canvas, height, canvas),
+            plan=bool(e.get("plan", False)),
+            n_examples=int(e.get("examples", 1)),
+            repair_rounds=int(e.get("repair_rounds", 1)),
+            critique_rounds=int(e.get("critique_rounds", 0)),
+            critique_mode=e.get("critique_mode", "rewrite"),
+            target_blocks=e.get("target_blocks"),
+            max_tokens=int(e.get("max_tokens", 16000)),
+            reasoning_effort=e.get("reasoning_effort", "low"),
+            # Block ontology (blockgen/ontology): "none" keeps the bare palette
+            # list this demo shipped with, so an entry that does not mention it
+            # behaves exactly as before. Set "mined" on an entry to serve the
+            # measured catalog; the server needs data/ontology/ built for that.
+            ontology=str(e.get("ontology", "none")),
+            ontology_path=e.get("ontology_path"),
+            cache=bool(e.get("cache", True)),
+            verbose=False,
+        )
+
+    def group_members(self) -> List[str]:
+        return list(self.models)
+
+    def unavailable_reason(self) -> Optional[str]:
+        """No API key for this vendor is the one failure worth reporting up front —
+        it is the difference between "why did /gen do nothing" and a clear answer."""
+        import os
+        from blockgen.agentic.providers import load_env
+        load_env()
+        vendor = self.provider_spec.split(":", 1)[0].lower()
+        needed = {"openai": ["OPENAI_API_KEY"],
+                  "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+                  "google": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+                  "anthropic": ["ANTHROPIC_API_KEY"],
+                  "claude": ["ANTHROPIC_API_KEY"]}.get(vendor, [])
+        if needed and not any(os.environ.get(k) for k in needed):
+            return f"no API key: set {' or '.join(needed)} in the repo .env"
+        return None
+
+    def info(self) -> dict:
+        out = super().info()
+        cfg = self.agent_config()
+        out.update({"provider": self.provider_spec, "group": self.spec.name,
+                    "members": self.group_members(),
+                    "canvas": list(cfg.canvas_size),
+                    "loop": {"plan": cfg.plan, "examples": cfg.n_examples,
+                             "repair_rounds": cfg.repair_rounds,
+                             "critique_rounds": cfg.critique_rounds}})
+        return out
+
+    # --- lifecycle -------------------------------------------------------
+    def load(self) -> None:
+        from blockgen.agentic.providers import get_provider
+        reason = self.unavailable_reason()
+        if reason:
+            raise RuntimeError(f"{self.spec.name}: {reason}")
+        cfg = self.agent_config()
+        self._provider = get_provider(cfg.provider, cache=cfg.cache,
+                                      **cfg.provider_params())
+        self.model = self._provider          # marks the backend as loaded
+
+    # --- generation ------------------------------------------------------
+    def _prompt_for(self, req: GenerateRequest) -> str:
+        if req.prompt:
+            return req.prompt
+        from blockgen.agentic.tasks import SHORT_PROMPTS
+        import random
+        return random.Random(req.seed).choice(SHORT_PROMPTS)
+
+    def stream(self, req: GenerateRequest) -> Iterator[BlockBatch]:
+        from blockgen.agentic.agent import BuildAgent
+        from blockgen.agentic.dsl import ProgramRunner, parse_program
+        from blockgen_server.blockmap import modern_state
+
+        cfg = self.agent_config()
+        prompt = self._prompt_for(req)
+        agent = BuildAgent(self._provider, cfg)
+        result = agent.build(prompt, seed=req.seed)
+
+        if not result.program_text.strip():
+            raise RuntimeError(f"{self.spec.name}: the model returned no program "
+                               f"(prompt: {prompt!r})")
+
+        # Replay the final program so the build appears in the order it was written.
+        # Re-execution costs nothing (no API calls) and reproduces the agent's canvas
+        # exactly -- the loop only ever hands forward a program, never a canvas diff.
+        runner = ProgramRunner(parse_program(result.program_text),
+                               size=cfg.canvas_size, track_voxels=True)
+        for step in runner.steps():
+            blocks = [Block(x, y, z, modern_state(bid, bdata, oriented=True))
+                      for x, y, z, bid, bdata in step.voxels]
+            if not blocks and step.issue is None:
+                continue
+            yield BlockBatch(blocks=blocks, step={
+                "index": step.index + 1, "total": step.total,
+                "command": step.call.text, "changed": step.changed,
+                "error": step.issue.message if step.failed else None})
+
+        prompt_tokens, completion_tokens = result.tokens
+        yield BlockBatch(blocks=[], stats={
+            "provider": self.provider_spec, "prompt": prompt,
+            "cost_usd": round(result.cost_usd, 6),
+            "cost_known": result.cost_known,
+            "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+            "commands": result.report.n_commands,
+            "failed_commands": result.report.n_failed,
+            "rounds": [r.stage for r in result.rounds],
+            "cached": result.cached,
+            "llm_seconds": round(result.elapsed_s, 1)})
+
+
 KINDS = {
     "piece_ar": PieceARBackend,
     "voxel_ar": VoxelARBackend,
     "cond_piece_ar": CondPieceARBackend,
+    "agentic": AgenticBackend,
 }
 
 

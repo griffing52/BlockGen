@@ -44,6 +44,17 @@ public class InferenceClient {
         void onBlocks(List<PendingBlock> blocks);
         void onDone(int blocks, double elapsed, String reason);
         void onError(String message);
+
+        /**
+         * A named build step, for backends that execute a program rather than
+         * sampling tokens (the agentic models). Optional: the neural backends never
+         * send one, and a client that does not care can ignore it.
+         */
+        default void onStep(int index, int total, String command, int blocks,
+                            String error) {}
+
+        /** End-of-build accounting (tokens, dollars). Only the agentic backend sends it. */
+        default void onStats(JsonObject stats) {}
     }
 
     /** One block placement in the model's local frame, before anchoring. */
@@ -70,8 +81,22 @@ public class InferenceClient {
 
     /** Asks the server for its model list. Reuses the same message pump. */
     public void listModels(String url, Handler handler, java.util.function.Consumer<JsonObject> onModels) {
+        listModels(url, null, handler, onModels);
+    }
+
+    /**
+     * Model list, optionally for one group only.
+     *
+     * <p>A group is one registry entry that serves many models (the agentic entry
+     * serves every API model). Listing them all in {@code /model} would bury the
+     * trained checkpoints, so the group shows as one row and its members are
+     * fetched on demand -- this is what {@code /model agentic list} calls.
+     */
+    public void listModels(String url, String group, Handler handler,
+                           java.util.function.Consumer<JsonObject> onModels) {
         JsonObject req = new JsonObject();
         req.addProperty("type", "models");
+        if (group != null) req.addProperty("group", group);
         connect(url, handler, onModels, req);
     }
 
@@ -172,9 +197,19 @@ public class InferenceClient {
                         out.add(new PendingBlock(b.get(0).getAsInt(), b.get(1).getAsInt(),
                                 b.get(2).getAsInt(), b.get(3).getAsString()));
                     }
-                    handler.onBlocks(out);
+                    if (msg.has("step")) {
+                        JsonObject s = msg.getAsJsonObject("step");
+                        handler.onStep(s.get("index").getAsInt(), s.get("total").getAsInt(),
+                                s.get("command").getAsString(), out.size(),
+                                s.has("error") && !s.get("error").isJsonNull()
+                                        ? s.get("error").getAsString() : null);
+                    }
+                    if (!out.isEmpty()) handler.onBlocks(out);
                 }
                 case "done" -> {
+                    if (msg.has("stats") && msg.get("stats").isJsonObject()) {
+                        handler.onStats(msg.getAsJsonObject("stats"));
+                    }
                     handler.onDone(msg.get("blocks").getAsInt(),
                             msg.get("elapsed").getAsDouble(),
                             msg.get("reason").getAsString());

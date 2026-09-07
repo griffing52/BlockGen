@@ -84,7 +84,8 @@ class PieceDecoder(_QuadDecoder):
     def __init__(self, cv) -> None:
         super().__init__()
         self.cv = cv
-        self._states = [modern_state(bid, data) for bid, data in cv.block_index_to_pair]
+        self._states = [modern_state(bid, data, oriented=cv.oriented)
+                        for bid, data in cv.block_index_to_pair]
 
     def _is_coord(self, tok: int) -> bool:
         return self.cv.is_coord(tok)
@@ -114,7 +115,8 @@ class VoxelDecoder(_QuadDecoder):
     def __init__(self, vocab) -> None:
         super().__init__()
         self.vocab = vocab
-        self._states = [modern_state(bid, data) for bid, data in vocab.block_index_to_pair]
+        self._states = [modern_state(bid, data, oriented=vocab.oriented)
+                        for bid, data in vocab.block_index_to_pair]
 
     def _is_coord(self, tok: int) -> bool:
         return self.vocab.is_coord(tok)

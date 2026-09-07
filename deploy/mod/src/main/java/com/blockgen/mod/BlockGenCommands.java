@@ -28,6 +28,9 @@ import static net.minecraft.server.command.CommandManager.literal;
  *   /blockgen undo            revert the last build
  *   /blockgen model           list models and show the current one
  *   /blockgen model &lt;name&gt;    switch model
+ *   /model &lt;group&gt; list       list the models a group serves (e.g. agentic)
+ *   /model &lt;group&gt; &lt;model&gt;    switch to one of them (-&gt; group:model)
+ *   /blockgen steps on|off    show each build step in chat
  *   /blockgen server [url]    show or set the inference server
  *   /blockgen status          connection + session state
  *   /blockgen speed &lt;n&gt;       blocks placed per tick
@@ -73,8 +76,12 @@ public final class BlockGenCommands {
                 .then(literal("status").executes(BlockGenCommands::status))
                 .then(literal("model")
                         .executes(BlockGenCommands::listModels)
-                        .then(argument("name", StringArgumentType.word())
+                        .then(argument("name", StringArgumentType.greedyString())
                                 .executes(BlockGenCommands::setModel)))
+                .then(literal("steps")
+                        .then(argument("on", com.mojang.brigadier.arguments.BoolArgumentType
+                                .bool())
+                                .executes(BlockGenCommands::setSteps)))
                 .then(literal("server")
                         .executes(BlockGenCommands::showServer)
                         .then(argument("url", StringArgumentType.greedyString())
@@ -94,10 +101,13 @@ public final class BlockGenCommands {
                             .executes(ctx -> generate(ctx,
                                     StringArgumentType.getString(ctx, "prompt"), null))));
         }
+        // greedyString, not word: "/model agentic list" and "/model agentic gpt-5-mini"
+        // arrive as one argument and are split below. A group's models would
+        // otherwise need a colon nobody wants to type.
         dispatcher.register(literal("model")
                 .requires(BlockGenCommands::allowed)
                 .executes(BlockGenCommands::listModels)
-                .then(argument("name", StringArgumentType.word())
+                .then(argument("name", StringArgumentType.greedyString())
                         .executes(BlockGenCommands::setModel)));
     }
 
@@ -202,11 +212,14 @@ public final class BlockGenCommands {
     }
 
     private static int listModels(CommandContext<ServerCommandSource> ctx) {
+        return listModels(ctx.getSource(), null);
+    }
+
+    private static int listModels(ServerCommandSource src, String group) {
         BlockGenConfig cfg = BlockGenConfig.get();
-        ServerCommandSource src = ctx.getSource();
         src.sendFeedback(() -> Text.literal("Asking " + cfg.serverUrl + "...")
                 .formatted(Formatting.GRAY), false);
-        new InferenceClient().listModels(cfg.serverUrl, new ReportingHandler(src),
+        new InferenceClient().listModels(cfg.serverUrl, group, new ReportingHandler(src),
                 msg -> src.getServer().execute(() -> printModels(src, msg, cfg)));
         return 1;
     }
@@ -224,8 +237,14 @@ public final class BlockGenCommands {
             boolean isCurrent = name.equals(current);
             Formatting color = !available ? Formatting.DARK_GRAY
                     : isCurrent ? Formatting.GREEN : Formatting.WHITE;
+            // A group is one row, not N: the agentic entry serves a dozen API models
+            // and listing them here would bury the trained checkpoints.
+            String group = m.has("group_size")
+                    ? " [" + m.get("group_size").getAsInt() + " models: /model "
+                      + name + " list]" : "";
             String flags = (m.get("supports_text").getAsBoolean() ? " [text]" : "")
                     + (m.get("loaded").getAsBoolean() ? " [loaded]" : "")
+                    + group
                     + (available ? "" : " [unavailable: "
                         + m.get("unavailable_reason").getAsString() + "]");
             src.sendFeedback(() -> Text.literal((isCurrent ? "> " : "  ") + name + flags)
@@ -233,17 +252,46 @@ public final class BlockGenCommands {
             src.sendFeedback(() -> Text.literal("    " + m.get("description").getAsString())
                     .formatted(Formatting.GRAY), false);
         });
-        src.sendFeedback(() -> Text.literal("/model <name> to switch").formatted(Formatting.GRAY),
-                false);
+        boolean grouped = msg.has("group") && !msg.get("group").isJsonNull();
+        src.sendFeedback(() -> Text.literal(grouped
+                ? "/model " + msg.get("group").getAsString() + " <model> to switch"
+                : "/model <name> to switch").formatted(Formatting.GRAY), false);
     }
 
+    /**
+     * {@code /model <name>}, {@code /model <group> list}, {@code /model <group> <model>}.
+     *
+     * <p>The two-word forms are what make a group usable: {@code /model agentic list}
+     * asks the server which models that entry serves, and {@code /model agentic
+     * gpt-5-mini} selects one -- stored as {@code agentic:gpt-5-mini}, which is what
+     * the server resolves.
+     */
     private static int setModel(CommandContext<ServerCommandSource> ctx) {
-        String name = StringArgumentType.getString(ctx, "name");
+        String raw = StringArgumentType.getString(ctx, "name").trim();
+        ServerCommandSource src = ctx.getSource();
+        String[] parts = raw.split("\\s+");
+        if (parts.length >= 2) {
+            if ("list".equalsIgnoreCase(parts[1])) {
+                return listModels(src, parts[0]);
+            }
+            raw = parts[0] + ":" + parts[1];
+        }
+        String name = raw;
         BlockGenConfig cfg = BlockGenConfig.get();
         cfg.model = "default".equals(name) ? null : name;
         cfg.save();
-        ctx.getSource().sendFeedback(() -> Text.literal("Model set to " + name
+        src.sendFeedback(() -> Text.literal("Model set to " + name
                 + " (not verified until the next /gen)").formatted(Formatting.GREEN), false);
+        return 1;
+    }
+
+    private static int setSteps(CommandContext<ServerCommandSource> ctx) {
+        boolean on = com.mojang.brigadier.arguments.BoolArgumentType.getBool(ctx, "on");
+        BlockGenConfig cfg = BlockGenConfig.get();
+        cfg.showSteps = on;
+        cfg.save();
+        ctx.getSource().sendFeedback(() -> Text.literal(
+                "Build steps " + (on ? "shown" : "hidden")).formatted(Formatting.GREEN), false);
         return 1;
     }
 

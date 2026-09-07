@@ -85,6 +85,21 @@ public class GenerationSession {
             }
 
             @Override
+            public void onStep(int index, int total, String command, int blocks,
+                               String error) {
+                // Programs (agentic models) build in named steps; queue the label so
+                // it prints from the tick loop, in order with the blocks it describes.
+                if (!cfg.showSteps) return;
+                String label = String.format("[%d/%d] %s", index, total, command);
+                steps.add(error != null ? label + "  <- " + error : label);
+            }
+
+            @Override
+            public void onStats(com.google.gson.JsonObject s) {
+                statsMessage = formatStats(s);
+            }
+
+            @Override
             public void onDone(int blocks, double elapsed, String reason) {
                 doneMessage = switch (reason) {
                     case "cancelled" -> "Cancelled after " + blocks + " blocks.";
@@ -106,6 +121,41 @@ public class GenerationSession {
     }
 
     private volatile String errorMessage = null;
+    private volatile String statsMessage = null;
+    /** Step labels waiting to be printed; drained on the server thread like blocks. */
+    private final ConcurrentLinkedQueue<String> steps = new ConcurrentLinkedQueue<>();
+
+    /**
+     * One line of build economics for chat.
+     *
+     * <p>An API model costs real money per build, so the number belongs in front of
+     * the person who triggered it. A model missing from the server's price table
+     * reports {@code cost_known=false}; saying "cost unknown" is the honest output --
+     * printing $0.00 would read as free.
+     */
+    private static String formatStats(com.google.gson.JsonObject s) {
+        StringBuilder sb = new StringBuilder();
+        if (s.has("provider")) sb.append(s.get("provider").getAsString());
+        if (s.has("commands")) {
+            sb.append("  ").append(s.get("commands").getAsInt()).append(" commands");
+            if (s.has("failed_commands") && s.get("failed_commands").getAsInt() > 0) {
+                sb.append(" (").append(s.get("failed_commands").getAsInt()).append(" failed)");
+            }
+        }
+        if (s.has("prompt_tokens") && s.has("completion_tokens")) {
+            sb.append("  ").append(s.get("prompt_tokens").getAsInt()).append("+")
+              .append(s.get("completion_tokens").getAsInt()).append(" tokens");
+        }
+        boolean known = !s.has("cost_known") || s.get("cost_known").getAsBoolean();
+        if (s.has("cached") && s.get("cached").getAsBoolean()) {
+            sb.append("  cached (no API call)");
+        } else if (known && s.has("cost_usd")) {
+            sb.append(String.format("  $%.4f", s.get("cost_usd").getAsDouble()));
+        } else {
+            sb.append("  cost unknown (model not in the price table)");
+        }
+        return sb.toString();
+    }
 
     /** Called every server tick. Returns true when the session is over. */
     public boolean tick() {
@@ -113,6 +163,13 @@ public class GenerationSession {
         InferenceClient.PendingBlock b;
         while (budget-- > 0 && (b = incoming.poll()) != null) {
             place(b);
+        }
+        // Step labels print as their blocks land, not all at once at the end: the
+        // point of a program build is watching it go up part by part.
+        String step;
+        while ((step = steps.poll()) != null) {
+            String line = step;
+            feedback(Text.literal("  " + line).formatted(Formatting.DARK_AQUA));
         }
         boolean drained = incoming.isEmpty();
         if (finished.get() && drained) {
@@ -122,6 +179,9 @@ public class GenerationSession {
                 String extra = unknownStates > 0
                         ? " (" + unknownStates + " unknown block states skipped)" : "";
                 feedback(Text.literal(doneMessage + extra).formatted(Formatting.GREEN));
+                if (statsMessage != null) {
+                    feedback(Text.literal("  " + statsMessage).formatted(Formatting.GRAY));
+                }
             }
             if (placed > 0) {
                 BlockGenMod.pushUndo(world, previous, cfg.undoHistory);

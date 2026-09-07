@@ -10,5 +10,12 @@ websockets>=12.0
 # The unconditional models do not import this.
 transformers>=4.40
 
+# Only needed for the 'agentic' models (kind: agentic), which call an LLM API
+# instead of loading a checkpoint. The openai client also drives Gemini through its
+# OpenAI-compatible endpoint, so this one package covers both; add anthropic only if
+# you point at a claude-* model. Keys come from the repo .env.
+openai>=1.40
+python-dotenv>=1.0
+
 # Tests
 pytest>=8.0
