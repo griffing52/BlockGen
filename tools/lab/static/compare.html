@@ -1,0 +1,287 @@
+<meta charset="utf-8">
+<title>BlockLab · Compare</title>
+<link rel="stylesheet" href="/static/lab.css">
+<!-- The interactive twin of scripts/human_study_export.py. Same design, same
+     reason: `geom_kid` and `mv_dino_kid` are two-sample statistics, so there is
+     no per-build number to correlate a per-build rating against -- but asking a
+     person to eyeball two *distributions* is a judgement people are bad at. So
+     the trial is over individual builds, which is easy and reliable, and the
+     judgements pool to the dataset pair, which is the level the metric speaks
+     at. The batch script exists for real raters; this one is for the researcher
+     who wants to re-run a pair after changing something, without regenerating a
+     study. Sides are randomized per trial for the same reason they are there. -->
+<style>
+  main{max-width:1500px}
+  .stage{display:grid;gap:18px;grid-template-columns:1fr 1fr;align-items:start;
+         margin:6px 0 14px}
+  .side{background:var(--panel);border:1px solid var(--rule);padding:0;cursor:pointer;
+        box-shadow:var(--shadow);display:block;width:100%;text-align:left}
+  .side:hover{border-color:var(--accent)}
+  .side img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;display:block}
+  .side figcaption{display:flex;justify-content:space-between;gap:10px;padding:7px 9px;
+                   border-top:1px solid var(--rule);font-family:var(--mono);font-size:11px;
+                   color:var(--faint)}
+  .side kbd{margin-right:6px}
+  .side[disabled]{opacity:.45;cursor:progress}
+  .mid{display:flex;justify-content:center;gap:10px;align-items:center;margin:0 0 18px}
+  .ask{text-align:center;font-size:15px;margin:2px 0 10px}
+  .tallies td.num b{font-weight:600}
+  .bars{display:flex;height:8px;background:var(--sunk);border:1px solid var(--rule);width:160px}
+  .bars i{display:block;height:100%}
+  .bars i.a{background:var(--accent)}
+  .bars i.t{background:var(--rule-strong)}
+  .bars i.b{background:var(--unsure)}
+  .quiet{color:var(--faint);font-size:12px}
+</style>
+
+<main class="wrap">
+  <div class="bar">
+    <label class="hint" for="dsA">A</label><select id="dsA"></select>
+    <label class="hint" for="dsB">B</label><select id="dsB"></select>
+    <button id="swap" title="Swap the two datasets">⇄</button>
+    <span class="spacer"></span>
+    <span class="hint" id="counter"></span>
+  </div>
+
+  <div id="run" hidden>
+    <p class="ask" id="ask">Which looks more like a <b>real Minecraft house</b>?</p>
+    <div class="stage">
+      <!-- Captions carry the key and nothing else. Which arm a build came from
+           is exactly the thing that must not be visible while judging it — the
+           batch study strips arm labels from its page for the same reason. -->
+      <button class="side" id="left"><img id="imgL" alt="build on the left">
+        <figcaption><span><kbd>←</kbd> this one</span><span>A or B, hidden</span>
+      </figcaption></button>
+      <button class="side" id="right"><img id="imgR" alt="build on the right">
+        <figcaption><span><kbd>→</kbd> this one</span><span>A or B, hidden</span>
+      </figcaption></button>
+    </div>
+    <div class="mid">
+      <button id="tie"><kbd>space</kbd> can't tell</button>
+      <span class="quiet" id="rt"></span>
+    </div>
+  </div>
+
+  <div id="empty"></div>
+
+  <h2>Tally</h2>
+  <p class="hint">Pooled to the dataset pair — one build's win is not a result,
+    and the win rate is the quantity a metric's ranking can be checked against.
+    Interval is Wilson at 95%; "can't tell" trials are counted but excluded from
+    the rate, the same way an undecided trial carries no preference.</p>
+  <div class="scroll"><table id="tally"></table></div>
+</main>
+
+<script type="module">
+import { api, chrome, fmt, emptyState, toast } from "/static/lab.js";
+chrome("/compare");
+
+const el = (id) => document.getElementById(id);
+const selA = el("dsA"), selB = el("dsB");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* One fixed question, recorded on every row. A comparison whose prompt is not
+ * stored is not re-analysable later, and "which is better" means different
+ * things on different days. */
+const TAG = "more_real";
+const PX = 448;
+
+let datasets = [], counts = new Map(), trial = null, shown = 0, busy = false;
+let nextTrial = null;
+
+// --- setup ------------------------------------------------------------------
+async function boot() {
+  try { datasets = await api.get("/api/datasets"); } catch (e) { datasets = []; }
+  datasets = datasets.filter((d) => (d.n || 0) > 0);
+  if (!datasets.length) {
+    emptyState(el("empty"), "Nothing to compare",
+      "No datasets on disk. Drop an <code>.npz</code> (with its " +
+      "<code>_manifest.json</code>) in <code>outputs/bench_arms/</code>.");
+    document.querySelector(".bar").hidden = true;
+    return;
+  }
+  const opts = datasets.map((d) =>
+    `<option value="${esc(d.id)}">${esc(d.name || d.id)} · ${d.kind} · ${fmt.int(d.n)}</option>`).join("");
+  selA.innerHTML = opts; selB.innerHTML = opts;
+  const params = new URLSearchParams(location.search);
+  const pick = (want, fallback) => datasets.some((d) => d.id === want) ? want : fallback;
+  selA.value = pick(params.get("a"), datasets[0].id);
+  selB.value = pick(params.get("b"), (datasets[1] || datasets[0]).id);
+
+  await loadTally();
+  for (const s of [selA, selB]) s.addEventListener("change", () => { restart(); });
+  el("swap").addEventListener("click", () => {
+    const a = selA.value; selA.value = selB.value; selB.value = a; restart();
+  });
+  el("left").addEventListener("click", () => judge("L"));
+  el("right").addEventListener("click", () => judge("R"));
+  el("tie").addEventListener("click", () => judge(null));
+  addEventListener("keydown", (ev) => {
+    if (ev.target.tagName === "SELECT") return;
+    if (ev.key === "ArrowLeft") { ev.preventDefault(); judge("L"); }
+    else if (ev.key === "ArrowRight") { ev.preventDefault(); judge("R"); }
+    else if (ev.key === " ") { ev.preventDefault(); judge(null); }
+  });
+  restart();
+}
+
+function restart() {
+  el("run").hidden = false;
+  nextTrial = null; shown = 0;
+  history.replaceState(null, "", `?a=${encodeURIComponent(selA.value)}&b=${encodeURIComponent(selB.value)}`);
+  serve();
+  renderTally();
+}
+
+// --- trials -----------------------------------------------------------------
+const nOf = (id) => (datasets.find((d) => d.id === id) || {}).n || 0;
+const thumb = (bid) => `/api/thumb/${encodeURIComponent(bid)}?px=${PX}`;
+
+/** One trial: a random build from each dataset, with the sides randomized.
+ *  Side randomization is not decoration — a fixed left/right assignment turns
+ *  any handedness in the rater into a systematic win for one arm. */
+function makeTrial() {
+  const [a, b] = [selA.value, selB.value];
+  const na = nOf(a), nb = nOf(b);
+  if (!na || !nb) return null;
+  let ia = Math.floor(Math.random() * na), ib = Math.floor(Math.random() * nb);
+  if (a === b && na > 1) { while (ib === ia) ib = Math.floor(Math.random() * nb); }
+  const A = { ds: a, id: `${a}:${ia}` }, B = { ds: b, id: `${b}:${ib}` };
+  const flip = Math.random() < 0.5;
+  return { A, B, left: flip ? A : B, right: flip ? B : A, t0: 0 };
+}
+
+/* The renderer holds one EGL context behind a lock, so a cold thumbnail costs a
+ * real render. Prefetching the next pair while the rater looks at this one hides
+ * that latency; without it every trial starts with two grey boxes. */
+function prefetch() {
+  nextTrial = makeTrial();
+  if (!nextTrial) return;
+  for (const s of [nextTrial.left, nextTrial.right]) new Image().src = thumb(s.id);
+}
+
+function serve() {
+  trial = nextTrial || makeTrial();
+  nextTrial = null;
+  if (!trial) {
+    el("run").hidden = true;
+    emptyState(el("empty"), "Pick two datasets with builds in them", "");
+    return;
+  }
+  el("empty").innerHTML = "";
+  busy = false;
+  for (const [side, box] of [["left", "L"], ["right", "R"]]) {
+    el(`img${box}`).src = thumb(trial[side].id);
+    el(side).disabled = false;
+  }
+  el("rt").textContent = "";
+  el("counter").textContent = `${shown} judged this session`;
+  trial.t0 = performance.now();
+  setTimeout(prefetch, 60);
+}
+
+async function judge(side) {
+  if (!trial || busy) return;
+  busy = true;
+  // Everything the POST needs is captured here: serve() re-points `trial` to the
+  // next stimulus before the request resolves, and a judgement filed against the
+  // wrong pair is worse than a lost one.
+  const { A, B } = trial;
+  const ms = Math.round(performance.now() - trial.t0);
+  const winner = side === null ? null : trial[side === "L" ? "left" : "right"].id;
+
+  // Tallied optimistically: the trial is over the moment the key goes down, and
+  // a failed write should surface as a toast rather than stall the stimulus.
+  bump(A.ds, B.ds, winner === null ? null : (winner === A.id ? "A" : "B"));
+  shown += 1;
+  renderTally();
+  serve();
+  el("rt").textContent = `${ms} ms`;
+  try {
+    await api.post("/api/compare", { a: A.id, b: B.id, winner, ms, tag: TAG });
+  } catch (e) { toast(`not saved: ${e.message}`); }
+}
+
+// --- tally ------------------------------------------------------------------
+const pairKey = (a, b) => (a <= b ? `${a} ${b}` : `${b} ${a}`);
+
+function bump(dsA, dsB, who) {
+  const key = pairKey(dsA, dsB);
+  const flipped = !(dsA <= dsB);           // store wins against the sorted pair
+  const rec = counts.get(key) || { a: 0, b: 0, tie: 0 };
+  if (who === null) rec.tie += 1;
+  else if ((who === "A") !== flipped) rec.a += 1;
+  else rec.b += 1;
+  counts.set(key, rec);
+}
+
+/** Seed from the store so the tally is the whole history, not this tab's. */
+async function loadTally() {
+  let rows = [];
+  try { rows = (await api.get("/api/export?what=compares")).rows || []; } catch (e) { rows = []; }
+  counts = new Map();
+  for (const r of rows) {
+    const dsA = String(r.a || "").split(":").slice(0, -1).join(":");
+    const dsB = String(r.b || "").split(":").slice(0, -1).join(":");
+    if (!dsA || !dsB) continue;
+    bump(dsA, dsB, r.winner === null || r.winner === undefined || r.winner === ""
+         ? null : (r.winner === r.a ? "A" : "B"));
+  }
+}
+
+/** Wilson score interval: the normal approximation is useless at the counts a
+ *  session like this produces (10 trials, 9 wins puts the naive interval above
+ *  1.0), and Wilson stays inside [0,1] and behaves at n small. */
+function wilson(k, n, z = 1.96) {
+  if (!n) return [0, 1];
+  const p = k / n, d = 1 + z * z / n;
+  const c = (p + z * z / (2 * n)) / d;
+  const h = (z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+  return [Math.max(0, c - h), Math.min(1, c + h)];
+}
+
+function nameOf(id) {
+  const d = datasets.find((x) => x.id === id);
+  return d ? (d.name || d.id) : id;
+}
+
+function renderTally() {
+  const active = pairKey(selA.value, selB.value);
+  const rows = [...counts.entries()].sort((x, y) =>
+    (y[0] === active ? 1 : 0) - (x[0] === active ? 1 : 0) ||
+    (y[1].a + y[1].b + y[1].tie) - (x[1].a + x[1].b + x[1].tie));
+  const box = el("tally");
+  if (!rows.length) {
+    box.innerHTML = `<tbody><tr><td class="quiet">No judgements yet — press
+      <kbd>←</kbd>, <kbd>→</kbd> or <kbd>space</kbd>.</td></tr></tbody>`;
+    return;
+  }
+  box.innerHTML = `<thead><tr><th>Pair</th><th class="num">trials</th>
+    <th class="num">wins</th><th></th><th class="num">win rate (first)</th>
+    <th class="num">95% CI</th><th class="num">can't tell</th></tr></thead><tbody>
+    ${rows.map(([key, r]) => {
+      const [x, y] = key.split(" ");
+      const decided = r.a + r.b, n = decided + r.tie;
+      const rate = decided ? r.a / decided : null;
+      const [lo, hi] = wilson(r.a, decided);
+      const pct = (v) => `${(v * 100).toFixed(0)}%`;
+      const w = (v) => decided + r.tie ? (100 * v / n).toFixed(1) : 0;
+      return `<tr${key === active ? ' style="background:var(--accent-soft)"' : ""}>
+        <td class="arm"><b>${esc(nameOf(x))}</b> vs ${esc(nameOf(y))}</td>
+        <td class="num">${n}</td>
+        <td class="num">${r.a} – ${r.b}</td>
+        <td><span class="bars"><i class="a" style="width:${w(r.a)}%"></i
+          ><i class="t" style="width:${w(r.tie)}%"></i
+          ><i class="b" style="width:${w(r.b)}%"></i></span></td>
+        <td class="num">${rate === null ? "—" : pct(rate)}</td>
+        <td class="num">${decided ? `[${pct(lo)}, ${pct(hi)}]` : "—"}</td>
+        <td class="num">${r.tie}</td></tr>`;
+    }).join("")}</tbody>`;
+}
+
+boot().catch((e) => {
+  toast(e.message);
+  emptyState(el("empty"), "Compare failed to load", esc(e.message));
+});
+</script>

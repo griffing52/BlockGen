@@ -1,0 +1,388 @@
+<meta charset="utf-8">
+<title>BlockLab</title>
+<link rel="stylesheet" href="/static/lab.css">
+<style>
+  .cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .card{display:block;background:var(--panel);border:1px solid var(--rule);
+        padding:13px 14px;color:inherit;box-shadow:var(--shadow)}
+  .card:hover{border-color:var(--accent);text-decoration:none}
+  .card h3{margin:0 0 3px;font-size:14px;font-weight:600}
+  .card p{margin:0;color:var(--dim);font-size:12.5px}
+  .stats{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);
+         grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+  .stat{background:var(--panel);padding:11px 13px}
+  .stat b{display:block;font-family:var(--mono);font-size:21px;font-weight:500;
+          font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+             text-transform:uppercase;color:var(--faint)}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+
+  /* --- tree --- */
+  .tree{border:1px solid var(--rule);background:var(--panel);box-shadow:var(--shadow)}
+  .node{display:flex;align-items:baseline;gap:8px;padding:5px 12px;
+        border-bottom:1px solid var(--rule)}
+  .node:last-child{border-bottom:0}
+  .node:hover{background:var(--hover,rgba(127,127,127,.07))}
+  .node.is-root{font-weight:600}
+  .twist{width:15px;flex:none;border:0;background:none;color:var(--faint);cursor:pointer;
+         font-family:var(--mono);font-size:11px;padding:0;line-height:1.5}
+  .twist[disabled]{opacity:.25;cursor:default}
+  .nname{flex:none}
+  .nrule{color:var(--faint);font-size:11.5px;font-family:var(--mono)}
+  .nspacer{flex:1 1 auto;min-width:12px}
+  .ncount{font-family:var(--mono);font-variant-numeric:tabular-nums;
+          font-size:12.5px;color:var(--dim);flex:none}
+  .nact{flex:none;display:flex;gap:9px;font-size:12px;visibility:hidden}
+  .node:hover .nact,.node:focus-within .nact{visibility:visible}
+  .nact button{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;
+               font:inherit}
+  .nact button.danger{color:var(--bad,#a4453b)}
+  .warn{color:var(--bad,#a4453b);font-size:11.5px}
+  .kids.hide{display:none}
+
+  /* --- branch dialog --- */
+  dialog{border:1px solid var(--rule);background:var(--panel);color:inherit;
+         box-shadow:0 18px 44px rgba(0,0,0,.28);padding:0;max-width:min(620px,94vw);width:100%}
+  dialog::backdrop{background:rgba(20,22,24,.42)}
+  .dlg-h{padding:14px 18px;border-bottom:1px solid var(--rule)}
+  .dlg-h h3{margin:0 0 2px;font-size:15px}
+  .dlg-b{padding:14px 18px;display:grid;gap:12px}
+  .dlg-f{padding:11px 18px;border-top:1px solid var(--rule);
+         display:flex;gap:10px;align-items:center}
+  .grid2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+  .grid3{display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr}
+  label.f{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+          color:var(--faint);font-family:var(--mono);margin-bottom:3px}
+  input[type=text],input[type=number]{width:100%;box-sizing:border-box;padding:6px 8px;
+        border:1px solid var(--rule);background:var(--bg);color:inherit;font:inherit}
+  .chips{display:flex;gap:12px;flex-wrap:wrap;font-size:13px}
+  .chips label{display:flex;gap:5px;align-items:center;text-transform:none;
+               letter-spacing:0;font-family:inherit;color:inherit;font-size:13px}
+  .verdict{font-family:var(--mono);font-size:12.5px;color:var(--dim);flex:1}
+  .verdict b{color:var(--fg);font-size:14px}
+  button.go{padding:6px 14px;border:1px solid var(--accent);background:var(--accent);
+            color:#fff;cursor:pointer;font:inherit}
+  button.ghost{padding:6px 12px;border:1px solid var(--rule);background:none;
+               color:inherit;cursor:pointer;font:inherit}
+  button:disabled{opacity:.5;cursor:default}
+</style>
+
+<main class="wrap">
+  <h1>BlockLab</h1>
+  <p class="sub">A local instrument over the artifacts this repo already writes —
+    look at builds, label them, and read a scorecard without rerunning the batch.</p>
+
+  <p class="eyebrow">What's on disk</p>
+  <div class="stats" id="stats"></div>
+
+  <h2>Tools</h2>
+  <div class="cards">
+    <a class="card" href="/curate"><h3>Curate</h3>
+      <p>Triage a dataset build by build. Keyboard-first: <kbd>g</kbd> <kbd>b</kbd>
+         <kbd>u</kbd> label, arrows move, <kbd>n</kbd> notes.</p></a>
+    <a class="card" href="/leaderboard"><h3>Leaderboard</h3>
+      <p>A scorecard from <code>blockgen.eval.bench</code>, with the pairwise
+         verdicts behind each ranking.</p></a>
+    <a class="card" href="/compare"><h3>Compare</h3>
+      <p>Two builds, one decision. Forced-choice pairs logged with response time.</p></a>
+    <a class="card" href="/curation"><h3>Gates</h3>
+      <p>Try a curation threshold and see what it keeps and drops, before
+         rebuilding a dataset.</p></a>
+  </div>
+
+  <h2>Datasets</h2>
+  <p class="sub">Nesting is derivation: a child came out of its parent. Counts are
+    per node and never double-counted, so a corpus total excludes its own splits
+    and branches. <b>Branch</b> makes a new named subset of any node.</p>
+  <div class="row" style="margin:0 0 9px">
+    <button class="ghost" id="expandAll">Expand all</button>
+    <button class="ghost" id="collapseAll">Collapse all</button>
+  </div>
+  <div class="tree" id="tree"></div>
+
+  <h2>Export</h2>
+  <p class="sub">Decisions made here are proposals. These files are the seam back
+    into the batch pipeline — nothing is written into a corpus cache.</p>
+  <div class="row">
+    <a href="/api/export?what=labels">labels.json</a> ·
+    <a href="/api/export?what=notes">notes.json</a> ·
+    <a href="/api/export?what=compares">compares.json</a> ·
+    <code class="hint">outputs/lab/subsets/*.json</code>
+  </div>
+</main>
+
+<dialog id="branchDlg">
+  <form method="dialog" id="branchForm">
+    <div class="dlg-h">
+      <h3>Branch a subset</h3>
+      <p class="hint" style="margin:0">from <code id="bParent"></code> ·
+         <span id="bParentN"></span> builds</p>
+    </div>
+    <div class="dlg-b">
+      <div class="grid2">
+        <div><label class="f" for="bId">id</label>
+          <input type="text" id="bId" placeholder="clean-houses" required></div>
+        <div><label class="f" for="bName">name</label>
+          <input type="text" id="bName" placeholder="Clean houses"></div>
+      </div>
+      <div>
+        <label class="f">keep builds labelled</label>
+        <div class="chips" id="bLabels"></div>
+      </div>
+      <div class="grid3">
+        <div><label class="f" for="bCorpus">source corpus</label>
+          <input type="text" id="bCorpus" placeholder="grabcraft, 3dcraft"></div>
+        <div><label class="f" for="bCategory">category</label>
+          <input type="text" id="bCategory" placeholder="brick-houses"></div>
+        <div><label class="f" for="bTitle">title contains</label>
+          <input type="text" id="bTitle" placeholder="cottage"></div>
+      </div>
+      <div class="grid3">
+        <div><label class="f" for="bMin">min blocks</label>
+          <input type="number" id="bMin" min="0"></div>
+        <div><label class="f" for="bMax">max blocks</label>
+          <input type="number" id="bMax" min="0"></div>
+        <div><label class="f" for="bDim">fits in cube</label>
+          <input type="number" id="bDim" min="1" placeholder="32"></div>
+      </div>
+      <div class="grid3">
+        <div><label class="f" for="bLimit">random sample</label>
+          <input type="number" id="bLimit" min="1" placeholder="256"></div>
+        <div><label class="f" for="bSeed">seed</label>
+          <input type="number" id="bSeed" value="0"></div>
+        <div><label class="f">reproducibility</label>
+          <div class="chips"><label><input type="checkbox" id="bFreeze"> freeze list</label></div>
+        </div>
+      </div>
+      <p class="hint" style="margin:0">A live rule re-runs as you label, so it grows.
+        <b>Freeze</b> stores the resolved indices instead — cite that one in an
+        experiment, since a set that moves between runs makes those runs
+        incomparable.</p>
+    </div>
+    <div class="dlg-f">
+      <span class="verdict" id="bVerdict">Set a rule, then preview.</span>
+      <button type="button" class="ghost" id="bPreview">Preview</button>
+      <button type="button" class="ghost" id="bCancel">Cancel</button>
+      <button type="button" class="go" id="bSave" disabled>Create</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, chrome, fmt, emptyState, toast } from "/static/lab.js";
+chrome("/");
+
+const statsEl = document.getElementById("stats");
+const treeEl = document.getElementById("tree");
+const dlg = document.getElementById("branchDlg");
+
+const KINDS = ["good", "bad", "unsure", "unlabelled"];
+document.getElementById("bLabels").innerHTML = KINDS.map(k =>
+  `<label><input type="checkbox" value="${k}" class="lbl"> ${k}</label>`).join("");
+
+function stat(label, value, note = "") {
+  return `<div class="stat"><b>${value}</b><span>${label}</span>
+          ${note ? `<div class="hint">${note}</div>` : ""}</div>`;
+}
+
+/* Collapse state is per-node and remembered, because the shape you care about
+ * is stable across reloads -- one corpus open, the run dirs shut. */
+const OPEN_KEY = "lab-tree-open";
+const openSet = new Set((() => {
+  try { return JSON.parse(localStorage.getItem(OPEN_KEY) || "[]"); } catch { return []; }
+})());
+function persist() {
+  try { localStorage.setItem(OPEN_KEY, JSON.stringify([...openSet])); } catch { /* private mode */ }
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function sourceLine(node) {
+  if (node.rule) return esc(node.rule);
+  if (node.sources) {
+    const parts = Object.entries(node.sources).map(([k, v]) => `${k} ${fmt.int(v)}`);
+    const dropped = node.drops
+      ? Object.values(node.drops).reduce((a, b) => a + b, 0) : 0;
+    return esc(parts.join(" · ") + (dropped ? `  —  ${fmt.int(dropped)} dropped by curation` : ""));
+  }
+  return "";
+}
+
+function renderNode(node, depth) {
+  const kids = node.children || [];
+  const open = openSet.has(node.id);
+  const branchable = node.kind !== "run";
+  const rows = [`
+    <div class="node${depth === 0 ? " is-root" : ""}" data-id="${esc(node.id)}"
+         style="padding-left:${12 + depth * 17}px">
+      <button class="twist" data-twist="${esc(node.id)}"
+              ${kids.length ? "" : "disabled"}>${kids.length ? (open ? "▾" : "▸") : "·"}</button>
+      <span class="nname">${esc(node.name)}</span>
+      <span class="pill">${esc(node.kind)}</span>
+      <span class="nrule">${sourceLine(node)}</span>
+      ${node.note ? `<span class="warn">${esc(node.note)}</span>` : ""}
+      <span class="nspacer"></span>
+      <span class="ncount">${fmt.int(node.n)}</span>
+      <span class="nact">
+        ${branchable ? `<a href="/curate?dataset=${encodeURIComponent(node.id)}">curate</a>
+          <button data-branch="${esc(node.id)}" data-n="${node.n}">branch</button>` : ""}
+        ${node.kind === "subset" ? `<button class="danger" data-del="${esc(node.id)}">delete</button>` : ""}
+      </span>
+    </div>`];
+  if (kids.length) {
+    rows.push(`<div class="kids${open ? "" : " hide"}" data-kids="${esc(node.id)}">`);
+    for (const kid of kids) rows.push(renderNode(kid, depth + 1));
+    rows.push(`</div>`);
+  }
+  return rows.join("");
+}
+
+let ROOTS = [];
+
+async function loadTree() {
+  let tree, cards = [], labels = { counts: {} };
+  const settle = async (fn, fb) => { try { return await fn(); } catch { return fb; } };
+  [tree, labels, cards] = await Promise.all([
+    settle(() => api.get("/api/tree"), null),
+    settle(() => api.get("/api/labels"), { counts: {} }),
+    settle(() => api.get("/api/scorecards"), []),
+  ]);
+
+  const c = labels.counts || {};
+  const decided = (c.good || 0) + (c.bad || 0) + (c.unsure || 0);
+  const t = (tree && tree.totals) || {};
+  statsEl.innerHTML = [
+    stat("collections", fmt.int(t.collections ?? 0), `${fmt.int(t.datasets ?? 0)} nodes`),
+    stat("builds", fmt.int(t.builds ?? 0), "counted once each"),
+    stat("labelled", fmt.int(decided),
+         `${c.good || 0} good · ${c.bad || 0} bad · ${c.unsure || 0} unsure`),
+    stat("scorecards", fmt.int(cards.length)),
+  ].join("");
+
+  ROOTS = (tree && tree.roots) || [];
+  if (!ROOTS.length) {
+    emptyState(treeEl, "No datasets found",
+      "Run <code>python -m blockgen.eval.bench</code> to write a scorecard, or drop an " +
+      "<code>.npz</code> structure cache in <code>outputs/bench_arms/</code>.");
+    return;
+  }
+  treeEl.innerHTML = ROOTS.map(r => renderNode(r, 0)).join("");
+}
+
+treeEl.addEventListener("click", async (ev) => {
+  const twist = ev.target.closest("[data-twist]");
+  if (twist) {
+    const id = twist.dataset.twist;
+    const kids = treeEl.querySelector(`[data-kids="${CSS.escape(id)}"]`);
+    if (!kids) return;
+    const nowOpen = kids.classList.toggle("hide") === false;
+    twist.textContent = nowOpen ? "▾" : "▸";
+    nowOpen ? openSet.add(id) : openSet.delete(id);
+    persist();
+    return;
+  }
+  const branch = ev.target.closest("[data-branch]");
+  if (branch) { openBranch(branch.dataset.branch, Number(branch.dataset.n)); return; }
+  const del = ev.target.closest("[data-del]");
+  if (del) {
+    const id = del.dataset.del;
+    if (!confirm(`Delete ${id}? The builds are untouched — only the rule goes.`)) return;
+    try {
+      await api.post("/api/subset/delete", { id });
+      toast("deleted"); await loadTree();
+    } catch (e) { toast(String(e.message || e), 3200); }
+  }
+});
+
+document.getElementById("expandAll").onclick = () => {
+  for (const r of ROOTS) for (const n of walk(r)) if ((n.children || []).length) openSet.add(n.id);
+  persist(); loadTree();
+};
+document.getElementById("collapseAll").onclick = () => {
+  openSet.clear(); persist(); loadTree();
+};
+function* walk(n) { yield n; for (const k of n.children || []) yield* walk(k); }
+
+/* --- branch dialog --- */
+let parentId = null, lastPreview = null;
+const $ = (id) => document.getElementById(id);
+
+function openBranch(id, n) {
+  parentId = id; lastPreview = null;
+  $("bParent").textContent = id;
+  $("bParentN").textContent = fmt.int(n);
+  $("bVerdict").textContent = "Set a rule, then preview.";
+  $("bSave").disabled = true;
+  dlg.showModal();
+  $("bId").focus();
+}
+
+const listOf = (v) => v.split(",").map(s => s.trim()).filter(Boolean);
+const numOf = (v) => v === "" ? undefined : Number(v);
+
+function currentRule() {
+  const rule = {};
+  const labels = [...document.querySelectorAll(".lbl:checked")].map(el => el.value);
+  if (labels.length) rule.labels = labels;
+  if ($("bCorpus").value.trim()) rule.corpus = listOf($("bCorpus").value);
+  if ($("bCategory").value.trim()) rule.category = listOf($("bCategory").value);
+  if ($("bTitle").value.trim()) rule.title_contains = $("bTitle").value.trim();
+  for (const [el, key] of [["bMin", "min_blocks"], ["bMax", "max_blocks"],
+                           ["bDim", "max_dim"], ["bLimit", "limit"]]) {
+    const v = numOf($(el).value);
+    if (v !== undefined && !Number.isNaN(v)) rule[key] = v;
+  }
+  if (rule.limit !== undefined) rule.seed = numOf($("bSeed").value) || 0;
+  return rule;
+}
+
+$("bPreview").onclick = async () => {
+  $("bVerdict").textContent = "resolving…";
+  try {
+    lastPreview = await api.post("/api/subset/preview",
+      { parent: parentId, rule: currentRule() });
+    $("bVerdict").innerHTML =
+      `keeps <b>${fmt.int(lastPreview.n)}</b> of ${fmt.int(lastPreview.parent_n)}` +
+      ` · ${esc(lastPreview.describe)}`;
+    $("bSave").disabled = lastPreview.n === 0;
+  } catch (e) {
+    lastPreview = null; $("bSave").disabled = true;
+    $("bVerdict").innerHTML = `<span class="warn">${esc(e.message || e)}</span>`;
+  }
+};
+
+/* Any edit invalidates a preview, so you can never freeze a list you did not
+ * actually see the size of. */
+for (const el of document.querySelectorAll("#branchForm input")) {
+  el.addEventListener("input", () => {
+    if (el.id === "bId" || el.id === "bName") return;
+    lastPreview = null; $("bSave").disabled = true;
+    $("bVerdict").textContent = "rule changed — preview again";
+  });
+}
+
+$("bCancel").onclick = () => dlg.close();
+
+$("bSave").onclick = async () => {
+  const id = $("bId").value.trim().toLowerCase().replace(/\s+/g, "-");
+  if (!id) { toast("needs an id"); return; }
+  const freeze = $("bFreeze").checked;
+  const body = {
+    id, name: $("bName").value.trim() || id, parent: parentId,
+    mode: freeze ? "indices" : "filter",
+    rule: freeze ? { indices: (lastPreview && lastPreview.indices) || [] } : currentRule(),
+  };
+  if (freeze && !body.rule.indices.length) { toast("preview first"); return; }
+  try {
+    const saved = await api.post("/api/subset", body);
+    dlg.close();
+    openSet.add(parentId);   // reveal the branch we just made
+    persist();
+    toast(`${saved.name}: ${fmt.int(saved.n)} builds`);
+    await loadTree();
+  } catch (e) { toast(String(e.message || e), 3600); }
+};
+
+loadTree();
+</script>

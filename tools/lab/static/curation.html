@@ -1,0 +1,261 @@
+<meta charset="utf-8">
+<title>BlockLab · Gates</title>
+<link rel="stylesheet" href="/static/lab.css">
+<!-- A curation threshold is a number nobody re-examines, because examining it
+     means rebuilding a dataset and looking at a Counter. This page runs the real
+     `curation.houses.quality_filter` and shows the builds each gate would throw
+     away. The thumbnails are the point: a drop count cannot tell you whether
+     0.55 is discarding fragments or discarding houses. -->
+<style>
+  .split{display:grid;gap:18px;grid-template-columns:300px minmax(0,1fr);align-items:start}
+  @media (max-width:900px){.split{grid-template-columns:1fr}}
+  .gate{margin:0 0 12px}
+  .gate .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .gate label{font-size:12.5px}
+  .gate input[type=number]{width:78px;text-align:right;font-family:var(--mono);
+                           font-size:12px;padding:3px 6px}
+  .gate input[type=range]{width:100%;margin:4px 0 0;accent-color:var(--accent)}
+  .gate .help{font-size:11px;color:var(--faint);margin:1px 0 0}
+  .gate.changed label{color:var(--accent);font-weight:600}
+  .stats{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);
+         grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-bottom:12px}
+  .stat{background:var(--panel);padding:10px 12px}
+  .stat b{display:block;font-family:var(--mono);font-size:21px;font-weight:500;
+          font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+             text-transform:uppercase;color:var(--faint)}
+  .bar2{display:block;height:7px;background:var(--bad);opacity:.75;min-width:2px}
+  .shipped{color:var(--faint);font-family:var(--mono);font-size:11px}
+  .drop{border:1px solid var(--rule);background:var(--panel);padding:11px 12px;margin:0 0 10px}
+  .drop h3{margin:0;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:baseline}
+  .drop h3 span.n{font-family:var(--mono);color:var(--bad)}
+  .shots{display:grid;gap:7px;margin-top:9px;
+         grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+  .shots a{display:block;border:1px solid var(--rule);background:#fff}
+  .shots img{width:100%;aspect-ratio:1;object-fit:contain;display:block}
+  pre{font-family:var(--mono);font-size:11.5px;background:var(--sunk);border:1px solid var(--rule);
+      padding:10px 12px;overflow-x:auto;margin:0 0 8px;white-space:pre}
+  .note{border-left:3px solid var(--rule-strong);background:var(--panel);
+        padding:8px 11px;margin:0 0 12px;font-size:12.5px;color:var(--dim)}
+  .busy{opacity:.55}
+</style>
+
+<main class="wrap">
+  <h1>Curation gates</h1>
+  <p class="sub">The nine thresholds in <code>quality_filter</code>, run live over
+    a real corpus. Rules fire in order and stop at the first failure, so a build
+    that is both tiny and fragmented is counted only under the earlier gate.</p>
+
+  <div class="bar">
+    <label class="hint" for="ds">Dataset</label><select id="ds"></select>
+    <label class="hint" for="limit">Scan</label>
+    <select id="limit">
+      <option value="200">200 builds</option>
+      <option value="400" selected>400 builds</option>
+      <option value="1000">1000 builds</option>
+      <option value="0">all</option>
+    </select>
+    <button id="reset">Reset to defaults</button>
+    <span class="spacer"></span>
+    <span class="hint" id="status"></span>
+  </div>
+
+  <div class="split">
+    <div class="panel" id="controls"></div>
+    <div>
+      <div id="note"></div>
+      <div class="stats" id="stats"></div>
+      <h2>What each gate drops</h2>
+      <div id="drops"></div>
+      <h2>Parameters</h2>
+      <div id="snippet"></div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { api, chrome, fmt, emptyState, toast } from "/static/lab.js";
+chrome("/curation");
+
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* The server owns the gate list -- `gates.PARAM_SPEC` is derived from
+ * `quality_filter`'s own signature, so it cannot drift from the pipeline. This
+ * is only the shape to fall back to if a response arrives without it. */
+const FALLBACK_SPEC = [
+  { name: "min_blocks", label: "min blocks", min: 0, max: 600, step: 10 },
+  { name: "min_height", label: "min height", min: 1, max: 20, step: 1 },
+  { name: "min_footprint", label: "min footprint", min: 0, max: 200, step: 4 },
+  { name: "min_density", label: "min density", min: 0, max: 0.4, step: 0.005 },
+  { name: "max_density", label: "max density", min: 0.3, max: 1, step: 0.01 },
+  { name: "min_block_types", label: "min block types", min: 1, max: 12, step: 1 },
+  { name: "max_dominant_frac", label: "max dominant frac", min: 0.3, max: 1, step: 0.01 },
+  { name: "min_largest_component_frac", label: "min largest component", min: 0, max: 1, step: 0.01 },
+  { name: "min_enclosed_air", label: "min enclosed air", min: 0, max: 200, step: 1 },
+];
+
+let spec = FALLBACK_SPEC, defaults = {}, params = {}, built = false, timer = null;
+let inflight = 0;
+
+async function boot() {
+  let datasets = [];
+  try { datasets = await api.get("/api/datasets"); } catch (e) { datasets = []; }
+  // Corpora only: the gates are a *dataset-construction* decision, and pointing
+  // them at a 12-build arm would produce a percentage with no meaning.
+  const corpora = datasets.filter((d) => d.kind === "corpus" && (d.n || 0) > 0);
+  if (!corpora.length) {
+    emptyState(el("controls"), "No corpus on disk",
+      "Build one with <code>python -m blockgen.curation.houses --max-dim 32</code>.");
+    return;
+  }
+  el("ds").innerHTML = corpora.map((d) =>
+    `<option value="${esc(d.id)}">${esc(d.name || d.id)} · ${fmt.int(d.n)}</option>`).join("");
+  const want = corpora.find((d) => /houses_32$/.test(d.id)) || corpora[0];
+  el("ds").value = want.id;
+  el("ds").addEventListener("change", () => { built = false; run(); });
+  el("limit").addEventListener("change", () => run());
+  el("reset").addEventListener("click", () => {
+    params = { ...defaults }; buildControls(); run();
+  });
+  run();
+}
+
+// --- controls ---------------------------------------------------------------
+function buildControls() {
+  el("controls").innerHTML = spec.map((p) => {
+    const v = params[p.name];
+    const changed = defaults[p.name] !== undefined && Number(v) !== Number(defaults[p.name]);
+    return `<div class="gate ${changed ? "changed" : ""}" data-name="${esc(p.name)}">
+      <div class="top"><label for="g_${esc(p.name)}">${esc(p.label || p.name)}</label>
+        <input type="number" id="g_${esc(p.name)}" value="${v}"
+               min="${p.min}" max="${p.max}" step="${p.step}"></div>
+      <input type="range" value="${v}" min="${p.min}" max="${p.max}" step="${p.step}"
+             aria-label="${esc(p.label || p.name)}">
+      <p class="help">${esc(p.help || "")}${
+        defaults[p.name] !== undefined
+          ? ` <b>default ${defaults[p.name]}</b>` : ""}</p></div>`;
+  }).join("");
+
+  for (const box of el("controls").querySelectorAll(".gate")) {
+    const name = box.dataset.name;
+    const [number, range] = [box.querySelector("input[type=number]"),
+                             box.querySelector("input[type=range]")];
+    const set = (value, echo) => {
+      params[name] = Number(value);
+      echo.value = value;
+      box.classList.toggle("changed", Number(value) !== Number(defaults[name]));
+      schedule();
+    };
+    range.addEventListener("input", () => set(range.value, number));
+    number.addEventListener("input", () => set(number.value, range));
+  }
+  built = true;
+}
+
+/* Debounced because a slider drag fires per pixel, and each call re-runs the
+ * filter over up to 2661 builds. 160 ms is under the threshold where a control
+ * stops feeling live and well above one frame's worth of events. */
+function schedule() {
+  clearTimeout(timer);
+  timer = setTimeout(run, 160);
+}
+
+// --- the preview ------------------------------------------------------------
+async function run() {
+  const query = new URLSearchParams({ dataset: el("ds").value, limit: el("limit").value });
+  if (built) for (const [k, v] of Object.entries(params)) query.set(k, String(v));
+  el("status").textContent = "…";
+  document.querySelector(".split").classList.add("busy");
+  const mine = ++inflight;
+  let res;
+  try {
+    res = await api.get(`/api/curation/preview?${query}`);
+  } catch (e) {
+    el("status").textContent = "";
+    document.querySelector(".split").classList.remove("busy");
+    toast(e.message);
+    return;
+  }
+  if (mine !== inflight) return;   // a newer slider position already won
+  document.querySelector(".split").classList.remove("busy");
+  el("status").textContent = `scanned ${fmt.int(res.n_scanned)} of ${fmt.int(res.n_total)}`;
+
+  if (Array.isArray(res.spec) && res.spec.length) spec = res.spec;
+  if (res.defaults) defaults = res.defaults;
+  if (!built) { params = { ...(res.params || defaults) }; buildControls(); }
+  render(res);
+}
+
+function render(res) {
+  el("note").innerHTML = res.note
+    ? `<p class="note">${esc(res.note)}.</p>` : "";
+  const rate = res.n_scanned ? (100 * res.kept / res.n_scanned) : 0;
+  el("stats").innerHTML = [
+    ["kept", fmt.int(res.kept)], ["dropped", fmt.int(res.dropped)],
+    ["keep rate", `${rate.toFixed(1)}%`], ["scanned", fmt.int(res.n_scanned)],
+    ["in corpus", fmt.int(res.n_total)],
+  ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+
+  const reasons = res.reasons || {}, examples = res.examples || {};
+  const help = res.reason_help || {};
+  const shipped = res.shipped_drops || {};
+  const names = Object.keys(reasons);
+  const max = Math.max(1, ...Object.values(reasons));
+  const drops = el("drops");
+  if (!names.length) {
+    drops.innerHTML = `<div class="empty"><p><strong>Nothing dropped at these
+      thresholds.</strong></p><p class="hint">Expected on a curated corpus — it is
+      the output of this very filter. Tighten a gate and watch what leaves
+      first.</p></div>`;
+  } else {
+    drops.innerHTML = names.map((r) => {
+      const shots = (examples[r] || []);
+      return `<div class="drop">
+        <h3>${esc(r)} <span class="n">${fmt.int(reasons[r])}</span>
+          <span class="hint">${(100 * reasons[r] / Math.max(1, res.n_scanned)).toFixed(1)}%
+          of scanned</span></h3>
+        <i class="bar2" style="width:${(100 * reasons[r] / max).toFixed(1)}%"></i>
+        <p class="help hint">${esc(help[r] || "")}${
+          shipped[r] !== undefined
+            ? ` <span class="shipped">· ${fmt.int(shipped[r])} dropped for this when the
+                cache was built</span>` : ""}</p>
+        ${shots.length ? `<div class="shots">${shots.map((b) => `
+          <a href="/curate?dataset=${encodeURIComponent(b.split(":").slice(0, -1).join(":"))}&build=${encodeURIComponent(b)}"
+             title="${esc(b)}"><img loading="lazy" alt="${esc(b)}"
+             src="/api/thumb/${encodeURIComponent(b)}?px=160"></a>`).join("")}</div>`
+          : `<p class="hint">No example thumbnails for this reason.</p>`}
+      </div>`;
+    }).join("");
+  }
+
+  const shippedRows = Object.entries(shipped);
+  const p = res.params || params;
+  const kv = Object.entries(p).map(([k, v]) => `    ${k}=${v},`).join("\n");
+  el("snippet").innerHTML = `
+    <pre>quality_filter(cur,\n${esc(kv)}\n)</pre>
+    <p class="hint"><code>build_house_dataset</code> only forwards
+      <code>min_blocks</code> and <code>min_enclosed_air</code> to the filter today —
+      the other seven gates are its defaults, so changing them here means passing them
+      through <code>quality_filter</code> in <code>blockgen/curation/houses.py</code>
+      as well.</p>
+    <pre>python -m blockgen.curation.houses --max-dim ${
+      (String(res.dataset || "").match(/(\d+)$/) || [, "32"])[1]} \\
+    --min-blocks ${p.min_blocks} --min-enclosed-air ${p.min_enclosed_air}</pre>
+    ${shippedRows.length ? `<p class="hint">The shipped cache dropped
+      ${fmt.int(shippedRows.reduce((a, [, v]) => a + v, 0))} builds from its pre-filter
+      pool: ${shippedRows.map(([k, v]) => `${esc(k)} ${v}`).join(", ")}. Those pooled
+      candidates are not cached, so they cannot be re-scored here — this preview runs
+      over the survivors.</p>` : ""}
+    ${(res.enclosed_air_corpora || []).length ? `<p class="hint">The enclosed-air gate
+      is applied only to <code>${(res.enclosed_air_corpora).map(esc).join("</code>, <code>")}</code>;
+      GrabCraft is category-labeled ground truth and 17% of its real houses have open
+      interiors, so it is exempt.</p>` : ""}`;
+}
+
+boot().catch((e) => {
+  toast(e.message);
+  emptyState(el("drops"), "Gates failed to load", esc(e.message));
+});
+</script>

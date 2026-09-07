@@ -1,0 +1,426 @@
+<meta charset="utf-8">
+<title>Curate — BlockLab</title>
+<link rel="stylesheet" href="/static/lab.css">
+<style>
+  /* Two columns only once there is something to show on the right: a drawer
+     that is always present would cost a quarter of the grid to nothing. */
+  .layout{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+  .layout.open{grid-template-columns:minmax(0,1fr) 340px}
+  @media (max-width:900px){.layout.open{grid-template-columns:1fr}}
+
+  .counts{font-family:var(--mono);font-size:12px;color:var(--dim);
+          display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .counts b{font-weight:500;color:var(--ink)}
+  .counts .good{color:var(--good)} .counts .bad{color:var(--bad)}
+  .counts .unsure{color:var(--unsure)}
+
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--faint);
+          margin:0 0 12px;padding:7px 10px;background:var(--panel);
+          border:1px solid var(--rule)}
+  .legend span{white-space:nowrap}
+
+  .tile figcaption b{font-weight:500;color:var(--dim);overflow:hidden;
+                     text-overflow:ellipsis}
+  .tile .note-dot{position:absolute;top:5px;left:5px;width:7px;height:7px;
+                  background:var(--accent);border-radius:50%}
+  .tile img[data-broken]{background:repeating-linear-gradient(45deg,
+      var(--sunk),var(--sunk) 6px,var(--panel) 6px,var(--panel) 12px)}
+
+  aside.drawer{position:sticky;top:60px;max-height:calc(100vh - 76px);overflow:auto}
+  .views{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 10px}
+  .views img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;
+             border:1px solid var(--rule)}
+  .kv{width:100%;font-size:12px}
+  .kv td{padding:3px 0;border-bottom:1px solid var(--rule)}
+  .kv td:last-child{text-align:right;font-family:var(--mono);
+                    font-variant-numeric:tabular-nums;color:var(--dim)}
+  textarea{font:inherit;font-size:13px;width:100%;min-height:74px;resize:vertical;
+           background:var(--panel);color:var(--ink);border:1px solid var(--rule);padding:7px}
+  .drawer h3{margin:14px 0 5px;font-size:11px;font-family:var(--mono);
+             letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .drawer .close{float:right}
+  .labelbtns{display:flex;gap:4px;margin:8px 0}
+  .labelbtns button{flex:1}
+  #more{padding:14px 0;text-align:center}
+</style>
+
+<main class="wrap">
+  <h1>Curate</h1>
+  <p class="sub">Triage builds fast. Everything is keyboard-driven; labels are
+    proposals stored in <code>outputs/lab/lab.db</code>, never written back into a corpus.</p>
+
+  <div class="bar">
+    <select id="dataset" aria-label="Dataset"></select>
+    <select id="filter" aria-label="Label filter">
+      <option value="all">all</option>
+      <option value="unlabeled">unlabeled</option>
+      <option value="good">good</option>
+      <option value="bad">bad</option>
+      <option value="unsure">unsure</option>
+    </select>
+    <label class="hint">tile
+      <input id="tile" type="range" min="110" max="340" step="10" style="vertical-align:middle">
+    </label>
+    <span class="spacer" style="flex:1"></span>
+    <span class="counts" id="counts"></span>
+  </div>
+
+  <p class="legend">
+    <span><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> / <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> move</span>
+    <span><kbd>g</kbd> good</span><span><kbd>b</kbd> bad</span><span><kbd>u</kbd> unsure</span>
+    <span><kbd>x</kbd> clear</span><span><kbd>n</kbd> note</span>
+    <span><kbd>Enter</kbd> detail</span><span><kbd>Esc</kbd> close</span>
+    <span><kbd>⌘/Ctrl</kbd>+<kbd>Enter</kbd> save note</span>
+  </p>
+
+  <div class="layout" id="layout">
+    <section>
+      <div class="grid" id="grid"></div>
+      <div id="emptyBox"></div>
+      <div id="more"></div>
+    </section>
+    <aside class="drawer panel" id="drawer" hidden></aside>
+  </div>
+</main>
+
+<script type="module">
+import { api, chrome, toast, fmt, emptyState } from "/static/lab.js";
+chrome("/curate");
+
+const PAGE = 60;
+const $ = (id) => document.getElementById(id);
+const grid = $("grid"), drawer = $("drawer"), layout = $("layout");
+const more = $("more"), emptyBox = $("emptyBox");
+
+function showEmpty(title, hint) { grid.innerHTML = ""; emptyState(emptyBox, title, hint); }
+
+const state = {
+  dataset: null, filter: "all", tile: 168,
+  items: [], total: 0, offset: 0,
+  sel: -1, loading: false, detail: null,
+  counts: { good: 0, bad: 0, unsure: 0, unlabeled: 0 },
+};
+
+/* localStorage throws outright in some private-mode browsers, so every touch is
+ * guarded; losing a preference is not worth losing the page. */
+const prefs = {
+  get(k, d) { try { const v = localStorage.getItem("lab-curate-" + k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("lab-curate-" + k, v); } catch { /* ignore */ } },
+};
+
+// --- rendering -------------------------------------------------------------
+function tileEl(item) {
+  const el = document.createElement("figure");
+  el.className = "tile";
+  el.tabIndex = -1;
+  el.dataset.id = item.build_id;
+  if (item.label) el.dataset.label = item.label;
+  const px = Math.min(512, Math.max(128, Math.round(state.tile * 1.5)));
+  el.innerHTML = `
+    <img loading="lazy" decoding="async" alt="build ${item.index}"
+         src="/api/thumb/${encodeURIComponent(item.build_id)}?px=${px}">
+    ${item.has_note ? '<span class="note-dot" title="has a note"></span>' : ""}
+    <figcaption><b>${esc(item.title || "#" + item.index)}</b>
+      <span>${fmt.dims(item.dims)}</span></figcaption>`;
+  el.querySelector("img").addEventListener("error", (e) => {
+    e.target.dataset.broken = "1";      // renderer missing or EGL unavailable
+    e.target.removeAttribute("src");
+  });
+  el.addEventListener("click", () => select(state.items.indexOf(item), true));
+  return el;
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderCounts() {
+  const c = state.counts;
+  $("counts").innerHTML =
+    `<b class="good">${fmt.int(c.good)}</b> good ·
+     <b class="bad">${fmt.int(c.bad)}</b> bad ·
+     <b class="unsure">${fmt.int(c.unsure)}</b> unsure ·
+     <b>${fmt.int(c.unlabeled)}</b> unlabeled`;
+}
+
+function renderMore() {
+  const shown = state.items.length;
+  if (shown >= state.total) {
+    more.innerHTML = shown ? `<span class="hint">${fmt.int(shown)} of ${fmt.int(state.total)} — end of list</span>` : "";
+    return;
+  }
+  more.innerHTML = `<button id="loadMore">Load ${Math.min(PAGE, state.total - shown)} more
+    <span class="hint">(${fmt.int(shown)} / ${fmt.int(state.total)})</span></button>`;
+  $("loadMore").addEventListener("click", loadPage);
+}
+
+// --- data ------------------------------------------------------------------
+async function loadDatasets() {
+  let datasets = [];
+  try { datasets = await api.get("/api/datasets"); }
+  catch (e) { showEmpty("Could not list datasets", esc(e.message)); return; }
+  if (!datasets.length) {
+    $("dataset").innerHTML = "<option>—</option>";
+    showEmpty("No datasets found",
+      "Run <code>python -m blockgen.eval.bench</code>, or point this at an " +
+      "<code>.npz</code> structure cache under <code>outputs/bench_arms/</code>.");
+    return;
+  }
+  $("dataset").innerHTML = datasets.map(d =>
+    `<option value="${esc(d.id)}">${esc(d.name || d.id)} · ${fmt.int(d.n)}</option>`).join("");
+  const url = new URLSearchParams(location.search).get("dataset");
+  const want = url || prefs.get("dataset", null);
+  state.dataset = datasets.some(d => d.id === want) ? want : datasets[0].id;
+  $("dataset").value = state.dataset;
+  await reset();
+}
+
+async function reset() {
+  state.items = []; state.offset = 0; state.sel = -1;
+  grid.innerHTML = ""; more.innerHTML = ""; emptyBox.innerHTML = "";
+  closeDrawer();
+  await Promise.all([loadPage(), loadCounts()]);
+  if (!state.items.length) {
+    showEmpty("Nothing matches this filter",
+      `No <code>${esc(state.filter)}</code> builds in this dataset yet. ` +
+      `Switch the filter back to <code>all</code> to keep triaging.`);
+  } else {
+    select(0, false);
+  }
+}
+
+async function loadCounts() {
+  try {
+    const r = await api.get(`/api/labels?dataset=${encodeURIComponent(state.dataset)}`);
+    state.counts = Object.assign({ good: 0, bad: 0, unsure: 0, unlabeled: 0 }, r.counts);
+  } catch { /* no store yet: leave the zeros */ }
+  renderCounts();
+}
+
+async function loadPage() {
+  if (state.loading) return;
+  state.loading = true;
+  try {
+    const q = new URLSearchParams({
+      dataset: state.dataset, offset: state.offset, limit: PAGE, label: state.filter,
+    });
+    const r = await api.get("/api/builds?" + q);
+    state.total = r.total;
+    state.offset += r.items.length;
+    const frag = document.createDocumentFragment();
+    for (const item of r.items) {
+      state.items.push(item);
+      frag.append(tileEl(item));
+    }
+    grid.append(frag);
+    renderMore();
+  } catch (e) {
+    toast("load failed: " + e.message, 3000);
+  } finally {
+    state.loading = false;
+  }
+}
+
+// --- selection -------------------------------------------------------------
+let detailTimer = null;
+function tiles() { return grid.querySelectorAll(".tile"); }
+
+function select(i, openDetail) {
+  const all = tiles();
+  if (!all.length) return;
+  i = Math.max(0, Math.min(all.length - 1, i));
+  all.forEach(t => t.removeAttribute("aria-selected"));
+  const el = all[i];
+  el.setAttribute("aria-selected", "true");
+  el.scrollIntoView({ block: "nearest" });
+  state.sel = i;
+  // Arrowing with the drawer open would fire one geometry pass per keypress;
+  // wait for the cursor to settle before asking the server for anything.
+  if (openDetail) showDetail(state.items[i]);
+  else if (!drawer.hidden) {
+    clearTimeout(detailTimer);
+    detailTimer = setTimeout(() => showDetail(state.items[state.sel]), 140);
+  }
+}
+
+function columns() {
+  const t = getComputedStyle(grid).gridTemplateColumns;
+  return Math.max(1, t.split(" ").filter(Boolean).length);
+}
+
+async function move(dx, dy) {
+  if (state.sel < 0) return select(0, false);
+  const next = state.sel + dx + dy * columns();
+  // Walking off the end is the natural cue to pull the next page; await it so
+  // the cursor lands on the new row instead of sticking to the old last tile.
+  if (next >= state.items.length && state.items.length < state.total) await loadPage();
+  select(next, false);
+}
+
+// --- decisions -------------------------------------------------------------
+async function setLabel(item, label) {
+  if (!item) return;
+  const el = grid.querySelector(`[data-id="${CSS.escape(item.build_id)}"]`);
+  const before = item.label ?? null;
+  if (before === label) label = null;               // pressing g twice unlabels
+  applyLabel(item, el, label, before);
+  try {
+    await api.post("/api/label", { build_id: item.build_id, label });
+  } catch (e) {
+    applyLabel(item, el, before, label);           // roll back to what was true
+    toast("label failed: " + e.message, 3000);
+  }
+}
+
+/* Optimistic: the tile and the counter move before the POST lands, because at
+ * triage speed a 40 ms round trip per build is felt as lag. */
+function applyLabel(item, el, label, previous) {
+  item.label = label;
+  if (el) {
+    if (label) el.dataset.label = label; else delete el.dataset.label;
+  }
+  const bump = (k, d) => { if (k) state.counts[k] = Math.max(0, (state.counts[k] || 0) + d); };
+  bump(previous || "unlabeled", -1);
+  bump(label || "unlabeled", +1);
+  renderCounts();
+  if (state.detail === item.build_id) paintDrawerLabel(label);
+}
+
+async function saveNote(item, text) {
+  if (!item || (item.note ?? "") === text) return;
+  try {
+    await api.post("/api/note", { build_id: item.build_id, text });
+    item.note = text;
+    item.has_note = !!text.trim();
+    const el = grid.querySelector(`[data-id="${CSS.escape(item.build_id)}"]`);
+    const dot = el && el.querySelector(".note-dot");
+    if (el && item.has_note && !dot) el.insertAdjacentHTML("afterbegin", '<span class="note-dot"></span>');
+    if (dot && !item.has_note) dot.remove();
+    toast("note saved");
+  } catch (e) {
+    toast("note failed: " + e.message, 3000);
+  }
+}
+
+// --- detail drawer ---------------------------------------------------------
+function closeDrawer() {
+  drawer.hidden = true; layout.classList.remove("open"); state.detail = null;
+}
+
+function paintDrawerLabel(label) {
+  drawer.querySelectorAll(".labelbtns button").forEach(b =>
+    b.setAttribute("aria-pressed", String(!!b.dataset.label && b.dataset.label === label)));
+}
+
+const rows = (obj, digits = 3) => Object.entries(obj || {})
+  .filter(([, v]) => typeof v !== "object")
+  .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${
+    typeof v === "number" ? fmt.n(v, Number.isInteger(v) ? 0 : digits) : esc(v ?? "—")
+  }</td></tr>`).join("");
+
+async function showDetail(item) {
+  if (!item) return;
+  state.detail = item.build_id;
+  drawer.hidden = false; layout.classList.add("open");
+  drawer.innerHTML = `<button class="close" id="closeDrawer" title="Escape">✕</button>
+    <p class="eyebrow">${esc(item.dataset)} · #${item.index}</p>
+    <strong>${esc(item.title || item.build_id)}</strong>
+    <p class="hint">loading…</p>`;
+  $("closeDrawer").addEventListener("click", closeDrawer);
+
+  let d;
+  try { d = await api.get(`/api/build/${encodeURIComponent(item.build_id)}`); }
+  catch (e) { drawer.insertAdjacentHTML("beforeend", `<p class="hint">${esc(e.message)}</p>`); return; }
+  if (state.detail !== item.build_id) return;      // selection moved on while we waited
+  item.label = d.label ?? null; item.note = d.note || "";
+
+  drawer.innerHTML = `
+    <button class="close" id="closeDrawer" title="Escape">✕</button>
+    <p class="eyebrow">${esc(d.dataset)} · #${d.index}</p>
+    <strong>${esc(d.title || d.build_id)}</strong>
+    ${d.category ? `<span class="pill">${esc(d.category)}</span>` : ""}
+    <p class="hint">${fmt.dims(d.dims)} · ${fmt.int(d.n_blocks)} blocks</p>
+    <div class="views">${(d.views || []).map((u, i) =>
+      `<img loading="lazy" alt="view ${i}" src="${u}?px=320">`).join("")}</div>
+    <div class="labelbtns">
+      ${["good", "bad", "unsure", ""].map(l =>
+        `<button data-label="${l}">${l || "clear"}</button>`).join("")}
+    </div>
+    <h3>Note</h3>
+    <textarea id="note" placeholder="what is wrong with it?">${esc(d.note || "")}</textarea>
+    <h3>Features</h3><table class="kv">${rows(d.features)}</table>
+    ${(d.features && d.features.palette_top || []).length ? `<h3>Palette</h3>
+      <table class="kv">${d.features.palette_top.map(p =>
+        `<tr><td>${esc(p.block)}</td><td>${(p.frac * 100).toFixed(1)}%</td></tr>`).join("")}</table>` : ""}
+    <h3>Geometry</h3><table class="kv">${rows(d.geometry)}</table>
+    ${Object.keys(d.meta || {}).length ? `<h3>Meta</h3><table class="kv">${rows(d.meta)}</table>` : ""}`;
+
+  $("closeDrawer").addEventListener("click", closeDrawer);
+  drawer.querySelectorAll(".labelbtns button").forEach(b =>
+    b.addEventListener("click", () => setLabel(item, b.dataset.label || null)));
+  paintDrawerLabel(d.label);
+
+  const note = $("note");
+  note.addEventListener("blur", () => saveNote(item, note.value));
+  note.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(item, note.value); note.blur(); }
+    if (e.key === "Escape") { note.blur(); }
+  });
+}
+
+// --- keyboard --------------------------------------------------------------
+const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+
+document.addEventListener("keydown", (e) => {
+  if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  const item = state.items[state.sel];
+  const k = e.key;
+  const nav = { ArrowLeft: [-1, 0], h: [-1, 0], ArrowRight: [1, 0], l: [1, 0],
+                ArrowUp: [0, -1], k: [0, -1], ArrowDown: [0, 1], j: [0, 1] }[k];
+  if (nav) { e.preventDefault(); return move(nav[0], nav[1]); }
+  if (k === "g" || k === "b" || k === "u") {
+    e.preventDefault();
+    return setLabel(item, { g: "good", b: "bad", u: "unsure" }[k]);
+  }
+  if (k === "x") { e.preventDefault(); return setLabel(item, null); }
+  if (k === "Enter") { e.preventDefault(); return showDetail(item); }
+  if (k === "n") {
+    e.preventDefault();
+    if (!item) return;
+    const focus = () => { const n = $("note"); if (n) { n.focus(); n.selectionStart = n.value.length; } };
+    if (state.detail === item.build_id && $("note")) focus();
+    else showDetail(item).then(focus);
+    return;
+  }
+  if (k === "Escape") { closeDrawer(); }
+});
+
+// --- wiring ----------------------------------------------------------------
+$("dataset").addEventListener("change", (e) => {
+  state.dataset = e.target.value; prefs.set("dataset", state.dataset); reset();
+});
+$("filter").addEventListener("change", (e) => {
+  state.filter = e.target.value; prefs.set("filter", state.filter); reset();
+});
+// Only new tiles pick up the new px: re-requesting every visible thumbnail on
+// each slider tick would stall the renderer for a change the browser can do in
+// CSS, and the cache is keyed on px so the old ones stay valid.
+$("tile").addEventListener("input", (e) => {
+  state.tile = Number(e.target.value);
+  grid.style.setProperty("--tile", state.tile + "px");
+  prefs.set("tile", state.tile);
+});
+
+// Infinite scroll on top of the explicit button: the button is the discoverable
+// affordance, the observer is what you actually get while flinging the wheel.
+new IntersectionObserver((entries) => {
+  if (entries.some(en => en.isIntersecting) && state.items.length < state.total) loadPage();
+}, { rootMargin: "600px" }).observe(more);
+
+state.filter = prefs.get("filter", "all");
+state.tile = Number(prefs.get("tile", 168)) || 168;
+$("filter").value = state.filter;
+$("tile").value = state.tile;
+grid.style.setProperty("--tile", state.tile + "px");
+renderCounts();   // zeros beat a blank slot while the first fetch is in flight
+loadDatasets();
+</script>
