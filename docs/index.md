@@ -42,6 +42,20 @@ representation + evaluation pipeline is meant to carry over to **LEGO** models a
 - A **validated cross-track benchmark** — every metric must pass a corruption
   ladder before it is allowed to rank anything, and realism is always reported
   beside novelty so a memorizing model cannot win ([Evaluation suite](benchmark.md)).
+- **BlockLab**, an always-on local app for the half of the work a printed table
+  cannot do: browsing corpora, keyboard triage, 2AFC comparison, tuning curation
+  gates, and reading a run or the cross-run board with the actual builds beside
+  the numbers ([BlockLab](lab.md)).
+
+## Start here
+
+New to the repo? [Getting started](getting-started.md) sets up the environment and
+the data caches, then **[Workflow](workflow.md)** walks the path everything else
+assumes — train a model, sample it to an evaluation arm, score it against controls
+and baselines, and look at the result in BlockLab. It also says which parts are
+optional, because most of them are: an arm is just a cache of structures, and
+procedural generators, LLM-written programs and hand-built sets all enter the
+pipeline on equal terms.
 
 ## Headline results so far
 

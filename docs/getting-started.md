@@ -72,6 +72,21 @@ That trains a deliberately useless model to prove the wiring. See
 [Bring your own model](custom-model.md) for what each step does and what to
 change, and [Evaluation suite](benchmark.md) for how to read the scorecard.
 
+## Look at what you made
+
+```bash
+python -m tools.lab --open      # http://127.0.0.1:8765
+```
+
+BlockLab reads whatever is already under `outputs/` — no import step. `/runs`
+shows one benchmark run with the actual builds beside its numbers, `/leaderboard`
+ranks models across runs, and `/curate` is where corpus triage happens. See
+[BlockLab](lab.md).
+
+**The whole loop, end to end, is [Workflow](workflow.md)** — train, sample,
+evaluate, view — including which stages you can skip and what the alternatives
+are at each one.
+
 ## Build these docs
 
 ```bash

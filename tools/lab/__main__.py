@@ -35,7 +35,22 @@ def main(argv: list[str] | None = None) -> int:
           flush=True)
     if args.open:
         # After a beat, so the first request does not race the accept loop.
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        #
+        # Wrapped because the launcher is not ours and is routinely broken: in a
+        # VS Code terminal `BROWSER` points at a helper that opens URLs over a
+        # Unix socket, tmux panes inherit that variable, and the socket dies with
+        # the window that made it. The helper then fails with ENOENT on a timer
+        # thread, which without this reads like the server crashed -- it did not,
+        # and the URL above is the whole point of the line.
+        def _open() -> None:
+            try:
+                if not webbrowser.open(url):
+                    raise RuntimeError("no browser handler")
+            except Exception as exc:
+                print(f"[lab] could not open a browser ({type(exc).__name__}: "
+                      f"{exc}); open {url} yourself", file=sys.stderr, flush=True)
+
+        threading.Timer(0.4, _open).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

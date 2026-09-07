@@ -133,6 +133,28 @@ Note only `min_blocks` and `min_enclosed_air` are plumbed through
 `build_house_dataset`; the other seven are hard-coded there, and the page says
 so rather than emitting a call that would silently ignore them.
 
+### Compare — 2AFC you can re-run
+
+Two builds side by side, pick the better one, keyboard-driven (`←`/`→`, `=` for
+a tie, `u` to undo). The point is not a score; it is that the *same* instrument
+that runs a human study also runs on you, at any moment, over any two datasets —
+so "is this arm actually better" is a question you can answer in five minutes
+instead of scheduling.
+
+Arm labels are stripped from the page. That is enforced, not intended: the study
+export asserts it by grep, because a condition visible in the DOM is a condition
+the rater can read, and a 2AFC with a visible label measures nothing.
+
+Judgements land in `outputs/lab/lab.db` and are exported by
+`/api/export?what=compares` into the **same Bradley-Terry fit** the formal study
+uses (`scripts/human_study_analyze.py`). A session you run yourself is therefore
+directly comparable to a rater's — same estimator, same exclusion rules — which
+is what makes a quick sanity check worth anything.
+
+Bradley-Terry rather than raw win rate, for the reason it always is: win rate
+depends on which opponents an arm happened to be drawn against, and coverage is
+never even when each session sees a random subset.
+
 ### Leaderboard — which model is best
 
 The cross-run board. One row per **model**, ranked by BlockScore, over every run
@@ -438,6 +460,84 @@ python -m tools.lab.rawcorpora --hash --report   # one pass, ~20 min for 59k
 That caches a content hash per build (blocks and data, cropped — metadata
 ignored, so two records of one build with different scraped titles are one
 build) and prints per-corpus distinct counts plus pairwise sharing.
+
+## Running it — the CLI
+
+```bash
+python -m tools.lab                     # http://127.0.0.1:8765
+python -m tools.lab --port 8790         # somewhere else
+python -m tools.lab --open              # ...and launch a browser
+python -m tools.lab --host 0.0.0.0      # see the warning below
+```
+
+`--host` defaults to loopback and should usually stay there: **there is no
+authentication on this thing**, and it will happily serve, label and delete
+subsets for anyone who can reach the port.
+
+If `--open` prints `could not open a browser`, the server is still up — open the
+printed URL yourself. In a VS Code terminal `BROWSER` points at a helper that
+opens URLs over a Unix socket, tmux panes inherit that variable, and the socket
+dies with the window that created it; `BROWSER= python -m tools.lab --open` uses
+the normal handler instead.
+
+Two companion commands do batch work the server deliberately does not:
+
+```bash
+# Warm the thumbnail cache so a page is instant on first open rather than
+# rendering 60 tiles on one thread while you wait.
+python -m tools.lab.prerender --datasets arm:<id> --px 96 --workers 8
+
+# Index the raw corpora (expensive, one pass, cached under outputs/lab/index/).
+python -m tools.lab.rawcorpora --hash --report
+```
+
+## The HTTP surface
+
+Small and flat, and the module docstring of `tools/lab/__init__.py` is the
+contract of record. Everything returns JSON except the image routes.
+
+| method | route | returns |
+|---|---|---|
+| GET | `/api/datasets` | every browsable dataset: arms, corpora, splits, raw, subsets |
+| GET | `/api/tree` | the same, arranged as the hub's provenance tree |
+| GET | `/api/builds?dataset=&limit=` | a page of builds with their stats |
+| GET | `/api/build/<build_id>` | one build: features, geometry, metadata |
+| GET | `/api/thumb/<build_id>?px=` | one rendered thumbnail (JPEG) |
+| GET | `/api/view/<build_id>/<k>` | orbit view *k* — the four angles the metrics embed |
+| GET | `/api/scorecards` | every benchmark run, newest first |
+| GET | `/api/scorecard/<run>` | one card, plus `arms_index` and `compat` |
+| GET | `/api/standings?protocol=` | the cross-run board for one protocol |
+| GET | `/api/protocols` | the pinned protocols, and which is default |
+| GET | `/api/labels` | labels recorded so far |
+| GET | `/api/subsets` | saved branches |
+| GET | `/api/curation/preview` | what a set of gate thresholds would drop |
+| GET | `/api/ontology`, `/ontology/catalogs`, `/ontology/prompt` | the block catalog |
+| GET | `/api/ontology/part/<id>`, `/ontology/swatch/<id>` | one entry, one colour chip |
+| GET | `/api/export?what=labels\|notes\|compares` | the seam out to the batch pipeline |
+| POST | `/api/label`, `/api/note`, `/api/compare` | record a decision |
+| POST | `/api/subset`, `/api/subset/preview`, `/api/subset/delete` | manage branches |
+
+A build is addressed by `build_id` = `"<dataset_id>:<row>"`, and dataset ids
+legitimately contain colons (`split:houses_32:test`), so the id is split from the
+**right**. These ids are the primary key of `outputs/lab/lab.db`: a change in how
+they are derived orphans every label, note and comparison ever recorded, which is
+why `tests/lab/test_arm_ids.py` pins them literally.
+
+## What it writes
+
+The lab never writes an artifact it did not create. Everything it owns is under
+`outputs/lab/`:
+
+| path | what |
+|---|---|
+| `outputs/lab/lab.db` | SQLite: labels, notes, 2AFC comparisons |
+| `outputs/lab/index/` | cached raw-corpus indexes (`rawcorpora`) |
+| `outputs/lab/thumbs/` | the content-addressed render cache |
+| `outputs/lab/subsets/` | saved branches, one JSON per subset |
+
+Indexes and thumbnails rebuild themselves, so deleting those is free. `lab.db`
+and `subsets/` hold decisions you cannot regenerate — back those up if you have
+been labelling.
 
 ## Design rules
 
