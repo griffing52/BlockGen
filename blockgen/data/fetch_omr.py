@@ -25,7 +25,7 @@ from pathlib import Path
 BASE = "https://library.ldraw.org"
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = REPO / "data" / "lego" / "omr"
-UA = {"User-Agent": "BlockGen-research/0.1 (academic use; contact: ggalimi@math.ucla.edu)"}
+UA = {"User-Agent": "BlockGen-research/0.1 (academic use)"}
 
 _SET_HREF = re.compile(r"href=\"https://library\.ldraw\.org/omr/sets/(\d+)\"")
 _MPD_HREF = re.compile(r"href=\"(https://library\.ldraw\.org/library/omr/[^\"]+\.mpd)\"")
