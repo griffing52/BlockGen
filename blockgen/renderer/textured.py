@@ -73,9 +73,60 @@ def _cleanup_renderers() -> None:
     _RENDERER_CACHE.clear()
 
 
-def _exposed_masks(occupied: np.ndarray) -> Dict[str, np.ndarray]:
-    """Per-direction masks of voxels whose face in that direction is exposed."""
-    padded = np.pad(occupied, 1, mode="constant", constant_values=False)
+#: Sentinel cull classes. Every other value of the cull-class grid is an index
+#: into the build's transparent (block id, data) keys, offset by _CULL_FIRST.
+_CULL_AIR = 0
+_CULL_OPAQUE = 1
+_CULL_FIRST = 2
+
+
+def _is_transparent(faces: Dict[str, np.ndarray]) -> bool:
+    """Does any face texture of this block carry alpha? (Minecraft: not an opaque cube.)"""
+    return any(bool((tex[..., 3] < 255).any()) for tex in faces.values())
+
+
+def _cull_classes(
+    structure: Structure, face_textures: "FaceTextureLibrary"
+) -> np.ndarray:
+    """Per-voxel cull class: air, opaque, or a distinct class per transparent block.
+
+    Transparency is resolved once per distinct (block id, data) present in the
+    build, not once per voxel, so a 32^3 build costs a handful of texture
+    lookups rather than tens of thousands.
+    """
+    occupied = structure.occupied_mask
+    ids, data = structure.block_ids, structure.block_data
+    classes = np.where(occupied, _CULL_OPAQUE, _CULL_AIR).astype(np.int32)
+    if not occupied.any():
+        return classes
+    pairs = np.unique(np.stack([ids[occupied], data[occupied]], axis=1), axis=0)
+    next_class = _CULL_FIRST
+    for block_id, block_data in pairs.tolist():
+        if not _is_transparent(face_textures[(int(block_id), int(block_data))]):
+            continue
+        same = occupied & (ids == block_id) & (data == block_data)
+        classes[same] = next_class
+        next_class += 1
+    return classes
+
+
+def _exposed_masks(occupied: np.ndarray, classes: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
+    """Per-direction masks of voxels whose face in that direction is drawn.
+
+    A face is culled only when the neighbour actually hides it. With `classes`
+    from `_cull_classes` that is Minecraft's own rule: the neighbour is an
+    opaque cube, or it is the very same transparent block (vanilla does not
+    draw the seam between two glass blocks of one kind). A solid block behind
+    glass therefore keeps the face you see through the window, and the glass
+    keeps only its outward face, exactly as the game draws it.
+
+    Without `classes` the test degrades to plain occupancy, which culls every
+    face with any neighbour at all and makes a filled void behind a window
+    invisible.
+    """
+    if classes is None:
+        classes = np.where(occupied, _CULL_OPAQUE, _CULL_AIR).astype(np.int32)
+    padded = np.pad(classes, 1, mode="constant", constant_values=_CULL_AIR)
     masks: Dict[str, np.ndarray] = {}
     for name, (dx, dy, dz), _, _ in _DIRECTIONS:
         neighbor = padded[
@@ -83,7 +134,10 @@ def _exposed_masks(occupied: np.ndarray) -> Dict[str, np.ndarray]:
             1 + dy : padded.shape[1] - 1 + dy,
             1 + dz : padded.shape[2] - 1 + dz,
         ]
-        masks[name] = occupied & ~neighbor
+        hidden = (neighbor == _CULL_OPAQUE) | (
+            (neighbor >= _CULL_FIRST) & (neighbor == classes)
+        )
+        masks[name] = occupied & ~hidden
     return masks
 
 
@@ -99,7 +153,7 @@ def build_mesh(structure: Structure, face_textures: FaceTextureLibrary) -> "pyre
     Returns one pyrender.Mesh with at most two primitives (opaque + blended).
     """
     occupied = structure.occupied_mask
-    masks = _exposed_masks(occupied)
+    masks = _exposed_masks(occupied, _cull_classes(structure, face_textures))
     ids = structure.block_ids
     data = structure.block_data
 

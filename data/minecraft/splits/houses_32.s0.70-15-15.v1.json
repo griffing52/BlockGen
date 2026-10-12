@@ -7,9 +7,9 @@
     0.15,
     0.15
   ],
-  "source_sha": "dc0cca4bb8671d39",
+  "source_sha": "c1a9940cdfdacf71",
   "n_groups": 2054,
-  "cache_dir": "/home/griffing52/programming/gen/BlockGen/data/minecraft/cache",
+  "cache_dir": "data/minecraft/cache",
   "sizes": {
     "train": 1863,
     "val": 399,
@@ -18,6 +18,7 @@
   "notes": {
     "grouping": "clean_title minus trailing digits, + category"
   },
+  "source_sha_legacy": "dc0cca4bb8671d39",
   "train": [
     0,
     1,

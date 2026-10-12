@@ -364,6 +364,20 @@ def house_cache_path(max_dim: int, cache_dir: str = DEFAULT_CACHE_DIR,
     return os.path.join(cache_dir, f"{name}_{max_dim}.npz")
 
 
+def content_sha(block_ids: np.ndarray, block_data: np.ndarray) -> str:
+    """Hash of a build's voxels, so a rebuilt corpus can be checked build by build.
+
+    Over the int16 id and data grids and their shape. Independent of where the
+    build came from, so it complements the manifest's `source_path`.
+    """
+    import hashlib
+    h = hashlib.sha1()
+    h.update(np.asarray(block_ids.shape, dtype=np.int64).tobytes())
+    h.update(np.ascontiguousarray(block_ids, dtype=np.int16).tobytes())
+    h.update(np.ascontiguousarray(block_data, dtype=np.int16).tobytes())
+    return h.hexdigest()[:16]
+
+
 def save_house_cache(structures: Sequence[Structure], max_dim: int,
                      cache_dir: str = DEFAULT_CACHE_DIR,
                      report: Optional[dict] = None, name: str = "houses") -> str:
@@ -385,7 +399,8 @@ def save_house_cache(structures: Sequence[Structure], max_dim: int,
         "items": [
             {"source_path": s.source_path or "", **{k: s.metadata.get(k, "")
              for k in ("corpus", "category", "title", "url")},
-             "dims": list(s.shape), "n_blocks": int(s.occupied_mask.sum())}
+             "dims": list(s.shape), "n_blocks": int(s.occupied_mask.sum()),
+             "content_sha": content_sha(s.block_ids, s.block_data)}
             for s in structures
         ],
     }

@@ -85,7 +85,19 @@ def sample_piece_ar(spec: dict, n: int, temperature: float, top_k: int,
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", required=True, help="key in deploy/inference/models.json")
+    ap.add_argument("--model", default=None, help="key in deploy/inference/models.json")
+    ap.add_argument("--checkpoint", default=None,
+                    help="sample an UNREGISTERED checkpoint: pass the .pt and its "
+                         "--piece-vocab directly. Experimental runs should not have to "
+                         "be written into models.json (which serves the live demo) just "
+                         "to be benchmarked.")
+    ap.add_argument("--piece-vocab", default=None, help="required with --checkpoint")
+    ap.add_argument("--d-model", type=int, default=256)
+    ap.add_argument("--nhead", type=int, default=8)
+    ap.add_argument("--layers", type=int, default=6)
+    ap.add_argument("--dim-feedforward", type=int, default=1024)
+    ap.add_argument("--pe", default="phase4")
+    ap.add_argument("--max-seq-len", type=int, default=5480)
     ap.add_argument("--n", type=int, default=64)
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top-k", type=int, default=40)
@@ -94,13 +106,31 @@ def main() -> int:
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--name", default=None)
     ap.add_argument("--max-dim", type=int, default=32)
+    ap.add_argument("--train-split", default=None,
+                    help="the split the CHECKPOINT trained on, recorded in the arm's "
+                         "report. 'canonical' means the pinned corpus split and is what "
+                         "the leaderboard requires; anything else is recorded verbatim so "
+                         "the board can say why the arm is unranked instead of only that "
+                         "it is. Falls back to models.json's `train_split` for the model.")
     args = ap.parse_args()
 
-    spec = load_spec(args.model)
+    if args.checkpoint:
+        if not args.piece_vocab:
+            raise SystemExit("--checkpoint requires --piece-vocab")
+        spec = {"kind": "piece_ar", "checkpoint": args.checkpoint,
+                "piece_vocab": args.piece_vocab, "d_model": args.d_model,
+                "nhead": args.nhead, "layers": args.layers,
+                "dim_feedforward": args.dim_feedforward, "pe": args.pe,
+                "max_seq_len": args.max_seq_len, "train_split": args.train_split or ""}
+    elif args.model:
+        spec = load_spec(args.model)
+    else:
+        raise SystemExit("pass --model (registered) or --checkpoint + --piece-vocab")
     if spec["kind"] != "piece_ar":
         raise SystemExit(f"only piece_ar is supported here, got {spec['kind']!r}")
+    name = args.name or args.model or Path(args.checkpoint).parent.name
 
-    print(f"[sample] {args.model}: {spec['checkpoint']}")
+    print(f"[sample] {args.model or name}: {spec['checkpoint']}")
     t0 = time.time()
     structs = sample_piece_ar(spec, args.n, args.temperature, args.top_k,
                               args.device, args.seed)
@@ -111,12 +141,12 @@ def main() -> int:
           f"{n_empty} empty; median blocks {int(np.median(occ))}")
 
     from blockgen.curation.houses import save_house_cache
-    name = args.name or args.model
     path = save_house_cache(
         structs, args.max_dim, cache_dir=args.out_dir, name=name,
-        report={"model": args.model, "checkpoint": spec["checkpoint"],
+        report={"model": args.model or name, "checkpoint": spec["checkpoint"],
                 "n": len(structs), "n_empty": n_empty, "seed": args.seed,
-                "temperature": args.temperature, "top_k": args.top_k})
+                "temperature": args.temperature, "top_k": args.top_k,
+                "train_split": args.train_split or spec.get("train_split", "")})
     print(f"bench with:\n  python -m blockgen.eval.bench --arms ar/{name}:{path}")
     return 0
 

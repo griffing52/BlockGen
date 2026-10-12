@@ -1,9 +1,14 @@
-from nbtschematic import SchematicFile
+def _schematic_file():
+    # Imported lazily: nbtschematic pins numpy 1.x, and only the raw ``.schematic``
+    # loaders need it. Everything that reads a cache must not depend on it.
+    from nbtschematic import SchematicFile
+    return SchematicFile
+
 
 def load_schematic(path):
     # nbt_data = nbtlib.load(path)
     # print(nbt_data) # Prints a human-readable representation of the NBT data
-    schematic_file = SchematicFile.load(path)
+    schematic_file = _schematic_file().load(path)
 
     return schematic_file
 
@@ -22,7 +27,7 @@ def safe_load_schematic(path):
     than later in ``Structure.from_schematic``.
     """
     try:
-        schematic = SchematicFile.load(path)
+        schematic = _schematic_file().load(path)
         # Force the lazy NBT lookups that actually validate the format.
         _ = schematic.blocks
         _ = schematic.data

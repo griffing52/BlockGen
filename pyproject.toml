@@ -45,4 +45,5 @@ packages = ["blockgen"]
 [tool.pytest.ini_options]
 markers = [
     "slow: touches the real corpus, a GPU, or the renderer (deselect with -m 'not slow')",
+    "spend: calls a paying API (live smoke); skipped unless BLOCKGEN_ALLOW_SPEND=1",
 ]

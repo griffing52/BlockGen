@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
@@ -112,7 +113,18 @@ def _resource_location_for(block_id: int, block_data: int) -> str:
 
 
 def _hashed_color(resource_location: str) -> RGBA:
-    color_seed = abs(hash(resource_location))
+    """A deterministic fallback colour for a block with no assigned palette entry.
+
+    Uses a digest rather than builtin `hash()`, which CPython salts per process
+    unless PYTHONHASHSEED is set: with `hash()` here, every flat-colour render
+    came out in a different palette on each run, so a figure rebuilt for the
+    camera-ready copy silently recoloured every building in the paper. The
+    colours are arbitrary by design, but they have to be the *same* arbitrary
+    colours every time.
+    """
+    digest = hashlib.blake2b(resource_location.encode("utf-8"),
+                             digest_size=8).digest()
+    color_seed = int.from_bytes(digest, "big")
     red = ((color_seed >> 0) & 0xFF) / 255.0
     green = ((color_seed >> 8) & 0xFF) / 255.0
     blue = ((color_seed >> 16) & 0xFF) / 255.0
