@@ -212,18 +212,47 @@ def match_run(context: Dict[str, Any], run: Dict[str, Any],
     return why
 
 
+#: Values of an arm's `report.train_split` that mean "trained on the protocol's own
+#: train split". Anything else -- including a missing value -- is a model whose
+#: training provenance the board cannot vouch for.
+CLEAN_TRAIN_SPLITS = ("canonical", "protocol")
+
+
 def match_arm(meta: Dict[str, Any], protocol: Protocol) -> List[str]:
     """Why this arm is not rankable under `protocol`, even in a matching run.
 
     Separate from `match_run` because `--n` caps controls and baselines but not
     file-backed arms, so one run holds arms of different sizes.
+
+    **Training provenance is checked here too, and it is the check that was
+    missing.** `match_run` validates the *evaluation* -- corpus, split, tier, n --
+    which is necessary and turned out not to be sufficient: a pair of LLM arms
+    trained on Track D's own 90/10 shuffle (which predates the pinned split, and
+    puts 53 canonical-*test* builds in the training set) scored on the canonical
+    split at n=128 and were ranked, with `train_split: "trackd"` sitting in the
+    provenance the page already displays. A board whose whole claim is
+    comparability cannot rank a model that trained on the test set, so an arm now
+    has to *say* it trained on the protocol's split to be ranked. Silence is not
+    consent: an arm with no recorded `train_split` is unranked rather than
+    assumed clean, because most contaminated arms will not know they are.
     """
     meta = meta if isinstance(meta, dict) else {}
+    why: List[str] = []
     n = meta.get("n")
     if not isinstance(n, int) or n < protocol.min_n:
-        return [f"n={n if isinstance(n, int) else '?'} "
-                f"(protocol wants at least {protocol.min_n})"]
-    return []
+        why.append(f"n={n if isinstance(n, int) else '?'} "
+                   f"(protocol wants at least {protocol.min_n})")
+
+    report = meta.get("report") if isinstance(meta.get("report"), dict) else {}
+    if report:                      # only generated arms carry one; controls do not
+        train_split = str(report.get("train_split") or "")
+        if not train_split:
+            why.append("training split not recorded (cannot rule out training on the "
+                       "protocol's test builds)")
+        elif train_split not in CLEAN_TRAIN_SPLITS:
+            why.append(f"trained on the {train_split!r} split, not {protocol.split_key} "
+                       f"(its training set overlaps this protocol's test builds)")
+    return why
 
 
 def verdict(context: Dict[str, Any], run: Dict[str, Any],

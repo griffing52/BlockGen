@@ -67,12 +67,16 @@ Definitions worth reading before trusting a number
   `interior_ratio_open` is the sum, and it is the honest "does this build have
   rooms" number.
 
-  This is not a marginal correction. On 200 held-out real houses, **9.0% have no
-  sealed interior at all, and 94.4% of those do have a room** -- they simply have
-  a doorway. Across the whole set, apertures account for **20.5% of all interior
-  volume**. Every previous statement in this project about generated builds
-  "having no interiors" was measured with the sealed-only counter and is
-  understated for real data by that much.
+  This is not a marginal correction. On the 200 held-out real houses the probe
+  statistics are measured on, **6.0% have no sealed interior at all, and every
+  one of those twelve builds does have a room** -- they simply have a doorway.
+  Pooled over builds, apertures account for **25.6% of total interior volume**.
+  Every previous statement in this project about generated builds "having no
+  interiors" was measured with the sealed-only counter and is understated for
+  real data by that much. `scripts/figs/interior_counts.py` records these and
+  `scripts/audit_claims.py` checks them; the complement of the 6.0% is the 94%
+  of builds `probes.solidify` alters, because a build is altered if and only if
+  it has at least one sealed air cell.
 """
 
 from __future__ import annotations

@@ -73,6 +73,7 @@ def test_kid_degenerate_input_is_nan():
 
 
 def test_legacy_cmmd_is_biased_and_ours_is_not():
+    pytest.importorskip("torch")
     """Documents in code why `perceptual.cmmd` numbers only hold at fixed n.
 
     The legacy estimator includes k(x,x)=1 diagonal terms in its within-set
@@ -102,6 +103,7 @@ def test_legacy_cmmd_is_biased_and_ours_is_not():
 
 
 def test_cmmd_on_identical_input_is_exactly_zero():
+    pytest.importorskip("torch")
     """Guards against writing `cmmd(x, x) > 0` as the bias test -- it is 0.0."""
     import torch
     from blockgen.eval.perceptual import cmmd

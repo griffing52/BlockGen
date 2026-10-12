@@ -386,14 +386,6 @@ CONTROL_RECIPES: Dict[str, str] = {
         "val reference they are scored against, so the floor is a fresh real "
         "sample rather than the reference scored against itself (which is an "
         "exact zero everywhere and calibrates nothing)",
-    "real@canon16":
-        "real test builds requantised to a 16-block canonical palette -- known "
-        "damage of a known size, measured in F16 as deleting 86.5% of blocks "
-        "and whole roofs",
-    "real@canon8":
-        "the same canonicalisation taken down to 8 blocks: the same kind of "
-        "damage, harder, so the two rungs together show whether a metric "
-        "orders damage as well as detecting it",
     "real_shuffled_materials":
         "a real build with its block multiset permuted across its own occupied "
         "cells; a negative control for this tier, because placement moves and "
@@ -405,16 +397,20 @@ CONTROL_RECIPES: Dict[str, str] = {
         "collapsed -- the converse of shuffling, and a palette metric that "
         "cannot separate it is not working",
     "real@solidify":
-        "every enclosed air cell of a held-out test build filled; a median 31% "
-        "more blocks, every room deleted, the silhouette untouched -- the "
-        "control that tells the two realism tiers apart, since at n=128 "
-        "MV-DINO-KID cannot separate it from real and geom_kid puts it 205 "
-        "spreads away",
+        "every SEALED air cell of a held-out test build filled with that build's "
+        "own dominant material; a median 33% more blocks over 94% of builds, the "
+        "silhouette untouched -- the control that tells the two realism tiers "
+        "apart, since at n=128 MV-DINO-KID cannot separate it from real and "
+        "geom_kid puts it 202 spreads away. Note 'sealed': air reachable from "
+        "outside through a doorway survives, so this is a 33% mass increase the "
+        "render tier cannot see, NOT the deletion of every room",
     "real@single_mode":
-        "one real test build repeated n times; it is drawn from the real "
-        "distribution, so no distribution distance punishes it and only the "
-        "diversity gate stands between the leaderboard and a generator that "
-        "memorises a single house",
+        "one real test build repeated n times; every sample is individually "
+        "real, so a per-build quality check passes it, and the diversity gate "
+        "names the failure directly at voxel_diversity == 0. Note that the "
+        "distribution distances do NOT miss it: 128 copies of one build is a "
+        "collapsed distribution and mv_dino_kid reads +594 spreads. The arm "
+        "that distances fail to punish is train_verbatim, not this one",
     "train_verbatim":
         "literal copies of training builds; the memorization detector must fire "
         "at voxel_dup_rate == 1.0 on this arm, and anything less means it would "
@@ -444,11 +440,26 @@ def control_arms(test: Sequence[Structure], train: Sequence[Structure] | None = 
     in-memory arm has no file to point a reader at, so the recipe is the whole
     of its provenance.
 
-    Two of the rungs measure no damage at all. They exist because a benchmark can
-    be won by a degenerate strategy that no *distribution* distance objects to --
-    reciting the training set, or finding one good house and emitting it n times
-    -- so those two are caught by gates rather than by distances, and a gate
-    nobody exercises is a gate nobody knows is broken.
+    Two of the rungs measure no damage at all, and they are here for different
+    reasons. Reciting the training set is the strategy a distribution distance
+    genuinely fails to punish: `train_verbatim` reads +5.4 spreads on the render
+    tier and +9.6 on the geometric one, which would rank it SECOND on this
+    board, behind only real data and far ahead of any model. Mode collapse is
+    not that case -- a collapsed distribution is far from the real one and the
+    distances say so loudly (+594 spreads) -- but the diversity gate names the
+    failure instead of burying it in a realism number, and a gate nobody
+    exercises is a gate nobody knows is broken.
+
+    **Decimation is deliberately not a control here.** `probes.canon` still
+    exists and the ladder still uses it, because "does this metric order a
+    corruption correctly" is a question decimation answers well. But a
+    *leaderboard* row places its arm on a quality scale, and requantising real
+    builds to a coarser grid is a change of resolution, not a loss of quality:
+    it produces a smaller building, not a worse one. Ranking a generator against
+    it invited the comparison "this model is worse than 86%-deleted real data",
+    which sounds damning, means nothing, and is not a claim this suite should
+    make. The rungs that stayed are the ones that degrade a build while holding
+    its resolution fixed.
 
     `corpus` and `seed` are recorded in each arm's provenance, not used to
     build anything; both default so existing callers are unaffected.
@@ -462,8 +473,6 @@ def control_arms(test: Sequence[Structure], train: Sequence[Structure] | None = 
 
     arms = [
         sc.ArmSpec("real_test", track="control", structures=pool),
-        sc.ArmSpec("real@canon16", track="control", structures=probes.canon(pool, 16)),
-        sc.ArmSpec("real@canon8", track="control", structures=probes.canon(pool, 8)),
         sc.ArmSpec("real_shuffled_materials", track="control",
                    structures=[probes.shuffle_materials(s, rng) for s in pool]),
         sc.ArmSpec("real@monochrome", track="control",

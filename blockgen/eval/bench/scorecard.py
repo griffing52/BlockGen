@@ -172,15 +172,25 @@ def with_mmd(m: Metric) -> Metric:
     KID and its geometric twin are squared MMDs, and a squared MMD is
     **quadratic in the fraction of an arm's output that is bad**: for a mixture
     of a fraction `f` of failures with otherwise-real samples,
-    `MMD^2 = f^2 * MMD^2(bad, real)`. Measured on this corpus, an arm whose
-    output is 25% canon-8 scores only 31% of the way from real to fully-canon-8
-    on `mv_dino_kid` -- so the raw number substantially under-penalises partial
+    `MMD^2 = f^2 * MMD^2(bad, real)`. Measured on this corpus, an arm that is
+    25% `uniform_random` reads only 6.4% of the way from real to fully-bad on
+    `mv_dino_kid` -- so the raw number substantially under-penalises partial
     failure, which is exactly how real generators fail.
 
     Taking the square root undoes it. On the same mixture ladder,
     `sqrt(KID)/sqrt(KID_worst)` tracks the true contaminated fraction to a mean
-    absolute error of 0.022, against 0.119 for the raw value -- it reads the
+    absolute error of 0.011, against 0.124 for the raw value -- it reads the
     failure rate almost directly.
+
+    The numbers above come from
+    `outputs/run_20260918_203311_doseresponse_uniform_random-shell_box-canon8`
+    at n=128. An earlier version of this docstring quoted "0.022 against 0.119"
+    and "31% of the way", which came from an n=64 run whose bad pool was
+    `canon8` -- a pool this project later disavowed as a quality reference,
+    because requantising real builds to a coarser grid yields a smaller
+    building rather than a worse one. Those figures are not reproducible from
+    any current run and 0.022 is in any case the geometric metric's value, not
+    this one's.
 
     Reported as a companion readout, not as a ranking metric: it is a monotone
     transform, so it inherits the ordering gates but not the noise-floor units

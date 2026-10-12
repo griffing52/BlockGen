@@ -519,6 +519,13 @@ def main() -> None:
                     default="render",
                     help="render = DINO on views (needs a GPU); "
                          "geometry = voxel descriptors (CPU only)")
+    ap.add_argument("--out-root", default=str(LADDER_ROOT),
+                    help="where to write the result. `ladder_path` is keyed by "
+                         "backbone and view ONLY, so validating a metric on a "
+                         "second corpus would otherwise overwrite the first "
+                         "corpus's ladder -- which is exactly what a "
+                         "cross-domain check must not do. The default root "
+                         "stays the one `full.py` and `fast.py` read.")
     args = ap.parse_args()
 
     view = ft.ViewConfig(px=args.px)
@@ -545,7 +552,7 @@ def main() -> None:
                                   seed=args.seed,
                                   include_legacy=not args.no_legacy))
     for result in results:
-        path = save(result)
+        path = save(result, root=args.out_root)
         print()
         print(render(result))
         print(f"\n-> {path}")

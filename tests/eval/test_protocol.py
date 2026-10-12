@@ -106,3 +106,35 @@ def test_slate_reports_whether_it_can_actually_align():
     assert proto.Slate(k=8).aligned is False
     assert proto.Slate(k=2, prompts=("a hut",)).aligned is True
     assert P.slate.to_json()["aligned"] is False        # houses32-v1 is unconditional
+
+
+# --- training provenance ----------------------------------------------------
+# The gap these close: `match_run` validates the *evaluation* and a pair of LLM
+# arms trained on Track D's pre-split 90/10 shuffle -- 53 canonical-test builds in
+# their training set -- scored on the canonical split at n=128 and were ranked.
+
+def test_an_arm_trained_off_protocol_is_not_rankable():
+    why = proto.match_arm({"n": 128, "report": {"train_split": "trackd"}}, P)
+    assert why and "trackd" in why[0] and "test builds" in why[0]
+
+
+def test_an_arm_trained_on_the_protocol_split_is_rankable():
+    assert proto.match_arm({"n": 128, "report": {"train_split": "canonical"}}, P) == []
+
+
+def test_silence_about_the_training_split_is_not_consent():
+    """An arm that records a report but no split is unranked, not assumed clean."""
+    why = proto.match_arm({"n": 128, "report": {"model": "x"}}, P)
+    assert why and "not recorded" in why[0]
+
+
+def test_controls_carry_no_report_and_are_unaffected():
+    """`real_test` and the procedural baselines have no training provenance to
+    check -- requiring one would disqualify the ruler itself."""
+    assert proto.match_arm({"n": 128}, P) == []
+    assert proto.match_arm({"n": 128, "report": {}}, P) == []
+
+
+def test_both_reasons_are_reported_together():
+    why = proto.match_arm({"n": 64, "report": {"train_split": "trackd"}}, P)
+    assert len(why) == 2

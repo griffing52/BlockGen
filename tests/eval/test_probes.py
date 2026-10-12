@@ -60,6 +60,8 @@ def test_shuffle_matches_the_script():
     from pathlib import Path
 
     path = Path(__file__).resolve().parents[2] / "scripts" / "validate_perceptual.py"
+    if not path.exists():
+        pytest.skip("legacy scripts/validate_perceptual.py is not part of this checkout")
     spec = importlib.util.spec_from_file_location("_vp", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -277,3 +279,122 @@ def test_partial_solidify_at_zero_is_a_no_op():
     s = _hollow(9)
     out = probes.partial_solidify(s, 0.0, np.random.default_rng(0))
     assert np.array_equal(out.block_ids, s.crop_to_non_air().block_ids)
+
+
+# --- the converse probe: hollowing ------------------------------------------
+def _solid(n: int = 9, block: int = 5) -> Structure:
+    ids = np.full((n, n, n), block, dtype=np.int32)
+    return Structure(block_ids=ids, block_data=np.zeros_like(ids))
+
+
+def test_exterior_air_is_outside_only():
+    """A sealed room is not exterior; punch a door and it becomes one."""
+    s = _hollow(9)
+    occ = s.occupied_mask
+    ext = probes.exterior_air(occ)
+    # The shell fills its own bounding box, so *no* cell inside it is outside:
+    # the room is sealed air, and the outside air lives beyond the crop.
+    assert not ext.any()
+    assert (~occ).any() and not ext[4, 4, 4]
+    holed = occ.copy()
+    holed[0, 4, 4] = False                        # a 1x1 door
+    assert probes.exterior_air(holed)[4, 4, 4]
+
+
+def test_hollow_reduces_to_the_shell_of_a_solid_cube():
+    """A solid cube is the maximal case: everything but the surface goes."""
+    s = _solid(9)
+    out = probes.hollow(s)
+    assert _occ(out) == 9 ** 3 - 7 ** 3
+    assert out.crop_to_non_air().shape == (9, 9, 9)
+    assert not out.occupied_mask[4, 4, 4]
+
+
+def test_hollow_is_a_no_op_on_a_one_block_shell():
+    """The fixed point. Every block of a 1-thick shell faces the outside."""
+    s = _hollow(9)
+    out = probes.hollow(s)
+    assert np.array_equal(out.block_ids, s.crop_to_non_air().block_ids)
+
+
+def test_hollow_deletes_furniture_sealed_inside_a_room():
+    """The failure mode the probe names: a shell with nothing inside it."""
+    s = _hollow(9)
+    ids = s.block_ids.copy()
+    ids[4, 1, 4] = 17                             # a block floating in the room
+    out = probes.hollow(Structure(block_ids=ids, block_data=np.zeros_like(ids)))
+    assert not out.occupied_mask[4, 1, 4]
+    assert _occ(out) == _occ(s)
+
+
+def test_hollow_keeps_what_is_visible_through_a_window():
+    """Aperture-reachable interiors are genuinely visible, so they must stay.
+
+    The conservative half of the definition (see `probes.hollow`): air behind a
+    doorway is exterior air, so the furniture it touches is kept.
+    """
+    occ = np.ones((9, 9, 9), dtype=bool)
+    occ[1:-1, 1:-1, 1:-1] = False
+    occ[0, 4, 4] = False                          # a door
+    occ[4, 1, 4] = True                           # furniture in the room
+    ids = np.where(occ, 5, 0).astype(np.int32)
+    out = probes.hollow(Structure(block_ids=ids, block_data=np.zeros_like(ids)))
+    assert out.occupied_mask[4, 1, 4]
+
+
+def test_hollow_preserves_the_rendered_surface_exactly():
+    """The claim the render-tier measurement rests on.
+
+    Not merely the silhouette: the *set of block faces a ray from outside can
+    reach* is identical, which is exactly the set `renderer.textured` turns into
+    quads that the camera can see.
+    """
+    from scipy import ndimage
+
+    rng = np.random.default_rng(0)
+    occ = np.zeros((12, 10, 12), dtype=bool)
+    occ[:, 0, :] = occ[:, -1, :] = True           # floor and roof
+    occ[0, :, :] = occ[-1, :, :] = True           # walls
+    occ[:, :, 0] = occ[:, :, -1] = True
+    occ[3:8, 1:4, 3:8] = True                     # a solid interior blob
+    ids = np.where(occ, 5, 0).astype(np.int32)
+    ids[occ] = rng.choice([4, 5, 17], size=int(occ.sum()))
+    s = Structure(block_ids=ids, block_data=np.zeros_like(ids))
+    out = probes.hollow(s)
+    assert _occ(out) < _occ(s)
+
+    struct = ndimage.generate_binary_structure(3, 1)
+
+    def visible_faces(m: np.ndarray) -> set:
+        ext = probes.exterior_air(m)
+        faces = set()
+        for axis in range(3):
+            for shift in (1, -1):
+                nbr = np.roll(ext, shift, axis=axis)
+                nbr[(slice(None),) * axis + (0 if shift > 0 else -1,)] = True
+                for x, y, z in np.argwhere(m & nbr):
+                    faces.add((x, y, z, axis, shift))
+        return faces
+
+    assert np.array_equal(probes.exterior_air(s.occupied_mask),
+                          probes.exterior_air(out.occupied_mask))
+    assert visible_faces(s.occupied_mask) == visible_faces(out.occupied_mask)
+    # and the block sitting behind each visible face is the same block
+    vis = ndimage.binary_dilation(
+        np.pad(probes.exterior_air(s.occupied_mask), 1, constant_values=True),
+        struct)[1:-1, 1:-1, 1:-1] & s.occupied_mask
+    assert np.array_equal(s.block_ids[vis], out.block_ids[vis])
+
+
+def test_hollow_never_touches_the_palette_of_a_surviving_block():
+    pool = [_house(seed=i) for i in range(4)]
+    for s in pool:
+        out = probes.hollow(s)
+        keep = out.occupied_mask
+        assert np.array_equal(out.block_ids[keep], s.crop_to_non_air().block_ids[keep])
+
+
+def test_probe_suite_includes_hollow():
+    suite = probes.probe_suite([_solid(9)], np.random.default_rng(0))
+    assert "hollow" in suite and len(suite["hollow"]) == 1
+    assert _occ(suite["hollow"][0]) < 9 ** 3

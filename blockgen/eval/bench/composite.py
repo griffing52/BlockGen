@@ -359,8 +359,11 @@ def validate(rows: Sequence[BlockScore]) -> Dict[str, bool]:
         checks["C2_memorization_disqualified"] = by["train_verbatim"].status == "DQ"
     if "real@single_mode" in by:
         checks["C5_mode_collapse_disqualified"] = by["real@single_mode"].status == "DQ"
-    for arm in ("real@canon16", "real@canon8", "real@monochrome",
-                "real_shuffled_materials", "real@solidify"):
+    #: Decimation rungs are not in this list because they are no longer
+    #: leaderboard controls -- see `fast.control_arms`. A coarser grid is a
+    #: change of resolution, not a loss of quality, so "worse than real" is not
+    #: a property the suite should assert about it.
+    for arm in ("real@monochrome", "real_shuffled_materials", "real@solidify"):
         if arm not in by:
             continue
         need = NEEDS.get(arm)
@@ -370,7 +373,4 @@ def validate(rows: Sequence[BlockScore]) -> Dict[str, bool]:
             by[arm].status == "DQ"
             or (np.isfinite(score(arm)) and np.isfinite(real)
                 and score(arm) > real))
-    if "real@canon16" in by and "real@canon8" in by:
-        checks["C4_damage_ordered"] = bool(
-            score("real@canon8") > score("real@canon16"))
     return checks

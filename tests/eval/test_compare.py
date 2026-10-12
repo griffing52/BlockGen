@@ -156,16 +156,50 @@ def test_rank_table_orders_arms_and_corrects_for_multiplicity():
     assert "far" in cmp.render_rank_table(t)
 
 
-def test_letter_groups_join_only_arms_indistinguishable_from_every_member():
-    """A shared letter must mean "no pair inside this group was resolved",
-    never merely "each was tied with its neighbour"."""
+def _beats_from(verdicts):
+    return lambda x, y: verdicts.get((x, y)) or verdicts.get((y, x))
+
+
+def test_letter_groups_are_a_valid_compact_letter_display():
+    """Sharing a letter must mean "not separated" **and its converse**.
+
+    `a~b`, `b~c`, `a` beats `c`: "not separated" is not transitive, so no
+    one-letter-per-arm partition can say this. The greedy version that stood here
+    until 2026-09-19 gave `c` a fresh letter, which reads as "`c` was separated
+    from `b`" -- a claim no test made. A CLD is a cover by maximal
+    indistinguishable sets, so `b` holds two letters.
+    """
     order = ["a", "b", "c"]
-    # a~b and b~c, but a beats c: the three must not collapse into one group
-    verdicts = {("a", "c"): "a"}
-    beats = lambda x, y: verdicts.get((x, y)) or verdicts.get((y, x))
-    groups = cmp._letter_groups(order, beats)
-    assert groups["a"] == groups["b"]
-    assert groups["a"] != groups["c"]
+    groups = cmp._letter_groups(order, _beats_from({("a", "c"): "a"}))
+    assert set(groups["a"]) & set(groups["b"])      # tied -> shared letter
+    assert set(groups["b"]) & set(groups["c"])
+    assert not set(groups["a"]) & set(groups["c"])  # separated -> none shared
+    assert groups == {"a": "a", "b": "ab", "c": "b"}
+
+
+def test_letter_groups_share_a_letter_exactly_when_not_separated():
+    """The biconditional, over every pair of a random verdict table."""
+    rng = np.random.default_rng(0)
+    order = [f"arm{i}" for i in range(7)]
+    for _ in range(30):
+        verdicts = {}
+        for i, a in enumerate(order):
+            for b in order[i + 1:]:
+                if rng.random() < 0.4:
+                    verdicts[(a, b)] = a
+        beats = _beats_from(verdicts)
+        groups = cmp._letter_groups(order, beats)
+        for i, a in enumerate(order):
+            for b in order[i + 1:]:
+                shared = bool(set(groups[a]) & set(groups[b]))
+                assert shared == (beats(a, b) is None), (a, b, groups)
+
+
+def test_every_arm_holds_at_least_one_letter_even_when_it_beats_everything():
+    order = ["a", "b", "c"]
+    verdicts = {("a", "b"): "a", ("a", "c"): "a", ("b", "c"): "b"}
+    groups = cmp._letter_groups(order, _beats_from(verdicts))
+    assert sorted(groups.values()) == ["a", "b", "c"]   # a total order: singletons
 
 
 def test_rank_table_direction_reverses_the_order():

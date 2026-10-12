@@ -99,6 +99,28 @@ def kid_arm_term(x: np.ndarray, ref: np.ndarray, degree: int = 3,
     return float(scale * (term_x - 2.0 * kxr.mean()))
 
 
+def kid_gram(x: np.ndarray, y: np.ndarray, degree: int = 3,
+             gamma: float | None = None, coef0: float = 1.0,
+             scale: float = 1000.0) -> np.ndarray:
+    """The scaled kernel matrix `kid` is built from: `scale * (gamma*x.y + coef0)^degree`.
+
+    Exposed because a *permutation* test needs the kernel, not the statistic.
+    Exchanging arm labels only reshuffles which rows of the pooled set land in
+    which arm, so every permutation replicate is a different pair of index sets
+    read off ONE Gram matrix; recomputing the kernel per replicate costs a
+    factor of several hundred and buys nothing (`compare._perm_draws_kernel`).
+
+    The contract is that `kid(x, y)` equals `offdiag_mean(gram(x, x)) +
+    offdiag_mean(gram(y, y)) - 2 * mean(gram(x, y))`, with `gamma` taken from
+    the FIRST argument's width exactly as `kid` takes it, so that a caller who
+    pools two arms and slices the matrix gets the same numbers `kid` would have
+    returned. `tests/eval/test_compare_permutation.py` pins the identity.
+    """
+    x, y = _as2d(x), _as2d(y)
+    g = 1.0 / x.shape[1] if gamma is None else gamma
+    return scale * (g * (x @ y.T) + coef0) ** degree
+
+
 def median_bandwidth(x: np.ndarray, max_n: int = 512,
                      rng: np.random.Generator | None = None) -> float:
     """Median pairwise distance -- the standard RBF bandwidth heuristic.

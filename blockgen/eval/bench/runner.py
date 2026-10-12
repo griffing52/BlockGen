@@ -256,7 +256,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-head-to-head", action="store_true",
                     help="skip the paired significance tests between arms")
     ap.add_argument("--n-rep", type=int, default=200,
-                    help="resamples per head-to-head comparison")
+                    help="resamples per head-to-head comparison (interval only)")
+    ap.add_argument("--sig-method", choices=("permutation", "subsample"),
+                    default="permutation",
+                    help="head-to-head significance test. 'permutation' is exact "
+                         "under the null that two arms are one distribution; "
+                         "'subsample' is the pre-2026-09 studentized p, kept only "
+                         "to reproduce older cards -- it rejects 3.4x too often at "
+                         "alpha=0.05 with the arms near the reference and 7.2x too "
+                         "often with them away from it (compare.py)")
+    ap.add_argument("--n-perm", type=int, default=10_000,
+                    help="label permutations per comparison. Holm over k(k-1)/2 "
+                         "pairs floors the adjusted p at k(k-1)/2 / (n_perm+1), so "
+                         "a wide table needs this large: at 18 arms, 10k bottoms "
+                         "out at an adjusted 0.015")
     ap.add_argument("--out", default=None)
     ap.add_argument("--name", default="",
                     help="what this run is asking, in words: 'ontology arms v2'. "
@@ -524,16 +537,20 @@ def main(argv: List[str] | None = None) -> int:
         from blockgen.eval.bench import distances as Dz
         from blockgen.eval.bench import geometry as geomz
         tables = []
+        # `kernel` is what makes the exact test affordable: both tables are the
+        # same polynomial-kernel KID on different features, so one Gram matrix per
+        # pair serves every permutation replicate (compare._perm_draws_kernel).
+        h2h = dict(method=args.sig_method, n_perm=args.n_perm,
+                   kernel=Dz.kid_gram, n_rep=args.n_rep,
+                   arm_term=Dz.kid_arm_term)
         if len(geom_feats) > 1:
             tables.append(cmpr.rank_table(
                 "geom_kid", lambda a, b: geomz.geom_kid(a, b), geom_feats,
-                ref.geom_ref, n_rep=args.n_rep, rng=ctx.rng(3),
-                arm_term=Dz.kid_arm_term))
+                ref.geom_ref, rng=ctx.rng(3), **h2h))
         if len(dino_feats) > 1 and full_ref is not None:
             tables.append(cmpr.rank_table(
                 "mv_dino_kid", lambda a, b: Dz.kid(a, b), dino_feats,
-                full_ref.ref_feats, n_rep=args.n_rep, rng=ctx.rng(4),
-                arm_term=Dz.kid_arm_term))
+                full_ref.ref_feats, rng=ctx.rng(4), **h2h))
         if tables:
             card.run["head_to_head"] = [t.to_json() for t in tables]
             head_md = ("## head-to-head — paired, Holm-corrected\n\n"

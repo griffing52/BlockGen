@@ -202,10 +202,13 @@ arms attach a `provenance_override` naming their builder, the split they were
 drawn from, `n_requested`, `seed` — and a one-sentence **recipe**:
 
 ```
-real@solidify: every enclosed air cell of a held-out test build filled; a median
-31% more blocks, every room deleted, the silhouette untouched — the control that
-tells the two realism tiers apart, since at n=128 MV-DINO-KID cannot separate it
-from real and geom_kid puts it 205 spreads away.
+real@solidify: every SEALED air cell of a held-out test build filled with that
+build's own dominant material; a median 33% more blocks over 94% of builds, the
+silhouette untouched — the control that tells the two realism tiers apart, since
+at n=128 MV-DINO-KID cannot separate it from real and geom_kid puts it 202
+spreads away. Note "sealed": air reachable from outside through a doorway
+survives, so this is a 33% mass increase the render tier cannot see, NOT the
+deletion of every room.
 ```
 
 That prose already existed. It sat in the `control_arms` docstring, where no
@@ -339,8 +342,28 @@ from one that emits houses. That is not hypothetical: T23d measured
 `native_oriented` at an enclosed-air ratio of 0.005 against a real 0.114 while it
 scored respectably on KID.
 
-The last two rows are the converse, and they are why this is a second tier rather
-than a replacement. `geom_kid` reads occupancy only, so a material permutation
+**And it is blind in the other direction too.** `probes.hollow` is `solidify`
+run backwards: it deletes every block a camera cannot see, keeping only the
+surface layer (a block survives iff one of its six faces borders air that is
+6-connected to the outside). The exterior region — and therefore every rendered
+face — is *exactly* invariant, checked on all 128 builds. That is the failure
+mode the wider 3D field ships: a shell with nothing inside it.
+
+| arm | `mv_dino_kid` ↓ | `geom_kid` ↓ | blocks |
+|---|---|---|---|
+| `real_test` (floor) | +0.004 [−0.001, +0.012] | +0.13 [−0.07, +0.42] | 870 |
+| **`real@hollow`** | **+0.006 [−0.000, +0.012]** | **+13.3 [12.6, 14.1]** | **−13.4% (98.4% of builds)** |
+| `real@solidify` | +0.007 [+0.002, +0.014] | +24.4 [23.1, 26.0] | +34.7% (96.1%) |
+
+Hollowing moves the render metric **+0.4 noise floors** and the structural metric
+**+156**. It is not that the pixels are unchanged — hollowing moves 0.585/255 of
+the image against a re-render floor of 0.0000, because interiors are visible
+through doors and windows — the encoder discards it. Measured by
+`scripts/bench_hollow.py --n 128`
+(`outputs/run_20260918_203947_bench_hollow`).
+
+The last two rows of the first table are the converse, and they are why this is a
+second tier rather than a replacement. `geom_kid` reads occupancy only, so a material permutation
 moves it by *exactly zero* — the two tiers are complementary halves, and the
 ladder gates each on the rungs it is built to see (`GEOMETRY_RUNGS` swaps the
 material-noise triple for an occupancy-noise one and puts material corruptions in
@@ -504,7 +527,7 @@ statement of the descriptor's limitation, and it is reported rather than avoided
 ## Dose-response — does a better build score better?
 
 ```bash
-python scripts/bench_doseresponse.py --n 64
+python scripts/bench_doseresponse.py --n 128 --bad-pool uniform_random shell_box
 ```
 
 The ladder asks a binary question: can this metric tell damaged from real. A
@@ -524,16 +547,27 @@ generators actually fail: some good builds, some bad. Both metrics are monotone
 in the fraction of an arm that is real, which is the direct answer to "does this
 benchmark reward better output".
 
+**What the bad half of a mixture is.** `--bad-pool` names arms from
+`bench.baselines` (`uniform_random`, `shell_box`), which are bad along a *quality*
+axis at fixed resolution. The original axis mixed real builds with their own
+canon-8 decimations, which this suite no longer treats as a quality reference for
+the reason `fast.control_arms` gives — decimation changes a build's size, not its
+quality, and a canon-8 house has 47 blocks against a real 870. `canon8` remains
+selectable to reproduce the older numbers; every mixture axis carries the pool in
+its name and in the run directory's.
+
 ### But the response is quadratic, so read `sqrt`
 
 `MMD²(αP + (1−α)Q, P) = (1−α)²·MMD²(Q,P)`. A squared-MMD metric therefore
-responds to the *fraction* of bad samples quadratically, and it does: fitted
-against the mixture ladder, the quadratic beats the linear by 14× in absolute
-error. **An arm that fails on a quarter of its builds looks 31% as bad as one
-that fails on all of them.**
+responds to the *fraction* of bad samples quadratically, and it does: against the
+`uniform_random` mixture at n=128 the best-fit exponent is **1.99** and the
+quadratic's residual is 0.008 against the linear's 1.064. **An arm that fails on
+a quarter of its builds looks 25% as bad as one that fails on all of them** on a
+linear reading, and reaches only 6.4% of the fully-bad value.
 
 `sqrt(KID)` undoes it — it recovers the true bad fraction to a mean absolute
-error of **0.022**, against 0.119 for the raw value. Every squared-MMD metric in
+error of **0.011** (`mv_dino_kid`) and **0.022** (`geom_kid`), against 0.124 and
+0.135 for the raw values. Every squared-MMD metric in
 the scorecard now carries `mmd` beside it. Read `mmd` for "what fraction of this
 arm is bad"; read the metric for "is this the right distribution".
 
@@ -575,10 +609,13 @@ difference exceeds `sqrt(h_a² + h_b²)`; non-overlap of their intervals demands
 needs the difference to be 41% larger before it will call anything.**
 
 `compare.rank_table` tests every pair directly, with both arms scored against the
-same reference subsample in each replicate, and applies Holm–Bonferroni across
+same reference in every replicate — a shared subsample for the interval, the full
+reference for the test — and applies Holm–Bonferroni across
 the family (with 7 arms there are 21 tests, and the chance of one spurious
-"significant" result at α=0.05 is about two in three). Arms sharing a group
-letter were not separated.
+"significant" result at α=0.05 is about two in three). The letters are a valid
+compact letter display — maximal cliques of the "not separated" graph, so an arm
+may hold several — which means both readings hold: arms sharing a letter were not
+separated, and arms sharing **no** letter were.
 
 What it looks like on a real run (n=128 controls, 399-build reference; arms
 sharing a letter are not separated at α=0.05 after Holm):
@@ -597,20 +634,41 @@ sharing a letter are not separated at α=0.05 after Holm):
 | `pick_n_place` | 0.533 | e | 24.06 | f |
 | `real@single_mode` | 1.805 | h | 41.72 | g |
 
-`real@solidify` shares group **a** with held-out real on the render metric. That
-is not a power failure — the same test at the same n separates `train_verbatim`
-at a difference of 0.015 and gives it a group of its own. The render tier
-resolves 0.015 and cannot resolve the deletion of every interior in the corpus;
-on `geom_kid` the same arm is group **f**, Δ = −22.13 [−24.08, −20.72].
+`real@solidify` shares group **a** with held-out real on the render metric, and on
+`geom_kid` the same arm is separated from it at Δ = −22.13 [−24.08, −20.72].
 
-Two details that are easy to get wrong, and were:
+> **The table above predates the 2026-09-19 calibration fix, and its letters are
+> the old test's.** Two things about it are now known to be wrong: the p-values
+> came from a miscalibrated test (see the second bullet), and the letters came
+> from a greedy one-letter-per-arm assignment that is not a valid compact letter
+> display, so "has a group of its own" was never a supported reading of it. The
+> claim this paragraph used to make from that table — that the same test at the
+> same n separates `train_verbatim` at Δ = 0.015, so the solidify tie is not a
+> power failure — **does not survive the fix**: recomputed on the canonical
+> 18-arm run, `train_verbatim` vs `real_test` on `mv_dino_kid` lands at an
+> adjusted p of 0.05–0.06 and is no longer separated. The solidify tie itself is
+> unaffected, and in the safe direction: a conservative test cannot manufacture a
+> tie. See `outputs/run_20260919_022424_significance_recompute/FINDINGS.md`.
+
+Three details that are easy to get wrong, and were:
 
 * **The p-value cannot be a sign-count.** A bootstrap sign-balance p is floored
   at `1/n_rep`; Holm over the 55 pairs of an 11-arm run multiplies 0.005 to
   0.275, so *nothing* is separable however large the difference. The first run
-  put held-out real and a monochrome corpus in the same group. The reported `p`
-  is studentized (`|Δ| / se`, normal reference) and is not floored; the
-  sign-balance value is kept alongside as `p_boot`.
+  put held-out real and a monochrome corpus in the same group. The sign-balance
+  value is kept only as `p_boot`.
+* **Nor can it be a studentized subsample spread.** The version that replaced the
+  sign-count divided Δ by the standard deviation of the 80%-subsample replicates
+  and called that a standard error. It is not one — an m-out-of-n subsample needs
+  a rescale before its spread becomes an SE — and the test rejected 3.4x too
+  often at α=0.05 with the arms near the reference and 7.2x too often with the
+  arms away from it, which is where a leaderboard's generator-vs-generator pairs
+  sit. No single rescale fixes both, because the statistic is a degenerate
+  U-statistic in the first case and a non-degenerate one in the second. The
+  default is now an exact label **permutation** test (`--sig-method`, `--n-perm`),
+  measured at nominal in both regimes; `--sig-method subsample` reproduces old
+  cards and nothing else. An exact p is floored at `1/(n_perm+1)`, so `--n-perm`
+  has to clear the Holm family: at 18 arms, 10k bottoms out at an adjusted 0.015.
 * **The pairing is the correct null, not a power gain.** Measured across four
   reference and arm sizes it moved the interval width by under 10% and not
   consistently in one direction — the reference's contribution to an unbiased
@@ -633,8 +691,17 @@ failures are blocking and surface as `null` naming the failed gate; sensitivity
 limits ("cannot resolve a 40% cut at n=64") are recorded but never suppress a
 value, because those are answered by more samples.
 
-**Real data is scored as an arm.** `real_test` is the floor, `real@canon16` and
-`real@canon8` are known-damage rungs, `train_verbatim` proves the memorization
+**Decimation is a ladder rung, not a leaderboard arm** (policy set 2026-09-17).
+`probes.canon` still builds `canon16`/`canon8` for the metric-validation ladder,
+where the only question asked of them is whether a metric orders a known
+corruption correctly. They are no longer scored as controls on the leaderboard.
+A coarser grid is a change of *resolution*, not a loss of *quality* — it yields a
+smaller building, not a worse one — so a row ranking a generator against it
+invites "this model is worse than 86%-deleted real data", which sounds damning
+and means nothing. Scorecards written before this date carry the two rows; the
+raw numbers in them are unaffected, but do not read them as a quality bar.
+
+**Real data is scored as an arm.** `real_test` is the floor, `train_verbatim` proves the memorization
 detector fires. They run through the identical code path as any model.
 
 **The `context` block *is* the object the arms were scored against.**

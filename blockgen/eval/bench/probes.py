@@ -150,6 +150,11 @@ def probe_suite(structures: Sequence[Structure],
         # material-noise triple above, and each tier is gated on the one it is
         # built to see (see `geometry` module docstring).
         "solidify": [solidify(s) for s in pool],
+        # `hollow` is `solidify` run backwards -- both leave the rendered
+        # surface intact, one adds every invisible block and the other deletes
+        # every one. Recorded as a rung so the render tier's blind spot is
+        # measured in both directions rather than once.
+        "hollow": [hollow(s) for s in pool],
         "occ_noise_1": [occupancy_noise(s, 0.01, rng) for s in pool],
         "occ_noise_5": [occupancy_noise(s, 0.05, rng) for s in pool],
         "occ_noise_10": [occupancy_noise(s, 0.10, rng) for s in pool],
@@ -162,16 +167,104 @@ def probe_suite(structures: Sequence[Structure],
     }
 
 
+def exterior_air(occ: np.ndarray) -> np.ndarray:
+    """Air cells 6-connected to the outside of the build's bounding box.
+
+    The region a camera is standing in, and therefore the region that decides
+    which block faces exist in a render: `renderer.textured._exposed_masks`
+    emits a quad for every face whose neighbour is air, and of those only the
+    ones bordering *this* set can be reached by a ray from outside. Sealed
+    pockets are what `solidify` fills; this is their complement.
+
+    Face (6-) connectivity rather than 26-, matching `solidify`'s
+    `binary_fill_holes` structure, because a cube mesh leaks no light through an
+    edge- or corner-only opening: the aperture has zero area. Using 26 here
+    would call diagonal chinks "outside" and make the two probes inverses of
+    different sets.
+    """
+    from scipy import ndimage
+
+    padded = np.pad(np.asarray(occ, dtype=bool), 1)
+    lab, _ = ndimage.label(~padded,
+                           structure=ndimage.generate_binary_structure(3, 1))
+    return (lab == lab[0, 0, 0])[1:-1, 1:-1, 1:-1]
+
+
+def hollow(s: Structure) -> Structure:
+    """Erode to the visible surface layer: keep only blocks a camera can see.
+
+    The converse of `solidify`, and the failure mode the wider 3D-generation
+    field actually ships: surface-fitted mesh and implicit generators emit
+    shells with nothing inside them. `solidify` adds every block a camera cannot
+    see; this deletes every block a camera cannot see. If a render-and-embed
+    metric is blind to interior *mass* it must be equally blind to the absence
+    of it, and a probe in each direction is much harder to dismiss as an artifact
+    of one construction.
+
+    **"Surface layer" is defined by visibility, not by distance.** A block is
+    kept iff at least one of its six faces borders `exterior_air` -- air
+    6-connected to the outside of the bounding box. Three consequences, each of
+    which is the reason for the choice:
+
+    * The exterior region itself is *exactly* invariant. No kept block loses a
+      face, and every cell this probe empties is one with no face on the
+      exterior, so the emptied cells join the sealed-air region rather than
+      extending the outside one (induction over the deleted set). The set of
+      faces bordering the outside -- the rendered surface -- is therefore
+      identical block for block, which is a stronger silhouette guarantee than
+      `solidify` gives and makes the render-tier reading unambiguous.
+    * The bounding box is preserved, so `render_structure`'s camera fit is
+      unchanged and the probe is not detectable as a change of scale, the
+      mistake `chunk_delete` documents.
+    * Interiors reachable through a door or window are *not* emptied, because
+      their air is genuinely exterior: what you can see through a window, you
+      can see. That is the aperture accounting `geometry.interior_volumes`
+      already established for real houses, and it makes this probe conservative
+      by construction -- it deletes only mass that no view could resolve.
+
+    A one-block-thick shell is a fixed point; a solid cube becomes its own
+    surface. Palette is untouched on every surviving block, so the rung is not
+    detectable as a material anomaly either.
+    """
+    from scipy import ndimage
+
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
+    if not occ.any():
+        return c
+    struct = ndimage.generate_binary_structure(3, 1)
+    # Dilating in padded space keeps blocks on the crop boundary -- they face the
+    # outside air the crop removed, and deleting them would shrink the silhouette.
+    ext = np.pad(exterior_air(occ), 1, constant_values=True)
+    keep = occ & ndimage.binary_dilation(ext, struct)[1:-1, 1:-1, 1:-1]
+    drop = occ & ~keep
+    if not drop.any():
+        return c
+    bi, bd = c.block_ids.copy(), c.block_data.copy()
+    bi[drop], bd[drop] = c.air_block_id, 0
+    return Structure(block_ids=bi, block_data=bd)
+
+
 def solidify(s: Structure) -> Structure:
-    """Fill every enclosed air cell. Interiors destroyed, silhouette preserved.
+    """Fill every SEALED air cell. Interior mass added, silhouette preserved.
 
     The probe that motivates the geometry tier. Because `render_structure` sees
     only the outside, filling the rooms is close to invisible to any image-space
     metric -- measured on 128 held-out builds, MV-DINO-KID cannot separate it
     from real at all (0.000 [-0.002, 0.004] against a real -0.001
-    [-0.004, 0.003]), while it adds a median 31% to the block count and deletes
-    every room in the corpus. Any metric that claims to measure build quality and cannot separate
-    this rung is measuring the facade.
+    [-0.004, 0.003]), while it adds a median 33% to the block count across 94%
+    of builds. Any metric that claims to measure build quality and cannot
+    separate this rung is measuring the facade.
+
+    `binary_fill_holes` reaches only air that is UNREACHABLE from the bounding
+    box without passing through solid, so a room with a doorway to the outside
+    survives the probe untouched: on 200 real houses the sealed share of
+    interior volume has median 100% but mean 85.5%, and 6% of builds are not
+    altered at all. The claim this rung supports is therefore "a 33% mass
+    increase the render tier cannot see", NOT "every room is deleted" -- an
+    overstatement that stood in this docstring, in the leaderboard recipe and
+    in the paper until a fixture test on a hollow cube with a 1x1 doorway showed
+    the probe adding exactly zero cells.
 
     Filled cells take the build's own most common material, so the probe is not
     detectable as a palette anomaly either.

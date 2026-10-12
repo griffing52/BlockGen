@@ -66,15 +66,32 @@ def group_key(item: dict) -> str:
     return f"{category}::{title}"
 
 
+def portable_source(source_path: str) -> str:
+    """A build's source, independent of where the corpus lives on disk.
+
+    URLs and dataset ids are returned unchanged. A local path is cut at its last
+    `/data/` and a leading `minecraft/` is dropped, so the same 3D-Craft house
+    hashes identically from `/srv/a/repo/data/3d_craft/...`,
+    `/srv/x/data/minecraft/3d_craft/...` and a released manifest. Without this a
+    corpus rebuilt on another machine never matched the pinned split.
+    """
+    sp = str(source_path)
+    if "://" in sp or ":" in sp.split("/")[0] or "/data/" not in sp:
+        return sp
+    tail = sp.rsplit("/data/", 1)[1]
+    return tail[len("minecraft/"):] if tail.startswith("minecraft/") else tail
+
+
 def source_sha(manifest: dict) -> str:
     """Fingerprint of the corpus, so a rebuilt cache invalidates the split.
 
-    Covers every field the split actually depends on -- path *and* the title and
+    Covers every field the split actually depends on -- source *and* the title and
     category that `group_key` reads. Hashing paths alone would let a re-captioned
-    corpus silently reuse a split whose families no longer match.
+    corpus silently reuse a split whose families no longer match. Sources are
+    hashed in portable form (see `portable_source`).
     """
-    rows = ["\x1f".join((str(it.get("source_path", "")), str(it.get("title", "")),
-                         str(it.get("category", ""))))
+    rows = ["\x1f".join((portable_source(it.get("source_path", "")),
+                         str(it.get("title", "")), str(it.get("category", ""))))
             for it in manifest.get("items", [])]
     return hashlib.sha1("\n".join(rows).encode("utf-8")).hexdigest()[:16]
 
@@ -92,6 +109,9 @@ class Split:
     version: str = SPLIT_VERSION
     cache_dir: str = str(DEFAULT_CACHE_DIR)
     notes: Dict[str, str] = field(default_factory=dict)
+    #: The fingerprint this split carried before sources were hashed in portable
+    #: form. Scorecards recorded before that change cite this value as `split_sha`.
+    source_sha_legacy: str = ""
 
     def key(self) -> str:
         f = "-".join(str(int(round(x * 100))) for x in self.fracs)
@@ -110,6 +130,7 @@ class Split:
             "fracs": list(self.fracs), "source_sha": self.source_sha,
             "n_groups": self.n_groups, "cache_dir": self.cache_dir,
             "sizes": self.sizes, "notes": self.notes,
+            **({"source_sha_legacy": self.source_sha_legacy} if self.source_sha_legacy else {}),
             "train": [int(i) for i in self.train],
             "val": [int(i) for i in self.val],
             "test": [int(i) for i in self.test],
@@ -124,6 +145,7 @@ class Split:
             n_groups=d.get("n_groups", 0), version=d.get("version", SPLIT_VERSION),
             cache_dir=d.get("cache_dir", str(DEFAULT_CACHE_DIR)),
             notes=d.get("notes", {}),
+            source_sha_legacy=d.get("source_sha_legacy", ""),
         )
 
 
@@ -190,7 +212,14 @@ def load_split(
     root: Path | str = SPLIT_ROOT,
     rebuild: bool = False,
 ) -> Split:
-    """Read the split from disk, rebuilding if absent or if the corpus changed."""
+    """Read the split from disk, building it only if absent.
+
+    A pinned split is never re-cut silently: if the corpus on disk no longer
+    matches the split's fingerprint this raises, and `rebuild=True` (the CLI's
+    `--rebuild`) is the explicit way to replace it. Re-cutting on mismatch used to
+    happen automatically, which meant a rebuilt corpus could quietly move every
+    build to a different split while the file kept its name.
+    """
     path = split_path(corpus, seed, fracs, root)
     _, manifest = load_corpus(corpus, cache_dir)
     sha = source_sha(manifest)
@@ -199,8 +228,12 @@ def load_split(
         cached = Split.from_json(json.loads(path.read_text()))
         if cached.source_sha == sha:
             return cached
-        print(f"[splits] {path.name}: corpus changed "
-              f"({cached.source_sha} -> {sha}); rebuilding")
+        raise RuntimeError(
+            f"{path} is pinned to corpus fingerprint {cached.source_sha} but the "
+            f"corpus on disk hashes to {sha}. The manifest differs in a source, "
+            f"title or category (compare data/minecraft/cache/{corpus}_manifest.json "
+            f"against the released one). Pass rebuild=True / --rebuild to cut a new "
+            f"split; that split is not the paper's.")
 
     split = make_split(corpus, seed, fracs, cache_dir, manifest=manifest)
     path.parent.mkdir(parents=True, exist_ok=True)
