@@ -30,7 +30,7 @@ import static net.minecraft.server.command.CommandManager.literal;
  *   /blockgen model &lt;name&gt;    switch model
  *   /model &lt;group&gt; list       list the models a group serves (e.g. agentic)
  *   /model &lt;group&gt; &lt;model&gt;    switch to one of them (-&gt; group:model)
- *   /blockgen steps on|off    show each build step in chat
+ *   /blockgen steps on|off    show each build step and the recipe narration in chat
  *   /blockgen server [url]    show or set the inference server
  *   /blockgen status          connection + session state
  *   /blockgen speed &lt;n&gt;       blocks placed per tick

@@ -61,6 +61,59 @@ into your 1.21.1 Fabric instance's `mods/` folder.
 /gen a wooden windmill on a stone base        # real text conditioning
 ```
 
+## Recipes: watch the loop think
+
+The `recipe` group serves the recipes in `configs/agentic/recipes`, the same configs
+the houses32 benchmark ran (results.md T51). The dream recipes first *imagine* the
+house as an image, then build, render the build from the dream's camera, compare,
+and rewrite. That loop takes a minute or two, so instead of going quiet and dumping
+the result, the server streams it:
+
+```
+/model recipe list
+/model recipe dream-caption
+/gen a timber-framed cottage with a stone chimney
+```
+
+* **Chat** narrates each step: the stage, the dream (`dreamed 'iso' v0 with
+  openai:gpt-image-1-mini ($0.011)`), the builder's program (`wrote a 52-command
+  program: stone base, timber frame, steep gable roof`), the critic's verdict, and
+  each attempt's score with the running cost. "critic thinking..." shows in the
+  **action bar** while a call is in flight, so it doesn't clutter chat.
+* **The dream** goes up as a ~40-block pixel-art wall just north of the build
+  (concrete, wool and terracotta matched to the image; the background is left as air).
+  You see the target before the first block of the house is placed.
+* **Every attempt** is placed as soon as it is scored, as a diff against what is
+  already standing (removals, then new blocks bottom-up), so you watch the house change
+  between rounds. At the end the attempt the recipe *selected* is restored, which is
+  not always the last one: a rewrite that scored worse is rolled back in front of you.
+* `/blockgen undo` removes the house and the dream wall together.
+
+| Member | Backends | Cost |
+|---|---|---|
+| `dream-caption` *(default)* | gpt-5-mini + gpt-image-1-mini | ≤ $0.30/build |
+| `dream` | same, without the caption | ≤ $0.30/build |
+| `classic-matched` | gpt-5-mini, 3 render critiques, no dream | ≤ $0.25/build |
+| `dream-caption-gemma-local`, `dream-gemma-local` | Gemma 4 12B on the local vLLM (`localhost:8000`) + SDXL-Turbo on CPU | free |
+| `dream-local` | Claude Code CLI (subscription) + SDXL-Turbo on GPU | free (quota) |
+| `mock` | offline mock backends | free, for testing the mod |
+
+Any other recipe name works too (`/model recipe blueprint`), since `strict_models` is off.
+
+**Spend.** Each recipe stops at its own `usd_per_build`. On top of that, all recipe
+builds since the server started share one ledger capped by `session_usd_cap` in
+`models.json` (default $2). A build that would cross it stops early and keeps its best
+attempt. `/model` shows `session_spent_usd`, and the done message prints the build cost
+and the session total.
+
+**Port clash.** The gemma-local recipes call vLLM on port 8000, which is also this
+server's default port. Start the BlockGen server on another port when you use them
+(`--port 8001`, then `/blockgen server ws://<host>:8001/ws`).
+
+Every recipe build also writes a full trace (dreams, every attempt's program and
+renders, the contact sheet) to `outputs/deploy_traces/<stamp>_<recipe>_<prompt>/`,
+and the done message prints its path. Set `"trace_dir": ""` on the entry to turn it off.
+
 ## Commands
 
 | Command | Effect |
@@ -73,7 +126,7 @@ into your 1.21.1 Fabric instance's `mods/` folder.
 | `/model <name>` | Switch model (`default` = server's default) |
 | `/model <group> list` | List the models a group serves — e.g. `/model agentic list` |
 | `/model <group> <model>` | Switch to one of them (stored as `group:model`) |
-| `/blockgen steps on\|off` | Show each build step in chat (agentic models; default on) |
+| `/blockgen steps on\|off` | Show each build step and the recipe commentary in chat (default on; stage changes, scores and errors always show) |
 | `/blockgen cancel` | Stop the running generation |
 | `/blockgen undo` | Revert the last build (last 5 kept) |
 | `/blockgen status` | Server URL, model, sampling settings, live progress |
@@ -99,6 +152,7 @@ permission level 0, so requiring op would make it unusable).
 | `text_cond` | `cond_piece_ar` | CLIP-text-conditioned. `/gen a small stone house`. Bare `/gen` samples its null branch. |
 | `agentic` | `agentic` | **Group (12 models).** An LLM writes a build program; executed command by command. Real text conditioning, any canvas size, ~2k-block builds. `/model agentic list`. |
 | `agentic_plus` | `agentic` | Same group with the full loop — plan, 2 repair rounds, **visual self-critique**. Slower, ~4× the cost, better builds. |
+| `recipe` | `recipe` | **Group.** The benchmarked agentic recipes, run live: `dream-caption` *(best on houses32, T51)*, `dream`, `classic-matched`, the free `*-local` ones, and `mock`. Narrates its thinking in chat, shows the dream as a block wall, places every attempt as it is scored. See [Recipes](#recipes-watch-the-loop-think). |
 
 Add one by appending an entry — no server code changes if its `kind` already exists:
 

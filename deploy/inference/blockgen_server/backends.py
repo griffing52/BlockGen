@@ -13,6 +13,9 @@ Three kinds exist today:
   embedding. With no prompt it samples its learned *null* condition, which is the
   same unconditional branch classifier-free guidance uses, so one checkpoint serves
   both ``/gen`` and ``/gen <text>``.
+* ``recipe``        — an agentic *recipe* (``configs/agentic/recipes``: dream,
+  dream-caption, classic-matched, the local ones) run live. A group like
+  ``agentic``, addressed as ``recipe:<name>``; see ``recipe_backend.py``.
 * ``agentic``       — no checkpoint at all: a frontier LLM writes a build *program*
   (``blockgen.agentic``) which is then executed command by command. It is a *group*:
   one registry entry serves every model the vendor offers, addressed as
@@ -37,6 +40,7 @@ garbage from a vocabulary it was never trained on.
 from __future__ import annotations
 
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -63,6 +67,9 @@ class BlockBatch:
     blocks: List[Block] = field(default_factory=list)
     step: Optional[dict] = None
     stats: Optional[dict] = None
+    # Chat lines ({"text": ..., "style": ...}) shown as the batch's blocks land.
+    # The recipe backend narrates its loop with these (dream, build, score, critique).
+    log: Optional[List[dict]] = None
 
 
 def as_batch(item) -> BlockBatch:
@@ -78,6 +85,9 @@ class GenerateRequest:
     top_k: Optional[int] = 40
     cfg_scale: float = 3.0
     max_tokens: Optional[int] = None
+    # Set by the server when the client cancels. Backends whose work happens off the
+    # stream thread (the recipe backend's episode) poll it to stop paying early.
+    cancel: Optional[threading.Event] = None
 
 
 @dataclass
@@ -491,3 +501,9 @@ def build_backend(spec: ModelSpec, repo_root: Path) -> Backend:
         raise ValueError(f"{spec.name}: unknown kind {spec.kind!r} "
                          f"(have {sorted(KINDS)})")
     return KINDS[spec.kind](spec, repo_root)
+
+
+# Registered last: recipe_backend imports Backend/BlockBatch from this module.
+from blockgen_server.recipe_backend import RecipeBackend  # noqa: E402
+
+KINDS["recipe"] = RecipeBackend

@@ -21,6 +21,11 @@ Server -> client:
                         "stats": {"cost_usd": 0.004, "completion_tokens": 1863, …}}
     {"type": "error",   "message": "..."}
 
+A ``blocks`` message may also carry ``"log": [{"text": ..., "style": ...}]``,
+narration the recipe backend sends (stage, think, build, critique, dream, score,
+info, warn, error). The lines belong *before* that message's blocks; a message can
+carry lines and no blocks.
+
 ``step`` and ``stats`` are OPTIONAL and only the agentic backend sets them: the
 program it executes has named commands, so the client can show *what* is being
 built, and an API model costs money, so the client can show what the build cost.
@@ -109,15 +114,24 @@ def _worker(backend, req: GenerateRequest, loop: asyncio.AbstractEventLoop,
             batch = as_batch(item)
             if batch.stats is not None:
                 put(("stats", batch.stats))
+            if batch.log:
+                # Narration rides with its blocks (possibly none) so a line like
+                # "attempt 2: score 0.61" prints as that attempt lands, not before.
+                if pending:
+                    put(("blocks", (pending, None, None)))
+                    pending = []
+                put(("blocks", (list(batch.blocks), batch.step, batch.log)))
+                last = time.time()
+                continue
             if batch.step is not None:
                 # A labelled step is flushed on its own so the command and the blocks
                 # it placed stay together -- merging steps into a size-based batch
                 # would mislabel them, and the labels are the point.
                 if pending:
-                    put(("blocks", (pending, None)))
+                    put(("blocks", (pending, None, None)))
                     pending = []
                 if batch.blocks:
-                    put(("blocks", (list(batch.blocks), batch.step)))
+                    put(("blocks", (list(batch.blocks), batch.step, None)))
                 else:
                     put(("step", batch.step))
                 last = time.time()
@@ -125,10 +139,10 @@ def _worker(backend, req: GenerateRequest, loop: asyncio.AbstractEventLoop,
             pending.extend(batch.blocks)
             now = time.time()
             if len(pending) >= BATCH_BLOCKS or (now - last) >= BATCH_SECONDS:
-                put(("blocks", (pending, None)))
+                put(("blocks", (pending, None, None)))
                 pending, last = [], now
         if pending:
-            put(("blocks", (pending, None)))
+            put(("blocks", (pending, None, None)))
         put(("done", "complete"))
     except Exception as exc:  # noqa: BLE001 - surface to the client, never hang it
         put(("error", f"{type(exc).__name__}: {exc}"))
@@ -157,7 +171,7 @@ async def _generate(ws: WebSocket, msg: dict, cancel: threading.Event) -> None:
         temperature=float(msg.get("temperature", 1.0)),
         top_k=msg.get("top_k", 40),
         cfg_scale=float(msg.get("cfg_scale", 3.0)),
-        max_tokens=msg.get("max_tokens"))
+        max_tokens=msg.get("max_tokens"), cancel=cancel)
 
     await ws.send_json({"type": "begin", "model": backend.spec.name, "seed": seed,
                         "prompt": prompt, "supports_text": backend.supports_text})
@@ -174,11 +188,13 @@ async def _generate(ws: WebSocket, msg: dict, cancel: threading.Event) -> None:
     while True:
         kind, payload = await queue.get()
         if kind == "blocks":
-            blocks, step = payload
+            blocks, step, log = payload
             total += len(blocks)
             msg = {"type": "blocks", "blocks": _encode(blocks)}
             if step is not None:
                 msg["step"] = step
+            if log:
+                msg["log"] = log
             await ws.send_json(msg)
         elif kind == "step":
             # A command that changed nothing (or only failed) still gets reported:

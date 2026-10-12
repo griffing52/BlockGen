@@ -55,6 +55,14 @@ public class InferenceClient {
 
         /** End-of-build accounting (tokens, dollars). Only the agentic backend sends it. */
         default void onStats(JsonObject stats) {}
+
+        /**
+         * A narration line (the recipe backend: stages, "critic thinking...", scores,
+         * the dream). Delivered before the blocks of the same message, so a line like
+         * "placing attempt 2" prints just ahead of attempt 2's blocks. {@code style}
+         * is one of stage, think, build, critique, dream, score, info, warn, error.
+         */
+        default void onLog(String text, String style) {}
     }
 
     /** One block placement in the model's local frame, before anchoring. */
@@ -203,6 +211,13 @@ public class InferenceClient {
                                 s.get("command").getAsString(), out.size(),
                                 s.has("error") && !s.get("error").isJsonNull()
                                         ? s.get("error").getAsString() : null);
+                    }
+                    if (msg.has("log") && msg.get("log").isJsonArray()) {
+                        for (JsonElement e : msg.getAsJsonArray("log")) {
+                            JsonObject l = e.getAsJsonObject();
+                            handler.onLog(l.get("text").getAsString(),
+                                    l.has("style") ? l.get("style").getAsString() : "info");
+                        }
                     }
                     if (!out.isEmpty()) handler.onBlocks(out);
                 }

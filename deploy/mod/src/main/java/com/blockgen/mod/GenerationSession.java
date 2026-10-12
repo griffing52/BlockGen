@@ -5,6 +5,7 @@ import net.minecraft.block.Blocks;
 import net.minecraft.command.argument.BlockArgumentParser;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -39,8 +40,16 @@ public class GenerationSession {
     private final BlockGenConfig cfg;
     private final InferenceClient client = new InferenceClient();
 
-    private final ConcurrentLinkedQueue<InferenceClient.PendingBlock> incoming =
-            new ConcurrentLinkedQueue<>();
+    /**
+     * Blocks and chat lines, in arrival order. One queue rather than two so a line
+     * prints exactly when the blocks before it have been placed: "attempt 2 scored
+     * 0.61" should appear as attempt 2 finishes going up, not while attempt 1 is
+     * still being placed from a backlog.
+     */
+    private final ConcurrentLinkedQueue<Object> incoming = new ConcurrentLinkedQueue<>();
+
+    /** A narration line waiting in {@link #incoming}. */
+    private record ChatLine(String text, String style) {}
     /** Original states, for undo. LinkedHashMap keeps first-write-wins per position. */
     private final Map<BlockPos, BlockState> previous = new LinkedHashMap<>();
 
@@ -91,7 +100,20 @@ public class GenerationSession {
                 // it prints from the tick loop, in order with the blocks it describes.
                 if (!cfg.showSteps) return;
                 String label = String.format("[%d/%d] %s", index, total, command);
-                steps.add(error != null ? label + "  <- " + error : label);
+                incoming.add(new ChatLine(error != null ? label + "  <- " + error : label,
+                        "step"));
+            }
+
+            @Override
+            public void onLog(String text, String style) {
+                // Recipe narration. Stage changes, scores and problems always show;
+                // the running commentary (thinking, replies, placements) follows
+                // /blockgen steps.
+                boolean essential = switch (style) {
+                    case "stage", "score", "warn", "error" -> true;
+                    default -> false;
+                };
+                if (essential || cfg.showSteps) incoming.add(new ChatLine(text, style));
             }
 
             @Override
@@ -122,8 +144,6 @@ public class GenerationSession {
 
     private volatile String errorMessage = null;
     private volatile String statsMessage = null;
-    /** Step labels waiting to be printed; drained on the server thread like blocks. */
-    private final ConcurrentLinkedQueue<String> steps = new ConcurrentLinkedQueue<>();
 
     /**
      * One line of build economics for chat.
@@ -154,22 +174,39 @@ public class GenerationSession {
         } else {
             sb.append("  cost unknown (model not in the price table)");
         }
+        // Recipe builds: which attempt won, the session total, where the trace went.
+        if (s.has("attempts")) {
+            sb.append("  best attempt ");
+            sb.append(s.has("best_attempt") && !s.get("best_attempt").isJsonNull()
+                    ? s.get("best_attempt").getAsInt() : -1);
+            sb.append(" of ").append(s.get("attempts").getAsInt());
+            if (s.has("best_score") && !s.get("best_score").isJsonNull()) {
+                sb.append(String.format(" (score %.2f)", s.get("best_score").getAsDouble()));
+            }
+        }
+        if (s.has("session_usd") && !s.get("session_usd").isJsonNull()) {
+            sb.append(String.format("  session $%.2f", s.get("session_usd").getAsDouble()));
+        }
+        if (s.has("trace") && !s.get("trace").isJsonNull()) {
+            sb.append("\n  trace: ").append(s.get("trace").getAsString());
+        }
         return sb.toString();
     }
 
     /** Called every server tick. Returns true when the session is over. */
     public boolean tick() {
         int budget = Math.max(1, cfg.blocksPerTick);
-        InferenceClient.PendingBlock b;
-        while (budget-- > 0 && (b = incoming.poll()) != null) {
-            place(b);
-        }
-        // Step labels print as their blocks land, not all at once at the end: the
-        // point of a program build is watching it go up part by part.
-        String step;
-        while ((step = steps.poll()) != null) {
-            String line = step;
-            feedback(Text.literal("  " + line).formatted(Formatting.DARK_AQUA));
+        // Lines print as the blocks before them land, not all at once at the end:
+        // the point of a program build is watching it go up part by part. Lines do
+        // not count against the per-tick block budget.
+        Object item;
+        while (budget > 0 && (item = incoming.poll()) != null) {
+            if (item instanceof ChatLine line) {
+                say(line);
+            } else {
+                place((InferenceClient.PendingBlock) item);
+                budget--;
+            }
         }
         boolean drained = incoming.isEmpty();
         if (finished.get() && drained) {
@@ -190,6 +227,33 @@ public class GenerationSession {
             return true;
         }
         return false;
+    }
+
+    /**
+     * One narration line. "thinking..." goes to the action bar: it is a status, not
+     * a record, and a minute-long LLM call should not leave a wall of chat. Every
+     * other style is a chat line coloured by what it is.
+     */
+    private void say(ChatLine line) {
+        if (line.style().equals("think")) {
+            ServerPlayerEntity player = source.getPlayer();
+            if (player != null) {
+                player.sendMessage(Text.literal(line.text()).formatted(Formatting.GRAY,
+                        Formatting.ITALIC), true);
+                return;
+            }
+        }
+        Formatting color = switch (line.style()) {
+            case "stage" -> Formatting.GOLD;
+            case "build" -> Formatting.AQUA;
+            case "critique", "think" -> Formatting.GRAY;
+            case "dream" -> Formatting.LIGHT_PURPLE;
+            case "score" -> Formatting.GREEN;
+            case "warn" -> Formatting.YELLOW;
+            case "error" -> Formatting.RED;
+            default -> Formatting.DARK_AQUA;
+        };
+        feedback(Text.literal("  " + line.text()).formatted(color));
     }
 
     private void place(InferenceClient.PendingBlock b) {
