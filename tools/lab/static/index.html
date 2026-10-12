@@ -176,6 +176,7 @@ const statsEl = document.getElementById("stats");
 const treeEl = document.getElementById("tree");
 const dlg = document.getElementById("branchDlg");
 
+const CONTAINERS = new Set(["run", "outputs"]);   // mirrors tree.CONTAINER_KINDS
 const KINDS = ["good", "bad", "unsure", "unlabelled"];
 document.getElementById("bLabels").innerHTML = KINDS.map(k =>
   `<label><input type="checkbox" value="${k}" class="lbl"> ${k}</label>`).join("");
@@ -212,7 +213,9 @@ function sourceLine(node) {
 function renderNode(node, depth) {
   const kids = node.children || [];
   const open = openSet.has(node.id);
-  const branchable = node.kind !== "run";
+  // Container nodes (a run dir, `outputs/`) hold no builds of their own, so
+  // there is nothing there to curate or to branch.
+  const branchable = !CONTAINERS.has(node.kind);
   const rows = [`
     <div class="node${depth === 0 ? " is-root" : ""}" data-id="${esc(node.id)}"
          style="padding-left:${12 + depth * 17}px">

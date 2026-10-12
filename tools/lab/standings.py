@@ -198,8 +198,13 @@ def board(protocol_id: Optional[str] = None) -> Dict[str, Any]:
         out["history"] = sorted(slot["history"],
                                 key=lambda h: h.get("started") or "", reverse=True)
         out["recipe"] = catalog.arm_recipe(best["arm"], {"provenance": best["provenance"]})
-        why = proto.match_arm({"n": best.get("n")}, pro)
-        out["unranked_reason"] = why[0] if why else ""
+        # The provenance block carries the arm's `report`, which is where a
+        # generated arm records the split it TRAINED on. Passing only `n` here is
+        # what let a pair of arms trained on the protocol's own test builds sit on
+        # the ranked board with the evidence visible one field away.
+        why = proto.match_arm(
+            {"n": best.get("n"), "report": (best.get("provenance") or {}).get("report")}, pro)
+        out["unranked_reason"] = "; ".join(why)
         (provisional if why else ranked).append(out)
 
     ranked.sort(key=_sort_key)

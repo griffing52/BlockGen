@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import time
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 DEFAULT_PX = 252
@@ -114,6 +115,28 @@ def prerender(dataset_ids: Sequence[str], px: int = DEFAULT_PX, views: int = 1,
             "failed": failed, "elapsed_s": round(time.time() - t0, 1)}
 
 
+def _ids_under(runs: Sequence[str], catalog) -> List[str]:
+    """Dataset ids whose source file lives under one of `runs`.
+
+    Matching on the recorded source *path* rather than re-deriving the id keeps
+    this from becoming a second implementation of `_arm_id` -- the id-mangling
+    rule lives in exactly one place, and this asks the catalog what it already
+    decided.
+    """
+    roots = [Path(r).resolve() for r in runs]
+    out: List[str] = []
+    for d in catalog.list_datasets():
+        if not d.source:
+            continue
+        try:
+            src = Path(d.source).resolve()
+        except OSError:
+            continue
+        if any(src == r or r in src.parents for r in roots):
+            out.append(d.id)
+    return out
+
+
 def main() -> None:
     from tools.lab import catalog
 
@@ -128,10 +151,20 @@ def main() -> None:
                     help="1 fills the grid; 4 also fills the detail drawer")
     ap.add_argument("--workers", type=int, default=max(2, (mp.cpu_count() or 4) // 2))
     ap.add_argument("--limit", type=int, default=None, help="first N per dataset")
+    ap.add_argument("--runs", nargs="*", default=[],
+                    help="run directories; warms every dataset stored under each one "
+                         "(a bench run's examples_<dim>.npz, a training run's arm). "
+                         "Resolves the dataset id from the path so callers do not have "
+                         "to reproduce the id-mangling rule by hand.")
     args = ap.parse_args()
 
-    ids = args.datasets or [d.id for d in catalog.list_datasets()
-                            if d.kind in set(args.kinds)]
+    ids = list(args.datasets)
+    if args.runs:
+        ids += _ids_under(args.runs, catalog)
+        if not ids:
+            raise SystemExit(f"no datasets found under {args.runs}")
+    if not ids:
+        ids = [d.id for d in catalog.list_datasets() if d.kind in set(args.kinds)]
     report = prerender(ids, px=args.px, views=args.views,
                        workers=args.workers, limit=args.limit)
     print(f"\n[prerender] {report['done']:,} rendered, {report['skipped']:,} "

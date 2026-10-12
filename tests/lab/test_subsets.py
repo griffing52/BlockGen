@@ -262,3 +262,64 @@ def test_corpus_provenance_is_annotation_not_an_edge(lab):
     assert corpus.sources == {"grabcraft": 20, "3dcraft": 20}
     assert corpus.drops == {"too_flat": 3}
     assert all(c.kind == "subset" for c in corpus.children)
+
+
+# --- outputs grouping ------------------------------------------------------
+def _write_arm(root: Path, run: str, name: str, n: int) -> None:
+    """A minimal arm cache: `.npz` plus the manifest that makes it openable."""
+    d = root / "outputs" / run
+    d.mkdir(parents=True, exist_ok=True)
+    ids = np.empty(n, dtype=object)
+    data = np.empty(n, dtype=object)
+    for i in range(n):
+        g = np.ones((2, 2, 2), dtype=np.int16)
+        ids[i], data[i] = g, np.zeros_like(g)
+    np.savez_compressed(d / f"{name}.npz", block_ids=ids, block_data=data,
+                        sources=np.array([""] * n))
+    (d / f"{name}_manifest.json").write_text(json.dumps(
+        {"count": n, "items": [{"source_path": "", "corpus": "", "category": "",
+                                "title": "", "url": "", "dims": [2, 2, 2],
+                                "n_blocks": 8} for _ in range(n)]}))
+
+
+@pytest.fixture()
+def with_runs(lab):
+    _write_arm(lab, "bench_arms", "headline_32", 64)
+    _write_arm(lab, "run_20260101_010101_early", "a_32", 4)
+    _write_arm(lab, "run_20260202_020202_later", "b_32", 2)
+    _write_arm(lab, "run_20260202_020202_later", "c_32", 6)
+    catalog.forget()
+    return lab
+
+
+def test_run_dirs_group_under_one_outputs_node(with_runs):
+    """Thirteen run dirs at top level read as thirteen peers of a corpus."""
+    roots = {r.id: r for r in tree.build()}
+    assert "outputs" in roots
+    assert not any(r.kind == "run" for r in roots.values())
+    outputs = roots["outputs"]
+    assert outputs.n == 76                                  # 64 + 4 + 2 + 6
+    assert [c.name for c in outputs.children] == [
+        "bench_arms", "run_20260202_020202_later", "run_20260101_010101_early"]
+
+
+def test_bench_arms_leads_and_runs_are_newest_first(with_runs):
+    """Not size order: `bench_arms` is what the scorecards cite, and run dirs
+    are named `run_<YYYYMMDD_HHMMSS>_` so reverse name order is newest first."""
+    outputs = next(r for r in tree.build() if r.id == "outputs")
+    assert outputs.children[0].name == "bench_arms"
+    later, early = outputs.children[1], outputs.children[2]
+    assert later.name > early.name and later.n < early.n + 8   # not sorted by size
+
+
+def test_container_nodes_hold_no_builds_of_their_own(with_runs):
+    """`outputs/` and each run dir are directories, not collections -- counting
+    them would double every arm underneath."""
+    roots = tree.build()
+    t = tree.totals(roots)
+    assert t["builds"] == 40 + 76                # the toy corpus plus the arms
+    outputs = next(r for r in roots if r.id == "outputs")
+    assert {"run", "outputs"} <= set(tree.CONTAINER_KINDS)
+    assert outputs.n == sum(c.n for c in outputs.children)
+    # collections counts things with builds: the corpus and the four arms.
+    assert t["collections"] == 5

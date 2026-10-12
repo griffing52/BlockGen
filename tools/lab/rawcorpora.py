@@ -12,7 +12,9 @@ away — and "I see a lot of bad builds" is a question about the input.
 
 So this module indexes the **sources**: 6,560 GrabCraft artifacts, 2,537
 3D-Craft houses, 11,092 text2mc h5 grids, 28,235 unconverted text2mc `.schem`,
-and 10,963 legacy `.schematic` files. Nothing is curated, nothing is filtered,
+10,963 legacy `.schematic` files, and the world-crop corpus
+(`data/minecraft/worldcrop/<month>/crops/*.npz`, growing while the ingest
+runs; `docs/worldcrop.md`). Nothing is curated, nothing is filtered,
 and the junk is all still in there — which is the point.
 
 Everything is lazy
@@ -96,6 +98,9 @@ SPECS: Tuple[RawSpec, ...] = (
             "text2mc_schem"),
     RawSpec("legacy_raw", "Legacy schematics", MC / "raw", "**/*.schematic",
             "drifted crawl; filenames are not metadata", "legacy"),
+    RawSpec("worldcrop", "World crops (archive.org worlds)", MC / "worldcrop",
+            "2*/crops/*.npz", "auto-detected built components; masked to the component",
+            "worldcrop"),
 )
 
 BY_ID: Dict[str, RawSpec] = {s.id: s for s in SPECS}
@@ -233,12 +238,55 @@ def _read_legacy(path: Path) -> Optional[Structure]:
     return Structure.from_schematic_path(str(path))
 
 
+_WORLDCROP_TITLES: Dict[str, Dict[str, Tuple[str, str]]] = {}
+
+
+def _worldcrop_titles(month_dir: Path) -> Dict[str, Tuple[str, str]]:
+    """world_id -> (thread title, author) from the month's worlds.jsonl, read once."""
+    key = str(month_dir)
+    if key not in _WORLDCROP_TITLES:
+        table: Dict[str, Tuple[str, str]] = {}
+        wp = month_dir / "worlds.jsonl"
+        if wp.exists():
+            with open(wp) as f:
+                for line in f:
+                    try:
+                        r = json.loads(line)
+                    except Exception:
+                        continue
+                    e = r.get("entry") or {}
+                    if e.get("title"):
+                        table[r["world_id"]] = (e["title"], (e.get("meta") or {}).get("author", ""))
+        _WORLDCROP_TITLES[key] = table
+    return _WORLDCROP_TITLES[key]
+
+
+def _read_worldcrop(path: Path) -> Optional[Structure]:
+    """A `blockgen.data.worldcrop` crop: `ids`/`data` (XYZ, legacy) plus a component
+    `mask`. The mask is applied so the tile shows the detected build, not the
+    ground it was cut from; the npz name is `<month>_<sha>_<k>.npz`."""
+    z = np.load(path)
+    m = z["mask"].astype(np.int32)
+    stem = path.stem
+    month, _, rest = stem.partition("_")
+    world_id = f"{month}_{rest.rsplit('_', 1)[0]}"
+    title, author = _worldcrop_titles(path.parent.parent).get(world_id, ("", ""))
+    meta = {"corpus": "worldcrop", "month": month, "world_id": world_id}
+    if title:
+        meta["title"] = title
+        meta["author"] = author
+    return Structure(block_ids=z["ids"].astype(np.int32) * m,
+                     block_data=z["data"].astype(np.int32) * m,
+                     source_path=str(path), metadata=meta)
+
+
 _READERS: Dict[str, Callable[[Path], Optional[Structure]]] = {
     "grabcraft": _read_grabcraft,
     "3dcraft": _read_3dcraft,
     "text2mc_h5": _read_text2mc_h5,
     "text2mc_schem": _read_text2mc_schem,
     "legacy": _read_legacy,
+    "worldcrop": _read_worldcrop,
 }
 
 

@@ -234,10 +234,26 @@ def main() -> int:
             chosen = t["left_arm"] if r["chose"] == "left" else t["right_arm"]
             hit += (chosen == "real")
         rate = hit / tot if tot else float("nan")
+        if tot == 0:
+            # Every session is built with a fixed catch quota, so this is
+            # unreachable unless the export changed or the responses came from
+            # a different study. Keeping such a session silently is how an
+            # unscreened rater ends up in the analysis, so say so loudly.
+            print(f"[study] WARNING: a session has NO catch trials and cannot "
+                  f"be screened; it is kept, and that is a hole in the "
+                  f"exclusion rule -- check the export's --session-catch")
         (kept if (tot == 0 or rate >= args.catch_floor) else dropped).append(
             (s, rate, tot))
     print(f"[study] kept {len(kept)} sessions, dropped {len(dropped)} on catch trials"
           + (f" (rates {[round(r,2) for _, r, _ in dropped]})" if dropped else ""))
+    ntot = [t for _, _, t in kept + dropped]
+    if ntot and min(ntot) == max(ntot):
+        from math import comb
+        n = ntot[0]
+        need = max(1, int(-(-args.catch_floor * n // 1)))
+        false_keep = sum(comb(n, k) for k in range(need, n + 1)) / 2 ** n
+        print(f"[study] exclusion rule: {need}/{n} catch trials correct; "
+              f"a coin-flipping rater survives it {false_keep:.1%} of the time")
 
     # --- 2. pool to arm pairs ----------------------------------------------
     wins: Dict[Tuple[str, str], int] = defaultdict(int)

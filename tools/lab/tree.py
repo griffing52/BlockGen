@@ -9,7 +9,7 @@ are counted once, at the node, and a parent's total is its own.
 **Every edge here is recorded on disk, never inferred from a name.** That is the
 line that decides what belongs in the tree:
 
-- `raw:all` -> the five raw corpora: `rawcorpora.SPECS` defines the union.
+- `raw:all` -> the raw corpora: `rawcorpora.SPECS` defines the union.
 - corpus -> its splits: `splits.load_split` assigns the rows.
 - run directory -> its arms: the arm's `.npz` is inside the run dir.
 - subset -> its parent: written in the subset's own rule.
@@ -37,8 +37,19 @@ from typing import Any, Dict, List, Optional
 from tools.lab import catalog, subsets
 
 #: Order of the roots. Raw sources first because they are upstream of
-#: everything; runs last because there are many and they are the most churn.
-_ROOT_ORDER = {"raw": 0, "corpus": 1, "run": 2, "subset": 3}
+#: everything; `outputs/` last because it is the most churn -- one node per
+#: sampling run ever done, and most of them are one-build smoke tests.
+_ROOT_ORDER = {"raw": 0, "corpus": 1, "outputs": 2, "subset": 3, "run": 4}
+
+#: Nodes that hold no builds of their own, only children. They exist to give a
+#: directory a place in the tree, so they must not be counted as collections and
+#: cannot be branched -- there is nothing there to subset.
+CONTAINER_KINDS = frozenset({"run", "outputs"})
+
+#: The curated benchmark arms. First inside `outputs/` regardless of size: these
+#: are the ones the scorecards actually reference, and they are easy to lose
+#: among a dozen run dirs sorted by anything else.
+_BENCH_DIR = "bench_arms"
 
 
 @dataclass
@@ -161,18 +172,53 @@ def build() -> List[Node]:
         else:
             roots.append(node)
 
-    for group in groups.values():
-        # A run's total is the arms inside it -- the dir itself holds no builds.
-        group.n = sum(child.n for child in group.children)
-        group.children.sort(key=lambda c: (-c.n, c.id))
-        roots.append(group)
+    outputs = _outputs_root(groups, nodes)
+    if outputs is not None:
+        roots.append(outputs)
 
     _attach_subsets(nodes, roots, datasets)
 
     roots.sort(key=lambda node: (_ROOT_ORDER.get(node.kind, 9), -node.n, node.id))
     for node in roots:
+        if node.kind == "outputs":
+            continue                    # already ordered; see `_outputs_root`
         node.children.sort(key=lambda c: (_ROOT_ORDER.get(c.kind, 9), -c.n, c.id))
     return roots
+
+
+def _outputs_root(groups: Dict[str, Node], nodes: Dict[str, Node]) -> Optional[Node]:
+    """One `outputs/` node over every run directory.
+
+    Thirteen run dirs sitting at the top level alongside the corpora read as
+    thirteen peers of `houses_32`, when they are one directory's worth of
+    sampling runs -- and eight of them hold a single smoke build. Grouping them
+    puts the churn behind one twisty.
+
+    Ordering inside is deliberate and *not* by size: `bench_arms` first because
+    the scorecards cite it, then run dirs newest-first, which is plain reverse
+    name order because run dirs are named `run_<YYYYMMDD_HHMMSS>_<name>`.
+    """
+    if not groups:
+        return None
+    for group in groups.values():
+        # A run's total is the arms inside it -- the dir itself holds no builds.
+        group.n = sum(child.n for child in group.children)
+        group.children.sort(key=lambda c: (-c.n, c.id))
+        nodes[group.id] = group
+
+    ordered = sorted(groups.values(),
+                     key=lambda g: (g.name != _BENCH_DIR, _neg_name(g.name)))
+    root = Node(id="outputs", name="outputs/", kind="outputs",
+                n=sum(g.n for g in ordered), source="outputs",
+                note=f"{len(ordered)} run directories")
+    root.children = ordered
+    nodes[root.id] = root
+    return root
+
+
+def _neg_name(name: str) -> tuple:
+    """Sort key that reverses a string while leaving the rest of the key normal."""
+    return tuple(-ord(ch) for ch in name)
 
 
 def _attach_subsets(nodes: Dict[str, Node], roots: List[Node],
@@ -213,14 +259,14 @@ def totals(roots: List[Node]) -> dict:
     partition their corpus, `raw:all` is its five children, a subset is part of
     its parent -- so the number is builds on disk, not rows in a table.
     """
-    contained = {"split", "subset"}
+    contained = {"split", "subset"} | CONTAINER_KINDS
     total = 0
     n_nodes = 0
     for root in roots:
-        for node in root.walk():
+        for _node in root.walk():
             n_nodes += 1
-        total += root.n if root.kind != "run" else sum(c.n for c in root.children)
+        total += root.n
     leaves = sum(1 for root in roots for node in root.walk()
-                 if node.kind not in contained and node.kind != "run")
+                 if node.kind not in contained)
     return {"datasets": n_nodes, "roots": len(roots), "builds": total,
             "collections": leaves}

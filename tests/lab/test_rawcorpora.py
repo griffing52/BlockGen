@@ -39,7 +39,13 @@ def test_index_is_stable_across_rebuilds(spec_id):
     cached = rc.index(spec_id)
     assert cached == rc.index(spec_id)
     spec = rc.BY_ID[spec_id]
-    assert rc.build_index(spec, force=True) == cached, "rebuild changed the order"
+    rebuilt = rc.build_index(spec, force=True)
+    if set(rebuilt) != set(cached):
+        # The world-crop corpus grows while its ingest runs; a changed file set is
+        # not an ordering bug. Only an unchanged set must reproduce exactly.
+        pytest.skip(f"{spec_id} changed on disk between builds "
+                    f"({len(cached)} -> {len(rebuilt)} entries)")
+    assert rebuilt == cached, "rebuild changed the order"
 
 
 @requires_raw

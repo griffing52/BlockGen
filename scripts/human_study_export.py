@@ -47,17 +47,85 @@ from blockgen.utils.runs import new_run_dir
 CATCH = ("real", "uniform_random")
 
 
+_FLAT_DIR = None
+
+
+def _flat_textures():
+    """Texture library with no texture files, so every block renders solid."""
+    global _FLAT_DIR
+    import tempfile
+    from blockgen.renderer.textures import load_face_textures
+    if _FLAT_DIR is None:
+        _FLAT_DIR = tempfile.mkdtemp(prefix="blockgen-flat-")
+    return load_face_textures(pack_dir=_FLAT_DIR)
+
+
 def render_one(s: Structure, px: int, azim: float = 45.0, elev: float = 30.0
                ) -> np.ndarray:
     from blockgen.renderer.textured import render_structure
     from blockgen.renderer.textures import load_face_textures
 
+    # The metric's own texture pack. Raters must judge the same pictures the
+    # metric is given, or the study answers a different question than the one
+    # the paper asks: `features.render_views` renders textured, and a flat
+    # stimulus withholds material information the metric has.
+    #
+    # Mojang's guidelines permit non-commercial use of images of the game, and
+    # a research study is non-commercial; the release still ships no texture
+    # files (see the data-provenance appendix). Set BLOCKGEN_FLAT_STUDY=1 to
+    # fall back to flat colors.
+    #
+    # The texture-atlas artifact that inflates the metric's pixel differences
+    # (see the render-protocol appendix) shifts texels by a few levels and is
+    # far below a human threshold, so it cannot give a rater a cue the
+    # corruption did not.
+    import os
+    tex = (_flat_textures() if os.environ.get("BLOCKGEN_FLAT_STUDY") == "1"
+           else load_face_textures())
     img = render_structure(s, px=px, azim_deg=azim, elev_deg=elev, ortho=True,
-                           face_textures=load_face_textures())
+                           face_textures=tex)
     if img.shape[-1] == 4:
         a = img[..., 3:4].astype(np.float32) / 255.0
         img = (img[..., :3] * a + 255.0 * (1 - a)).astype(np.uint8)
     return np.ascontiguousarray(img[..., :3])
+
+
+def render_cutaway(s: Structure, px: int, azim: float = 45.0,
+                   elev: float = 30.0) -> np.ndarray:
+    """Render the build with its front quadrant removed, exposing the interior.
+
+    Why this exists
+    ---------------
+    The exterior render is the stimulus the metric sees, and \solidify leaves it
+    unchanged -- that is the whole finding. So asking raters to separate real
+    from solidified on exterior views cannot succeed, and a null there says
+    nothing about human perception; it says the *stimulus* omits the interior.
+
+    Running the same pair with and without a cutaway separates two claims that
+    the exterior-only design conflates:
+
+    * both at chance   -> the interior is absent from the views, so no encoder
+                          could recover it. The blindness is informational.
+    * cutaway succeeds -> the information is in the structure and returns as
+                          soon as the views show it. The blindness is localised
+                          to the view protocol, not to the encoder.
+
+    The cut is a fixed axis-aligned quadrant rather than a plane chosen per
+    build, so it cannot be tuned to flatter one arm.
+    """
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
+    ys, zs, xs = occ.shape
+    keep = np.ones_like(occ)
+    # Remove the near quadrant (low z, high x under our 45-degree camera), from
+    # the floor to the roof, so a sealed interior becomes visible.
+    keep[:, : zs // 2, xs // 2:] = False
+    bi = c.block_ids.copy()
+    bd = c.block_data.copy()
+    bi[~keep] = 0
+    bd[~keep] = 0
+    cut = Structure(block_ids=bi, block_data=bd)
+    return render_one(cut, px=px, azim=azim, elev=elev)
 
 
 def to_jpeg(img: np.ndarray, quality: int = 82) -> str:
@@ -74,14 +142,33 @@ def to_jpeg(img: np.ndarray, quality: int = 82) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _publishable_rows(corpus: str, which: str, source: str = "3dcraft"):
+    """Mask of split rows whose upstream terms permit showing them to raters."""
+    import json as _json
+    man = _json.loads((Path(__file__).resolve().parents[1] / "data" / "minecraft"
+                       / "cache" / f"{corpus}_manifest.json").read_text())
+    rows = list(splits.load_split(corpus).indices(which))
+    return [man["items"][r].get("corpus") == source for r in rows]
+
+
 def collect_arms(corpus: str, seed: int, per_arm: int, extra: Dict[str, str],
-                 ) -> Dict[str, List[Structure]]:
+                 cutaway: bool = False) -> Dict[str, List[Structure]]:
     split = splits.load_split(corpus, seed)
     train = splits.split_structures(split, "train")
     test = splits.split_structures(split, "test")
     rng = np.random.default_rng(seed)
 
-    pool = [s.crop_to_non_air() for s in test]
+    # Publishable-source filter. Only 3D-Craft builds may be shown to raters:
+    # GrabCraft's terms name pictures of blueprints as a prohibited form of
+    # distribution, and text2mc's builds come from PlanetMinecraft, whose terms
+    # prohibit redistributing site data. 3D-Craft ships from an MIT-licensed
+    # research release and its builds were commissioned as a research corpus.
+    keep = _publishable_rows(corpus, "test")
+    pool = [s.crop_to_non_air() for i, s in enumerate(test) if keep[i]]
+    if len(pool) < 2 * per_arm:
+        raise SystemExit(
+            f"only {len(pool)} publishable builds but {2 * per_arm} needed; "
+            f"lower --per-arm or widen the source filter")
     pool = [pool[i] for i in rng.permutation(len(pool))]
     arms: Dict[str, List[Structure]] = {"real": pool[:per_arm]}
 
@@ -90,8 +177,28 @@ def collect_arms(corpus: str, seed: int, per_arm: int, extra: Dict[str, str],
             continue                      # too close to `real` to be informative
         arms[name] = bl.build(name, per_arm, train[:600], seed=seed)
 
-    # A known-quality rung, so the study has an internal ordering to recover.
-    arms["real@solidify"] = [pb.solidify(s) for s in pool[per_arm:2 * per_arm]]
+    # PAIRED, and this is load-bearing. An earlier version drew the probe arms
+    # from `pool[per_arm:2*per_arm]` -- different builds from `real` -- so a
+    # rater comparing them was comparing two draws from a corpus whose per-build
+    # quality varies enormously (it contains cacti and bare platforms as well as
+    # houses). Any preference measured that way is build-quality variance, not
+    # detection of the corruption. The probe arms are now `real` itself, altered,
+    # so a preference means the rater saw the alteration.
+    arms["real@solidify"] = [pb.solidify(s) for s in arms["real"]]
+    arms["real@hollow"] = [pb.hollow(s) for s in arms["real"]]
+    if cutaway:
+        # The same builds again, to be rendered with a cutaway. Kept as separate
+        # arms so the exterior and cutaway conditions are separate comparisons
+        # and never pooled: they answer different questions.
+        #
+        # These MUST be `arms["real"]`, the identical builds the exterior arms
+        # use, or the positive control stops controlling: the cutaway condition
+        # would differ from the exterior condition in both the view and the
+        # buildings, and a difference between them could be either. An earlier
+        # version referred to an undefined `src` here, so passing --cutaway
+        # raised NameError and the control was never generated.
+        arms["real#cut"] = list(arms["real"])
+        arms["real@solidify#cut"] = [pb.solidify(s) for s in arms["real"]]
 
     from blockgen.curation.houses import load_structures_from_cache
     for name, path in extra.items():
@@ -106,14 +213,54 @@ def collect_arms(corpus: str, seed: int, per_arm: int, extra: Dict[str, str],
     return arms
 
 
+#: Pairs worth spending trials on, and why. Rater time is the scarce resource:
+#: with ~10 people at 40 trials each there are ~400 judgements to spread over
+#: 28 pairs, and spreading them evenly buys tight intervals on pairs nobody is
+#: asking about while leaving the decisive ones underpowered.
+#:
+#: Weights multiply the base `per_pair` allocation. Recorded here, in the
+#: instrument, so the allocation is part of the pre-registered design rather
+#: than something chosen once the data is in.
+PRIORITY_PAIRS: Dict[frozenset, Tuple[float, str]] = {
+    frozenset({"real", "real@solidify"}): (
+        3.0, "the interior pair on EXTERIOR views -- the stimulus the metric "
+             "sees. Chance here means the blindness is informational."),
+    frozenset({"real#cut", "real@solidify#cut"}): (
+        3.0, "the same pair with a cutaway -- the positive control. Success "
+             "here localises the blindness to the view protocol."),
+    frozenset({"patchwork", "gabled_house"}): (
+        3.0, "the pre-registered prediction -- both metrics rank patchwork "
+             "above gabled_house; we predict raters reverse it"),
+    frozenset({"canon_oriented", "llm_control"}): (
+        2.0, "the pair the metrics call a tie; human agreement on a tie is a "
+             "real validation"),
+    frozenset({"real", "uniform_random"}): (
+        2.5, "catch trials -- the pool a per-session quota is drawn from; see "
+             "`build_sessions` for why the quota is fixed rather than sampled"),
+}
+
+
+def pair_weight(a: str, b: str) -> float:
+    return PRIORITY_PAIRS.get(frozenset({a, b}), (1.0, ""))[0]
+
+
 def make_trials(arms: Dict[str, List[int]], rng: np.random.Generator,
                 per_pair: int) -> List[dict]:
-    """All unordered arm pairs, `per_pair` build pairs each, sides randomized."""
+    """All unordered arm pairs, sides randomized, `per_pair` x weight each.
+
+    Cutaway arms are only ever compared with other cutaway arms. Pitting a
+    cutaway render against an exterior one would make the *view* the most
+    salient difference on the screen, and raters would be sorting stimuli rather
+    than judging builds.
+    """
     names = list(arms)
     trials: List[dict] = []
     for i, a in enumerate(names):
         for b in names[i + 1:]:
-            for _ in range(per_pair):
+            if a.endswith("#cut") != b.endswith("#cut"):
+                continue
+            n = max(1, int(round(per_pair * pair_weight(a, b))))
+            for _ in range(n):
                 ia = int(rng.choice(arms[a]))
                 ib = int(rng.choice(arms[b]))
                 # Randomize which side each arm appears on, or raters develop a
@@ -130,6 +277,46 @@ def make_trials(arms: Dict[str, List[int]], rng: np.random.Generator,
     for k, t in enumerate(trials):
         t["id"] = k
     return trials
+
+
+def build_sessions(trials: List[dict], rng: np.random.Generator,
+                   n_sessions: int, session_trials: int, session_catch: int,
+                   ) -> List[List[int]]:
+    """Pre-build each participant's trial list, with a fixed catch quota.
+
+    The page used to draw its own uniform random subset of the trial pool. That
+    is wrong for a reason worth writing down, because it is silent: catch trials
+    are a small fraction of the pool, so a uniform subset gives a *random*
+    number of them per session -- with 6 catch trials in 198 and 40 shown, the
+    expected count is 1.2 and a large share of sessions get **zero**. The
+    pre-registered exclusion rule is "drop a session scoring below 75% on catch
+    trials", and that rule is uncomputable on a session with no catch trials
+    and meaningless on a session with one. The study would have run, produced
+    data, and been unanalysable under its own protocol.
+
+    So the quota is fixed here instead: every session gets exactly
+    `session_catch` catch trials at random positions, and the remaining slots
+    are drawn without replacement from the non-catch pool. The page is handed a
+    list of sessions and picks one; it never learns which trials are catch, so
+    the blind is unchanged.
+    """
+    catch = [t["id"] for t in trials if t["catch"]]
+    rest = [t["id"] for t in trials if not t["catch"]]
+    if len(catch) < session_catch:
+        raise SystemExit(
+            f"only {len(catch)} catch trials but {session_catch} wanted per "
+            f"session -- raise the catch pair's weight in PRIORITY_PAIRS")
+
+    n_rest = session_trials - session_catch
+    sessions: List[List[int]] = []
+    for _ in range(n_sessions):
+        picked = list(rng.choice(catch, size=session_catch, replace=False))
+        take = min(n_rest, len(rest))
+        picked += list(rng.choice(rest, size=take, replace=False))
+        picked = [int(x) for x in picked]
+        rng.shuffle(picked)
+        sessions.append(picked)
+    return sessions
 
 
 #: The rater-facing page. Kept here rather than in a sibling file so the study
@@ -275,7 +462,15 @@ function sample(arr, k) {
   }
   return a.slice(0, Math.min(k, a.length));
 }
-const trials = sample(STIM.trials, STIM.session_trials);
+/* Sessions are pre-built with a fixed catch-trial quota (see `build_sessions`);
+   the page only picks which one to run. `?s=<k>` pins a session so a specific
+   participant can be assigned one deterministically. */
+const byId = new Map(STIM.trials.map(t => [t.id, t]));
+const pinned = new URLSearchParams(location.search).get("s");
+const sIdx = pinned !== null && STIM.sessions[+pinned]
+  ? +pinned
+  : Math.floor(Math.random() * STIM.sessions.length);
+const trials = STIM.sessions[sIdx].map(i => byId.get(i)).filter(Boolean);
 const responses = [];
 let at = 0, shownAt = 0;
 
@@ -333,6 +528,23 @@ const record = () => ({
 
 async function submit() {
   const payload = record();
+  /* Preferred path: the page is being served by scripts/human_study_serve.py,
+     which writes each submission straight to disk. Tried first because the
+     copy-paste fallback is where a multi-rater study actually loses data --
+     JSON mangled by a mail client, or a rater who simply closes the tab. */
+  if (window.__SUBMIT_URL__) {
+    try {
+      const r = await fetch(window.__SUBMIT_URL__, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      if (r.ok) {
+        $("status").textContent =
+          `Saved. ${responses.length} responses recorded. You can close this tab.`;
+        return;
+      }
+    } catch (e) { /* fall through to the other paths */ }
+  }
   let db = null;
   try { db = await claude.use("db"); } catch (e) { db = null; }
   if (!db) { offerManual(payload, "This page can't save responses here."); return; }
@@ -406,6 +618,7 @@ def build_page(payload: dict) -> str:
 
     blind = {
         "images": payload["images"],
+        "sessions": payload["sessions"],
         "session_trials": payload["session_trials"],
         "meta": {"seed": payload["meta"]["seed"],
                  "git_sha": payload["meta"]["git_sha"]},
@@ -428,20 +641,29 @@ def main() -> int:
                     help="extra arms as name:path.npz")
     ap.add_argument("--session-trials", type=int, default=40,
                     help="how many trials one participant is shown")
+    ap.add_argument("--cutaway", action="store_true",
+                    help="add the cutaway condition for the interior pair "
+                         "(see render_cutaway for why it is needed)")
+    ap.add_argument("--session-catch", type=int, default=4,
+                    help="catch trials guaranteed in every session")
+    ap.add_argument("--sessions", type=int, default=24,
+                    help="how many participant sessions to pre-build")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     extra = dict(a.split(":", 1) for a in args.arms)
-    arms = collect_arms(args.corpus, args.seed, args.per_arm, extra)
+    arms = collect_arms(args.corpus, args.seed, args.per_arm, extra,
+                        cutaway=args.cutaway)
     print(f"[study] {len(arms)} arms: {', '.join(arms)}", flush=True)
 
     images: List[str] = []
     index: Dict[str, List[int]] = {}
     for name, structs in arms.items():
         index[name] = []
+        render = render_cutaway if name.endswith("#cut") else render_one
         for s in structs:
             index[name].append(len(images))
-            images.append(to_jpeg(render_one(s, args.px)))
+            images.append(to_jpeg(render(s, args.px)))
         print(f"  rendered {name}: {len(index[name])}", flush=True)
 
     rng = np.random.default_rng(args.seed)
@@ -449,16 +671,35 @@ def main() -> int:
     n_catch = sum(t["catch"] for t in trials)
     print(f"[study] {len(trials)} trials over {len(arms)*(len(arms)-1)//2} pairs "
           f"({n_catch} catch)", flush=True)
+    from collections import Counter
+    per = Counter(frozenset({t["left_arm"], t["right_arm"]}) for t in trials)
+    print("[study] priority pairs:", flush=True)
+    for key, (w, why) in PRIORITY_PAIRS.items():
+        a, b = sorted(key)
+        if not (set(key) <= set(index)):
+            continue          # that condition was not built for this export
+        got = per.get(key, 0)
+        mark = "  " if got else "!!"
+        print(f"  {mark} {a} vs {b}: {got} trials (weight {w}) -- {why}",
+              flush=True)
 
     run_dir = Path(args.out) if args.out else new_run_dir("human_study")
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    sessions = build_sessions(trials, rng, args.sessions, args.session_trials,
+                              args.session_catch)
+    print(f"[study] {len(sessions)} pre-built sessions of "
+          f"{args.session_trials} trials, {args.session_catch} catch each",
+          flush=True)
+
     payload = {
         "images": images, "trials": trials, "index": index,
+        "sessions": sessions,
         "session_trials": args.session_trials,
         "meta": {"corpus": args.corpus, "seed": args.seed, "px": args.px,
                  "per_arm": args.per_arm, "per_pair": args.per_pair,
-                 "catch_pair": list(CATCH), "git_sha": sc.git_sha()},
+                 "catch_pair": list(CATCH), "session_catch": args.session_catch,
+                 "n_sessions": args.sessions, "git_sha": sc.git_sha()},
     }
     (run_dir / "stimuli.json").write_text(json.dumps(payload))
     # The arm labels are the answer key and must not travel with the stimuli a

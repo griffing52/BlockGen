@@ -40,13 +40,21 @@ read off disk, never guessed from a name.
 |---|---|
 | `raw:all` → the five raw corpora | `rawcorpora.SPECS` defines the union |
 | corpus → `train`/`val`/`test` | `splits.load_split` assigns the rows |
-| run directory → its arms | the arm's `.npz` sits inside the run dir |
+| `outputs/` → run directory → its arms | the arm's `.npz` sits inside the run dir |
 | any node → a saved branch | the branch's own rule |
 
 This is not cosmetic. The flat list it replaced showed `raw:all` beside the five
 corpora it *is*, and each split beside the corpus it partitions, so its total
 counted ~96,000 builds as ~178,000. In the tree a node's builds are counted once,
 at the node.
+
+`outputs/` and each run directory are **containers** — they hold no builds of
+their own, only children, so they cannot be curated or branched and are not
+counted as collections. Every sampling run ever done lives under `outputs/`, and
+most are one-build smoke tests; at top level they read as peers of `houses_32`,
+which they are not. Inside, `bench_arms` leads because the scorecards cite it,
+then run dirs newest-first — plain reverse name order, since they are named
+`run_<YYYYMMDD_HHMMSS>_<name>`.
 
 **Provenance is an annotation, not an edge.** `houses_32` draws 1,360 builds
 from GrabCraft, 1,267 from 3D-Craft and 34 from text2mc — known exactly, per
@@ -466,6 +474,7 @@ build) and prints per-corpus distinct counts plus pairwise sharing.
 ```bash
 python -m tools.lab                     # http://127.0.0.1:8765
 python -m tools.lab --port 8790         # somewhere else
+python -m tools.lab --port 0            # any free port, chosen by the OS
 python -m tools.lab --open              # ...and launch a browser
 python -m tools.lab --host 0.0.0.0      # see the warning below
 ```
@@ -473,6 +482,33 @@ python -m tools.lab --host 0.0.0.0      # see the warning below
 `--host` defaults to loopback and should usually stay there: **there is no
 authentication on this thing**, and it will happily serve, label and delete
 subsets for anyone who can reach the port.
+
+### Why the port is fixed
+
+8765 is a constant, not an auto-assigned port, because it is quoted in places
+that cannot follow it: the bench prints `view: http://127.0.0.1:8765/...` at the
+end of every run (`runner.LAB_PORT`), and this documentation prints it too. A
+port that moved per launch would falsify a link the reader is being told to
+click, and would break every bookmark.
+
+So "port in use" almost always means *you already have BlockLab open*, not *pick
+another port* — and it is treated that way:
+
+```
+$ python -m tools.lab
+[lab] BlockLab is already running on http://127.0.0.1:8765/ — using that one (nothing new started).
+[lab] to run a second instance anyway: python -m tools.lab --port 0
+```
+
+That exits 0, starts nothing, and honours `--open` against the server that is
+already there. It only says this when the thing holding the port answers
+`/api/datasets` as a BlockLab; anything else gets the plain bind error and a
+non-zero exit.
+
+`--port 0` is the escape hatch when you genuinely want a second instance — a
+throwaway one against a different checkout, say. Both instances share
+`outputs/lab/lab.db`, which SQLite handles, but two windows labelling the same
+corpus is rarely what anyone means to do.
 
 If `--open` prints `could not open a browser`, the server is still up — open the
 printed URL yourself. In a VS Code terminal `BROWSER` points at a helper that
