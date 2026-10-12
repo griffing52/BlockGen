@@ -1,0 +1,71 @@
+% \section{Related Work}
+% \label{sec:related}
+
+% \paragraph{Render-based evaluation of discrete 3D generation.}
+% Recent systems for generating discrete 3D structures—including text-to-brick systems, voxel generators, and Minecraft world models—typically evaluate their outputs through rendered views. For example, Dream-Cubed \citep{merino2026dreamcubed} evaluates generated Minecraft worlds using render-based FID, while text-to-brick systems use rendered or structural representations to assess generated assemblies \citep{pun2025brickgpt,kulits2026bricknet,ni2026brickanything}. Our work does not introduce another generator or compare generation architectures; instead, we audit this shared evaluation assumption. In particular, we ask whether exterior renders expose all structural properties that an evaluation metric is expected to measure. This distinction is important because a generator can differ substantially in its hidden 3D structure while producing the same evaluated views.
+
+% \paragraph{Alternatives to image-space evaluation.}
+% A natural alternative to rendering is to evaluate generated geometry directly. Point-cloud methods compare shape distributions in geometric space \citep{achlioptas2018pointclouds}, avoiding some of the information loss introduced by projection to images. However, changing the representation does not by itself guarantee sensitivity to the property of interest. Luan et al.~\citep{luan2026rendermetric} similarly identify limitations of render-based evaluation and propose surface-point sampling to improve view coverage. Their representation remains restricted to the observed boundary: in our setting, a structure and its interior-filled counterpart have identical exterior surfaces, and therefore receive identical surface-point representations. Thus, this approach addresses incomplete \emph{view coverage} but not blindness to geometry that does not alter the exterior surface. Our geometric evaluation instead operates on volumetric structure, allowing it to detect the interior changes introduced by our controlled corruption.
+
+% \paragraph{Auditing generative-model metrics.}
+% Several works have argued that generative-model metrics should be tested for desirable properties rather than treated as universally valid measures of quality. Borji~\citep{borji2019prosandcons} identifies sensitivity to meaningful distortions and invariance to irrelevant transformations as desirable metric properties, while Chong and Forsyth~\citep{chong2020unbiasedfid} analyze the dependence of FID on sample size. O'Bray et al.~\citep{obray2022graphmetrics} provide a closer methodological precedent by applying controlled perturbations of increasing severity and testing whether a metric responds monotonically; however, they use these tests to select metric hyperparameters. We instead use controlled structural corruptions as a precondition for evaluation: a metric must demonstrate sensitivity to relevant structural changes and invariance to irrelevant ones before being used to compare generators. Herve et al.~\citep{herve2021pcgmetrics} provide a closer in-domain example of metric evaluation for procedural content generation, while Caytuiro et al.~\citep{caytuiro2025symmetry} audit whether generated structures exhibit a particular structural property. Our focus differs in that we audit the \emph{observation and representation pipeline itself}: specifically, whether an evaluation protocol can detect changes to 3D geometry that are invisible in its input views.
+
+% \paragraph{Memorization and human evaluation.}
+% Other work addresses complementary problems that arise when evaluating generative systems. Memorization can produce deceptively strong realism scores \citep{carlini2023extracting,bai2021gamedfid}, motivating nearest-neighbor retrieval and held-out comparisons for 3D generation \citep{pu2025memorization,meehan2020datacopying}. Human judgments provide another form of validation; GDMC \citep{salge2018gdmc}, for example, evaluates individual generated settlements against human-defined criteria. We use memorization checks and human judgments as complementary safeguards rather than as alternatives to our structural audit. In particular, human evaluation allows us to test whether the structural information missed by automated metrics is also unavailable to observers given the same exterior views.
+
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Render-based evaluation of discrete 3D generation.} Recent systems for
+generating discrete {3D} structure evaluate their outputs through rendered views,
+whether they emit brick assemblies
+\citep{pun2025brickgpt,legoace,kulits2026bricknet,ni2026brickanything}, voxels
+\citep{chen2019voxelcnn,jung2025scaffold,awiszus2021worldgan,earle2024dreamcraft} or
+whole Minecraft worlds \citep{merino2026dreamcubed}. Dream-Cubed
+\citep{merino2026dreamcubed} is the largest of these. It scores generated worlds with a
+render-based FID, names the limitation we measure in its own limitations section, and
+reports raters agreeing with that FID only $54.3\%$ of the time. FID
+\citep{heusel2017fid} and KID \citep{binkowski2018kid} are the default two-sample
+statistics. At our sample sizes the unbiased MMD estimator \citep{gretton2012mmd} is
+preferable, and
+\S\ref{sec:method} shows that a widely copied biased variant ranks by sample
+size instead. Precision and recall \citep{kynkaanniemi2019precision}, density
+and coverage \citep{naeem2020prdc} and CMMD \citep{jayasumana2024cmmd} vary the
+statistic and the features but stay in image space, so all inherit the blindness
+we measure. 
+
+%TL;DR of paragraph: siblings that generate discrete 3D structure all share the evaluation protocol we audit, and we propose no generator.
+% Text-to-brick systems run language models over brick lines with a physics check
+% \citep{pun2025brickgpt}, over connectivity programs \citep{kulits2026bricknet}
+% and over tokenized attachment relations \citep{ni2026brickanything}. Voxel
+% models predict the next block in placement order \citep{chen2019voxelcnn}, apply
+% masked discrete diffusion \citep{jung2025scaffold}, fit a {3D} SinGAN
+% \citep{awiszus2021worldgan} or optimize a quantized neural field per prompt
+% \citep{earle2024dreamcraft}. Dream-Cubed \citep{merino2026dreamcubed} evaluates
+% a controllable Minecraft world model with a render-based FID, names the limitation we
+% measure in its own limitations section, and reports raters agreeing with that FID only
+% $54.3\%$ of the time. 
+
+%TL;DR of paragraph: the statistics we audit come from image generation, our geometric metric joins the point-cloud lineage, and the closest critique of rendering proposes a fix that is blind on the same axis.
+
+\paragraph{Alternatives to image-space evaluation.}
+A natural alternative to rendering is to evaluate generated geometry directly. Point-cloud methods compare shape distributions in geometric space \citep{achlioptas2018pointclouds}, avoiding some of the information loss introduced by projection to images. However, changing the representation does not by itself guarantee sensitivity to the property of interest. \citet{luan2026rendermetric} similarly identify limitations of render-based evaluation and propose surface-point sampling to improve view coverage. Their representation remains restricted to the observed boundary: in our setting, a structure and its interior-filled counterpart have identical exterior surfaces, and therefore receive identical surface-point representations. Thus, this approach addresses incomplete \emph{view coverage} but not blindness to geometry that does not alter the exterior surface. Our geometric evaluation instead operates on volumetric structure, allowing it to detect the interior changes introduced by our controlled corruption.
+
+%TL;DR of paragraph: auditing metrics with graded perturbations is established, and we differ by making the audit blocking rather than a tuning step.
+\paragraph{Auditing generative-model metrics.} Several works have argued that generative-model metrics should be tested for desirable properties rather than treated as universally valid measures of quality. \citet{borji2019prosandcons} identifies sensitivity to meaningful distortions and invariance to irrelevant transformations as desirable metric properties, while \citet{chong2020unbiasedfid} analyze the dependence of FID on sample size. 
+\citet{obray2022graphmetrics} provide a closer methdological precendent by applying controlled perturbations of increasing severity and testing whether a metric responds monotonically. They use these, however, to select metric hyperparameters where we, instead, use controlled structural corruptions as a precondition for evaluation. We examine how a metric must demonstrate sensitivity to relevant structural changes and invariance to irrelevant ones before being used to compare generators. \citet{herve2021pcgmetrics} provide a closer in-domain example of metric evaluation for procedural content generation, while \citet{caytuiro2025symmetry} audit whether generated structures exhibit a particular structural property. Our focus differs in that we audit the \emph{observation and representation pipeline itself}: specifically, whether an evaluation protocol can detect changes to 3D geometry that are invisible in its input views
+
+
+%TL;DR of paragraph: memorization is a documented way to win a realism leaderboard, and we adopt the retrieval protocol as a disqualification.
+\paragraph{Memorization and human evaluation.} Other work addresses complementary problems that arise when evaluating generative systems. Memorization can produce deceptively strong realism scores \citep{carlini2023extracting,bai2021gamedfid}, motivating nearest-neighbor retrieval and held-out comparisons for 3D generation \citep{pu2025memorization,meehan2020datacopying}. Human judgments provide another form of validation; GDMC \citep{salge2018gdmc}, for example, evaluates individual generated settlements against human-defined criteria. We use memorization checks and human judgments as complementary safeguards rather than as alternatives to our structural audit. In particular, human evaluation allows us to test whether the structural information missed by automated metrics is also unavailable to observers given the same exterior views.
+
+%  For {3D} shapes it is
+% formalized with nearest-neighbor retrieval against a held-out baseline
+% \citep{pu2025memorization,meehan2020datacopying}, which we adopt as a
+% disqualification gate rather than a reported column. GDMC
+% \citep{salge2018gdmc} scores settlements one build at a time against a rubric,
+% whereas our metrics score \emph{distributions}. We therefore pool per-build
+% two-alternative forced-choice (2AFC) judgments to the arm pair with a
+% Bradley--Terry model \citep{bradley1952rank}, following current meta-evaluation
+% practice \citep{deutsch2021statistical,otani2023verifiable}.

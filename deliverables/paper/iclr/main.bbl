@@ -1,0 +1,259 @@
+\begin{thebibliography}{33}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Achlioptas et~al.(2018)Achlioptas, Diamanti, Mitliagkas, and
+  Guibas]{achlioptas2018pointclouds}
+Panos Achlioptas, Olga Diamanti, Ioannis Mitliagkas, and Leonidas Guibas.
+\newblock Learning representations and generative models for {3D} point clouds.
+\newblock In \emph{International Conference on Machine Learning (ICML)}, 2018.
+
+\bibitem[Awiszus et~al.(2021)Awiszus, Schubert, and
+  Rosenhahn]{awiszus2021worldgan}
+Maren Awiszus, Frederik Schubert, and Bodo Rosenhahn.
+\newblock World-{GAN}: a generative model for minecraft worlds.
+\newblock In \emph{IEEE Conference on Games (CoG)}, 2021.
+
+\bibitem[Bai et~al.(2021)Bai, Lin, Raffel, and Kan]{bai2021gamedfid}
+Ching-Yuan Bai, Hsuan-Tien Lin, Colin Raffel, and Wendy Chih-wen Kan.
+\newblock On training sample memorization: Lessons from benchmarking generative
+  modeling with a large-scale competition.
+\newblock In \emph{ACM SIGKDD Conference on Knowledge Discovery and Data Mining
+  (KDD)}, pp.\  2534--2542, 2021.
+\newblock Competitors gamed FID by memorizing when prize money was at stake --
+  the empirical case for a memorization gate.
+
+\bibitem[Bi{\'n}kowski et~al.(2018)Bi{\'n}kowski, Sutherland, Arbel, and
+  Gretton]{binkowski2018kid}
+Miko{\l}aj Bi{\'n}kowski, Danica~J. Sutherland, Michael Arbel, and Arthur
+  Gretton.
+\newblock Demystifying {MMD} {GAN}s.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2018.
+
+\bibitem[Borji(2019)]{borji2019prosandcons}
+Ali Borji.
+\newblock Pros and cons of {GAN} evaluation measures.
+\newblock \emph{Computer Vision and Image Understanding}, 179:\penalty0 41--65,
+  2019.
+\newblock Lists desiderata including sensitivity to distortions and invariance
+  to semantically meaningless transforms -- our ordering and invariance gates.
+  We operationalize; cite before a reviewer does.
+
+\bibitem[Bradley \& Terry(1952)Bradley and Terry]{bradley1952rank}
+Ralph~Allan Bradley and Milton~E. Terry.
+\newblock Rank analysis of incomplete block designs: I. the method of paired
+  comparisons.
+\newblock \emph{Biometrika}, 39\penalty0 (3/4):\penalty0 324--345, 1952.
+
+\bibitem[Carlini et~al.(2023)Carlini, Hayes, Nasr,
+  et~al.]{carlini2023extracting}
+Nicholas Carlini, Jamie Hayes, Milad Nasr, et~al.
+\newblock Extracting training data from diffusion models.
+\newblock In \emph{USENIX Security Symposium}, 2023.
+
+\bibitem[Caytuiro \& Sipiran(2025)Caytuiro and Sipiran]{caytuiro2025symmetry}
+Nicolas Caytuiro and Ivan Sipiran.
+\newblock Symmetry matters: Auditing and symmetrizing {3D} generative models.
+\newblock \emph{arXiv preprint arXiv:2512.18953}, 2025.
+\newblock Same rhetorical structure one property over; distinguish: symmetry is
+  visible from outside, interiors are not.
+
+\bibitem[Chen et~al.(2019)Chen, Guo, Xiao, Xie, et~al.]{chen2019voxelcnn}
+Zhuoyuan Chen, Demi Guo, Tong Xiao, Saining Xie, et~al.
+\newblock Order-aware generative modeling using the {3D}-craft dataset.
+\newblock In \emph{IEEE/CVF International Conference on Computer Vision
+  (ICCV)}, pp.\  1764--1773, 2019.
+
+\bibitem[Chong \& Forsyth(2020)Chong and Forsyth]{chong2020unbiasedfid}
+Min~Jin Chong and David Forsyth.
+\newblock Effectively unbiased {FID} and inception score and where to find
+  them.
+\newblock In \emph{IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, pp.\  6069--6078, 2020.
+\newblock The citation for the n-stability rung.
+
+\bibitem[Earle et~al.(2024)Earle, Kokkinos, Nie, Togelius, and
+  Raileanu]{earle2024dreamcraft}
+Sam Earle, Filippos Kokkinos, Yuhe Nie, Julian Togelius, and Roberta Raileanu.
+\newblock {DreamCraft}: Text-guided generation of functional {3D} environments
+  in minecraft.
+\newblock In \emph{Foundations of Digital Games (FDG)}, 2024.
+
+\bibitem[Gray et~al.(2019)Gray, Srinet, Jernite, et~al.]{gray2019craftassist}
+Jonathan Gray, Kavya Srinet, Yacine Jernite, et~al.
+\newblock {CraftAssist}: A framework for dialogue-enabled interactive agents.
+\newblock \emph{arXiv preprint arXiv:1907.08584}, 2019.
+
+\bibitem[Gretton et~al.(2012)Gretton, Borgwardt, Rasch, Sch{\"o}lkopf, and
+  Smola]{gretton2012mmd}
+Arthur Gretton, Karsten~M. Borgwardt, Malte~J. Rasch, Bernhard Sch{\"o}lkopf,
+  and Alexander Smola.
+\newblock A kernel two-sample test.
+\newblock \emph{Journal of Machine Learning Research}, 13:\penalty0 723--773,
+  2012.
+
+\bibitem[Herv{\'e} \& Salge(2021)Herv{\'e} and Salge]{herve2021pcgmetrics}
+Jean-Baptiste Herv{\'e} and Christoph Salge.
+\newblock Comparing {PCG} metrics with human evaluation in minecraft settlement
+  generation.
+\newblock In \emph{Foundations of Digital Games (FDG) Workshop on Procedural
+  Content Generation}, 2021.
+\newblock The only prior Minecraft meta-evaluation: correlates PCG metrics
+  against GDMC jury scores.
+
+\bibitem[Heusel et~al.(2017)Heusel, Ramsauer, Unterthiner, Nessler, and
+  Hochreiter]{heusel2017fid}
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp
+  Hochreiter.
+\newblock {GAN}s trained by a two time-scale update rule converge to a local
+  nash equilibrium.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2017.
+
+\bibitem[Holm(1979)]{holm1979simple}
+Sture Holm.
+\newblock A simple sequentially rejective multiple test procedure.
+\newblock \emph{Scandinavian Journal of Statistics}, 6\penalty0 (2):\penalty0
+  65--70, 1979.
+
+\bibitem[Jayasumana et~al.(2024)Jayasumana, Ramalingam, Veit, Glasner,
+  Chakrabarti, and Kumar]{jayasumana2024cmmd}
+Sadeep Jayasumana, Srikumar Ramalingam, Andreas Veit, Daniel Glasner, Ayan
+  Chakrabarti, and Sanjiv Kumar.
+\newblock Rethinking {FID}: Towards a better evaluation metric for image
+  generation.
+\newblock In \emph{IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, 2024.
+
+\bibitem[Jung(2025)]{jung2025scaffold}
+Justin Jung.
+\newblock Scaffold diffusion: Sparse multi-category voxel structure generation
+  with discrete diffusion.
+\newblock In \emph{NeurIPS Workshop on Structured Probabilistic Inference and
+  Generative Modeling}, 2025.
+
+\bibitem[Kulits \& Schmid(2026)Kulits and Schmid]{kulits2026bricknet}
+Peter Kulits and Cordelia Schmid.
+\newblock {BrickNet}: Graph-backed generative brick assembly.
+\newblock In \emph{IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, pp.\  39252--39261, 2026.
+
+\bibitem[Kynk{\"a}{\"a}nniemi et~al.(2019)Kynk{\"a}{\"a}nniemi, Karras, Laine,
+  Lehtinen, and Aila]{kynkaanniemi2019precision}
+Tuomas Kynk{\"a}{\"a}nniemi, Tero Karras, Samuli Laine, Jaakko Lehtinen, and
+  Timo Aila.
+\newblock Improved precision and recall metric for assessing generative models.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2019.
+
+\bibitem[Luan et~al.(2026)Luan, Feng, Zhu, Nuney, Liu, Gong, Doermann, Qiao,
+  and Yuan]{luan2026rendermetric}
+Tianyu Luan, Xuelu Feng, Zixin Zhu, Phani Nuney, Sheng Liu, Xuan Gong, David
+  Doermann, Chunming Qiao, and Junsong Yuan.
+\newblock Textured geometry evaluation: Perceptual {3D} textured shape metric
+  via {3D} latent-geometry network.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial
+  Intelligence (AAAI)}, volume~40, pp.\  7653--7661, 2026.
+\newblock Method: TGE. Nearest render-metric critique; complaint is view
+  coverage (``incomplete structural coverage and sensitivity to viewpoint
+  choices''), and its surface-point replacement is ALSO interior-blind, which
+  supports our argument.
+
+\bibitem[Meehan et~al.(2020)Meehan, Chaudhuri, and
+  Dasgupta]{meehan2020datacopying}
+Casey Meehan, Kamalika Chaudhuri, and Sanjoy Dasgupta.
+\newblock A three sample hypothesis test for evaluating generative models.
+\newblock In \emph{International Conference on Artificial Intelligence and
+  Statistics (AISTATS)}, pp.\  3546--3556, 2020.
+\newblock Statistical basis for a memorization gate. Title is the AISTATS
+  version of record (PMLR 108); the arXiv preprint is titled ``A Non-Parametric
+  Test to Detect Data-Copying in Generative Models'' -- do not ``correct'' this
+  back.
+
+\bibitem[Merino et~al.(2026)Merino, Earle, Iwai, Togelius, and
+  Cetin]{merino2026dreamcubed}
+Tim Merino, Sam Earle, Ryunosuke Iwai, Julian Togelius, and Edoardo Cetin.
+\newblock Dream-cubed: Controllable generative modeling in minecraft by
+  training on billions of cubes.
+\newblock \emph{arXiv preprint arXiv:2604.22847}, 2026.
+\newblock Reports a render-based FID adapted per biome; does not name it
+  ``Render-FID''.
+
+\bibitem[Naeem et~al.(2020)Naeem, Oh, Uh, Choi, and Yoo]{naeem2020prdc}
+Muhammad~Ferjad Naeem, Seong~Joon Oh, Youngjung Uh, Yunjey Choi, and Jaejun
+  Yoo.
+\newblock Reliable fidelity and diversity metrics for generative models.
+\newblock In \emph{International Conference on Machine Learning (ICML)}, 2020.
+
+\bibitem[Ni et~al.(2026)Ni, Yan, Guo, and Wang]{ni2026brickanything}
+Zhengyang Ni, Feng Yan, Yu~Guo, and Fei Wang.
+\newblock {BrickAnything}: Geometry-conditioned buildable brick generation with
+  structure-aware tokenization.
+\newblock \emph{arXiv preprint arXiv:2605.26182}, 2026.
+
+\bibitem[O'Bray et~al.(2022)O'Bray, Horn, Rieck, and
+  Borgwardt]{obray2022graphmetrics}
+Leslie O'Bray, Max Horn, Bastian Rieck, and Karsten Borgwardt.
+\newblock Evaluation metrics for graph generative models: Problems, pitfalls,
+  and practical solutions.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2022.
+\newblock Spotlight. Closest methodological precedent: graded perturbations
+  with known semantics, monotonicity as a criterion. Distinguish: selects
+  hyperparameters, never disqualifies; no invariance axis; no n-stability
+  criterion.
+
+\bibitem[Oquab et~al.(2024)Oquab, Darcet, Moutakanni, et~al.]{oquab2024dinov2}
+Maxime Oquab, Timoth{\'e}e Darcet, Th{\'e}o Moutakanni, et~al.
+\newblock {DINOv2}: Learning robust visual features without supervision.
+\newblock \emph{Transactions on Machine Learning Research (TMLR)}, 2024.
+
+\bibitem[Pu et~al.(2025)Pu, Zeng, Zhou, Wang, and Liu]{pu2025memorization}
+Shu Pu, Boya Zeng, Kaichen Zhou, Mengyu Wang, and Zhuang Liu.
+\newblock Memorization in {3D} shape generation: An empirical study.
+\newblock \emph{arXiv preprint arXiv:2512.23628}, 2025.
+\newblock Source of the NN-retrieval + Mann-Whitney memorization protocol.
+
+\bibitem[Pun et~al.(2025)Pun, Deng, Liu, Ramanan, Liu, and
+  Zhu]{pun2025brickgpt}
+Ava Pun, Kangle Deng, Ruixuan Liu, Deva Ramanan, Changliu Liu, and Jun-Yan Zhu.
+\newblock Generating physically stable and buildable brick structures from
+  text.
+\newblock In \emph{IEEE/CVF International Conference on Computer Vision
+  (ICCV)}, pp.\  14798--14809, 2025.
+\newblock Best Paper (Marr Prize). Method: BrickGPT; dataset: StableText2Brick.
+
+\bibitem[Salge et~al.(2018)Salge, Green, Canaan, and Togelius]{salge2018gdmc}
+Christoph Salge, Michael~Cerny Green, Rodrigo Canaan, and Julian Togelius.
+\newblock Generative design in minecraft ({GDMC}), settlement generation
+  competition.
+\newblock In \emph{Foundations of Digital Games (FDG)}, 2018.
+
+\bibitem[Sudhakaran et~al.(2023)Sudhakaran, Gonz{\'a}lez-Duque, Glanois,
+  et~al.]{sudhakaran2023mariogpt}
+Shyam Sudhakaran, Miguel Gonz{\'a}lez-Duque, Claire Glanois, et~al.
+\newblock {MarioGPT}: Open-ended text2level generation through large language
+  models.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2023.
+
+\bibitem[Wang et~al.(2024)Wang, Lorraine, Wang, et~al.]{wang2024llamamesh}
+Zhengyi Wang, Jonathan Lorraine, Yikai Wang, et~al.
+\newblock {LLaMA-Mesh}: Unifying {3D} mesh generation with language models.
+\newblock \emph{arXiv preprint arXiv:2411.09595}, 2024.
+
+\bibitem[Xu et~al.(2025)Xu, Zhang, Wu, Zheng, Liu, Tang, Yang, Liang, Liu, Guo,
+  Cao, and Jin]{legoace}
+Hao Xu, Yuqing Zhang, Yiqian Wu, Xinyang Zheng, Yutao Liu, Xiangjun Tang,
+  Yunhan Yang, Ding Liang, Yingtian Liu, Yuanchen Guo, Yanpei Cao, and Xiaogang
+  Jin.
+\newblock {LegoACE: Autoregressive Construction Engine for Expressive LEGO
+  Assemblies}.
+\newblock In \emph{SIGGRAPH Asia 2025 Conference Papers}, 2025.
+\newblock \doi{10.1145/3757377.3763881}.
+
+\end{thebibliography}

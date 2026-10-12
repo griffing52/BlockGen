@@ -1,0 +1,144 @@
+\documentclass{article}
+\usepackage{iclr2027_conference,times}
+
+\input{math_commands.tex}
+
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\newtheorem{lemma}{Lemma}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{csquotes}   % \enquote{...} -- nested-aware, locale-correct quotes
+\usepackage{acronym}    % \acro/\ac -- see note below
+
+% hyperref wants to be loaded after almost everything else, and cleveref is the
+% one package that must be loaded after hyperref. Do not reorder these two.
+% backref=page appends the citing page(s) to each bibliography entry.
+\usepackage[backref=page]{hyperref}
+\usepackage{cleveref}
+
+% Without this, backref renders the citing page as a bare digit butted against
+% the year ("... (ICML), 2018. 3"), which reads like part of the reference.
+\renewcommand*{\backref}[1]{}
+\renewcommand*{\backrefalt}[4]{%
+  \ifcase #1 %
+  \or \ (cited on page #2)%
+  \else \ (cited on pages #2)%
+  \fi}
+
+% A little slack for lines TeX cannot break well (long \texttt identifiers and
+% math runs inside tight list items). Without it those lines overflow into the
+% margin rather than stretching.
+\emergencystretch=1.5em
+
+% ---------------------------------------------------------------------------
+% Float packing. The defaults reserve so much of each page for text that a page
+% carrying one figure wastes a third of its height. These are the standard
+% loosenings; they change no layout rule the style file sets, only how much of a
+% page a float may claim before LaTeX gives up and defers it.
+% ---------------------------------------------------------------------------
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.75}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.80}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
+% ---------------------------------------------------------------------------
+% Drafting aids. \TODO renders loudly on purpose: anything still marked when
+% the PDF is built is something that has not been measured yet, and the point
+% is that it cannot be missed. Set \draftfalse before submitting -- the build
+% then errors on any remaining \TODO rather than hiding it.
+% ---------------------------------------------------------------------------
+\newif\ifdraft\drafttrue
+\ifdraft
+  \newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+  \newcommand{\UNMEASURED}[1]{\textcolor{red}{\textbf{[UNMEASURED: #1]}}}
+  \newcommand{\com}[1]{\textcolor{blue}{Comment: #1}}
+\else
+  \newcommand{\TODO}[1]{\PackageError{main}{Unresolved TODO: #1}{}}
+  \newcommand{\UNMEASURED}[1]{\PackageError{main}{Unmeasured claim: #1}{}}
+  \newcommand{\com}[1]{\PackageError{main}{Unaddressed comment: #1}{}}
+\fi
+
+% ---------------------------------------------------------------------------
+% Names. Defined once, here, so the paper cannot drift into the repository's
+% internal identifiers. Reviewers should never meet `real@solidify` or
+% `canon_oriented`; every name below is chosen to be readable on first sight
+% and is defined in prose the first time it appears.
+%
+% Rendering convention, so the split below is deliberate and not drift:
+%   * Every name is wrapped in \mbox, so a name never breaks across a line at
+%     its internal hyphen ("Fill-" / "Interior").
+%   * Arms, probes and baselines are \textsc: they are identifiers for things
+%     we built or ran, and small caps keeps them visually distinct from prose.
+%   * The three metrics are NOT \textsc. They are acronyms already set in
+%     capitals (MV-KID, V-KID) or mixed case (BlockScore); \textsc would add
+%     nothing over a fully capitalized string and would make "BlockScore" lose
+%     its internal capital. They stay roman.
+% ---------------------------------------------------------------------------
+
+% -- the two realism metrics (roman, not \textsc -- see note above)
+\newcommand{\mvkid}{\mbox{MV-KID}}      % multi-view render KID (DINOv2, 4 views)
+\newcommand{\vkid}{\mbox{V-KID}}        % voxel-descriptor KID
+\newcommand{\blockscore}{\mbox{BlockScore}}
+
+% -- probes (real data, corrupted in a known way)
+\newcommand{\solidify}{\mbox{\textsc{Fill-Interior}}}
+\newcommand{\matshuffle}{\mbox{\textsc{Material-Shuffle}}}
+\newcommand{\monochrome}{\mbox{\textsc{Monochrome}}}
+\newcommand{\singlemode}{\mbox{\textsc{Single-Mode}}}
+\newcommand{\traincopy}{\mbox{\textsc{Train-Copy}}}
+\newcommand{\realheld}{\mbox{\textsc{Real}}}
+\newcommand{\hollow}{\mbox{\textsc{Hollow-Shell}}}
+\newcommand{\growshell}{\mbox{\textsc{Grow-Shell}}}
+
+% -- procedural baselines
+\newcommand{\patchstitch}{\mbox{\textsc{Patch-Stitch}}}
+\newcommand{\gabled}{\mbox{\textsc{Gabled-House}}}
+\newcommand{\hollowbox}{\mbox{\textsc{Hollow-Box}}}
+\newcommand{\randomvox}{\mbox{\textsc{Random-Voxels}}}
+\newcommand{\copynoise}{\mbox{\textsc{Train-Copy+Noise}}}
+
+% -- generative arms
+\newcommand{\voxar}{\mbox{\textsc{Voxel-AR}}}
+\newcommand{\voxarun}{\mbox{\textsc{Voxel-AR-U}}}
+\newcommand{\llmft}{\mbox{\textsc{LLM-FT}}}
+\newcommand{\llmgeo}{\mbox{\textsc{LLM-FT-Geo}}}
+
+% \title{Structural Blindness in Render-Based 3D Generation Evaluation}
+\title{A Building Is Not Its Silhouette: Structural Blindness in 3D Generation Evaluation}
+% A Building Is Not Its Silhouette: Structural Blindness in 3D Generation Evaluation
+
+% Anonymous for submission. Do not uncomment \iclrfinalcopy until camera-ready.
+\author{Anonymous authors\\Paper under double-blind review}
+
+% \iclrfinalcopy   % uncomment ONLY for camera-ready: it de-anonymizes the paper.
+
+\begin{document}
+
+\maketitle
+
+\input{sec/0_abstract}
+\input{sec/1_intro}
+\input{sec/2_related}
+\input{sec/3_background}
+\input{sec/4_method}
+\input{sec/5_setup}
+\input{sec/6_results}
+\input{sec/7_conclusion}
+\input{sec/9_statements}
+
+\bibliography{references}
+\bibliographystyle{iclr2027_conference}
+
+\appendix
+\input{sec/X_appendix}
+
+\end{document}

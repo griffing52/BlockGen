@@ -1,0 +1,38 @@
+[project]
+name = "blockgen"
+version = "0.1.0"
+description = "Evaluation suite, probes, baselines, splits and human-study instrument for the paper"
+license = { text = "GPL-3.0-only" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+render = [
+    "torch>=2.4",
+    "transformers>=4.45",
+    "pillow>=10",
+    "pyrender>=0.1.45",
+    "trimesh>=4",
+    "PyOpenGL>=3.1",
+]
+figures = ["matplotlib>=3.8"]
+lego = ["pyarrow>=15"]
+corpus = ["h5py>=3", "nbtschematic>=0.2"]  # nbtschematic pins numpy 1.x; see requirements-full.txt
+test = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["blockgen", "blockgen.eval", "blockgen.eval.bench", "blockgen.curation",
+            "blockgen.data", "blockgen.labeling", "blockgen.renderer",
+            "blockgen.tokenizers", "blockgen.utils", "legogen", "legogen.renderer"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: touches the corpus, a GPU, or the renderer (deselect with -m 'not slow')",
+]

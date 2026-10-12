@@ -1,0 +1,17 @@
+__pycache__/
+*.egg-info/
+.venv/
+data/minecraft/cache/*.npz
+data/minecraft/3d_craft/
+data/minecraft/grabcraft/
+data/minecraft/text2mc/
+data/minecraft/features/
+data/textures/
+data/lego/
+outputs/run_*/
+!outputs/run_20260917_043807_bench_canonical-split_native_arms_oriented_vs/
+!outputs/run_20260918_200852_bench_lego_interior_blindness_replication/
+!outputs/run_20260918_203311_doseresponse_uniform_random-shell_box-canon8/
+!outputs/run_20260831_224723_doseresponse/
+!outputs/run_20260918_205019_view_protocol_ablation/
+!outputs/run_20260923_human_v5/

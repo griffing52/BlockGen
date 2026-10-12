@@ -1,0 +1,42 @@
+\begin{abstract}
+Generative models of discrete {3D} structure --- LEGO assemblies, voxel
+buildings, block worlds --- are almost always evaluated by borrowing the image
+pipeline: render the object from a few views, embed the renders with a
+pretrained vision encoder, and report a Fr\'echet or kernel distance against
+real data. We show that this pipeline has a specific and severe structural
+blindness. We construct \solidify{}, a probe that fills every enclosed air
+cell of a held-out corpus of real buildings with the build's own dominant
+material: it adds a median of $31\%$ more blocks, deletes every room in $91\%$
+of builds, and leaves the exterior silhouette untouched. A multi-view
+DINOv2 kernel distance \emph{cannot separate the result from held-out real
+data} ($0.000$ vs.\ a real floor of $-0.001$; the same paired, Holm-corrected
+test at the same sample size does separate verbatim training copies at a
+difference of $0.015$). This is not a power failure and not weak sensitivity:
+across the full dose axis from $0\%$ to $100\%$ of interiors filled, the render
+metric's Spearman correlation with the dose is $+0.300$, it is not monotone, and
+its total dynamic range is \emph{zero} noise floors. A generator that emits
+solid blobs shaped like houses is invisible to the metric the field reports.
+
+We then build the evaluation that does see it. A geometric kernel distance over
+D4-invariant voxel descriptors places the same probe $202$ real-sample spreads
+from real data, runs on CPU, and passes a ladder of blocking validity gates that
+Fr\'echet distance, coverage, density, precision and the biased MMD estimator
+all fail. But it is blind in the complementary direction --- a material
+permutation moves it by \emph{exactly} zero --- so neither tier is a
+replacement for the other. We combine them into \blockscore{}, an aggregate
+that takes the \emph{worst} pillar rather than the mean and treats novelty and
+diversity as disqualification gates rather than terms, because a realism-only
+leaderboard is won by reciting the training set (verbatim copies score second
+best of sixteen arms). We also make explicit a compression that is known but unexploited: a
+squared-MMD metric responds \emph{quadratically} to the fraction of an arm that
+is bad, so a model failing on a quarter of its prompts scores under a tenth of
+the way to fully bad. Reporting the square root instead recovers the failure
+rate to a mean absolute error of $0.022$ against $0.119$.
+
+Finally, we report a case study in which the benchmark overturned our own
+headline result: a provenance gate revealed that our best-scoring generator had
+$87\%$ of the test set in its training data, and retraining on a clean
+group-aware split moved it from a significance group of its own into a tie with
+the baselines it had appeared to beat. We release the suite, the probes, the
+procedural baselines and the corpus split.
+\end{abstract}

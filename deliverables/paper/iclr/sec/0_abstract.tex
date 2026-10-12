@@ -1,0 +1,31 @@
+\begin{abstract}
+%TL;DR of paragraph: the field renders exterior views to evaluate 3D structure, and that protocol cannot see interiors, which is the property that makes a structure usable.
+Generative models of discrete {3D} structure are evaluated by rendering a few
+exterior views, embedding them with a pretrained encoder, and measuring a
+distribution distance to real data. That protocol cannot see whether a structure
+has an inside. The inside is what makes a build usable rather than decorative: a
+Minecraft house someone walks through, a LEGO model someone assembles, a game
+asset that needs navigable space and a collision volume.
+
+%TL;DR of paragraph: the measurement in a legible unit, its scope across statistics and encoders, and the impossibility result that explains it.
+We measure the cost with a controlled corruption. Filling every sealed void in a
+corpus of real buildings adds a median of $33\%$ more blocks and leaves the
+exterior untouched. A multi-view DINOv2 kernel distance moves $0.14$ of the spread between two samples of
+real data, placing the corrupted corpus and genuinely held-out data in one significance
+group. A kernel distance on voxel
+descriptors moves beyond $200$ of that same unit. Seven render-space statistics,
+five encoders, view budgets up to sixteen views and a second domain all miss it
+in both directions, while resolving every corruption that reaches the exterior.
+Cutaway views recover it with the same encoder and the same statistic, which
+places the failure in the view protocol rather than in the features. Under an
+opaque renderer the blindness is exact: filling sealed voids changes no exterior
+view, so no encoder and no statistic separates it at any sample size.
+
+%TL;DR of paragraph: the replacement we deliver: gates a metric passes before it ranks, and a geometric metric that passes them.
+We then supply what the protocol is missing. A metric earns the right to rank
+models only after it resolves corruptions of known severity, under gates on
+ordering, invariance and sample-size stability, with separate disqualification
+gates for memorization and mode collapse. \vkid{}, a kernel distance on
+D4-invariant voxel descriptors, passes those gates, runs on a CPU, and closes the
+blind spot the renders leave.
+\end{abstract}

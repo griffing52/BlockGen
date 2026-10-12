@@ -1,0 +1,35 @@
+\begin{abstract}
+%TL;DR of paragraph: the field evaluates 3D structure by rendering and embedding, and that protocol cannot see interiors.
+Generative models of discrete {3D} structure --- LEGO assemblies, voxel
+buildings, block worlds --- are evaluated by rendering a few views, embedding
+them with a pretrained encoder, and measuring a distribution distance to real
+data. We show that this protocol cannot see whether a structure has an inside.
+
+%TL;DR of paragraph: the headline measurement and the four ways we show it is the representation, not one metric.
+Filling every sealed room in a corpus of real buildings --- a third more blocks,
+the exterior unchanged --- moves a multi-view DINOv2 kernel distance by $0.38$
+of its own sampling noise at $n{=}128$. A distance computed on voxel descriptors
+instead moves it by more than $200$ at the same $n$. This is not a quirk of one metric or one
+encoder: across two domains, all seven render-space statistics we test miss the
+corruption while catching every other one we apply, and no encoder (CLIP,
+ResNet-50, the Inception network FID uses) and no view budget up to sixteen
+views does better. Rendering cutaway views recovers the signal with the same
+encoder and the same statistic, which locates the failure in the view protocol.
+Under an opaque renderer the blindness is not statistical but \emph{exact}:
+filling sealed voids cannot change any exterior view, so no encoder, statistic
+or view budget can ever separate it, and we verify bit-identical renders on
+every held-out build. Real renderers leak a little --- translucent blocks let
+the fill show, altering $91\%$ of views by up to the full dynamic range in the
+pixels it touches --- and every statistic in this family discards even that.
+Hollowing a structure is equally invisible, so the blindness runs in both
+directions.
+
+%TL;DR of paragraph: our prescription is to validate metrics against known corruptions first, and it cost us our own headline result.
+We argue that a metric should be validated against known corruptions before it
+ranks models, and release a suite that does this: blocking ordering, invariance
+and sample-size gates, complementary render and geometric measures, and explicit
+disqualification for memorization and mode collapse. Applying it to our own
+models overturned the headline result of this project: a generator with $87\%$
+test contamination lost its apparent advantage over the baselines once retrained
+on a clean split.
+\end{abstract}

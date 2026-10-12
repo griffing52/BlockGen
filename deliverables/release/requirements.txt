@@ -1,0 +1,6 @@
+# Enough for the audit, the tests, the FAST tier and the recorded-run figures.
+# Versions are the ones the paper's runs used.
+numpy==2.5.1
+scipy==1.18.0
+matplotlib==3.10.8
+pytest==9.1.1

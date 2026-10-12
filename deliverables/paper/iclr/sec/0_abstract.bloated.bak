@@ -1,0 +1,47 @@
+\begin{abstract}
+Generative models of discrete {3D} structure --- LEGO assemblies, voxel
+buildings, block worlds --- are evaluated almost exclusively by borrowing the
+image pipeline: render the object from a few views, embed the renders with a
+pretrained encoder, and report a Fr\'echet or kernel distance against real data.
+We show that this pipeline is structurally blind to whether a structure has an
+inside.
+
+Our probe, \solidify{}, fills every \emph{sealed} void of a held-out corpus of
+real buildings with that build's own dominant material: a median $33\%$ more
+blocks, $94\%$ of builds altered, the exterior silhouette untouched. A
+multi-view DINOv2 kernel distance places the result $\mathbf{0.38}$ noise floors
+from real --- under half its own sampling noise --- while a kernel distance on
+D4-invariant voxel descriptors places it $\mathbf{202}$ away.
+
+The failure belongs to the representation, not to one statistic or one encoder.
+On a second domain (LEGO bricks) \textbf{all seven} render-space statistics we
+test --- KID, MMD, Fr\'echet, precision, recall, density, coverage --- fail to
+resolve the probe while resolving every other corruption we apply. No encoder
+(CLIP, ImageNet ResNet-50, the Inception network FID itself uses) and no view
+budget (up to $16$ views, covering roof and underside) clears two noise floors;
+sixteen views separate it \emph{less} well than four. The same encoder and the
+same statistic separate it at $9$--$57$ noise floors the moment the renders show
+the inside. The interior is absent from the input, not mishandled by the
+features --- and the metric is blind in both directions, scoring a hollowed
+corpus $0.4$ floors from real against $156$ for the geometric metric.
+
+We build the evaluation that sees it. The geometric metric is blind in the
+complementary direction --- a material permutation moves it by \emph{exactly}
+zero --- so we combine the two by worst pillar rather than mean, with
+memorization and mode collapse as disqualification gates, since a realism-only
+ranking is won by reciting the training set. Every metric must first pass
+blocking ordering, invariance and sample-size gates, which Fr\'echet distance,
+coverage, density and precision all fail. We also make explicit a known but
+unexploited compression: squared-MMD metrics respond quadratically to the
+fraction of an arm that is bad (measured exponent $1.99$), so an arm failing a
+quarter of its prompts reads $6.4\%$ of the way to fully bad; the square root
+recovers the failure rate to a mean absolute error of $0.011$ against $0.124$.
+
+The suite's credibility rests on a case where it cost us a result. A provenance
+audit revealed $87\%$ test contamination in our best-scoring generator;
+retraining on a clean split moved it out of a significance group of its own and
+into the group containing the baselines it had appeared to beat. Auditing this
+paper turned up a second, smaller contamination in those baselines --- which is
+the point: without a gate that makes every arm declare its training split, this
+is invisible. We release the suite, probes, baselines and split.
+\end{abstract}

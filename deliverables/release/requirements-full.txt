@@ -1,0 +1,21 @@
+# Adds the FULL tier (render + DINOv2), the LEGO corpus loader and the corpus
+# rebuild. Rendering is headless via EGL; a CUDA device is used when present.
+-r requirements.txt
+torch==2.10.0
+torchvision==0.25.0   # the resnet50 / inceptionv3 encoder ablation only
+transformers==4.57.6
+huggingface_hub==0.36.2
+pillow==12.1.1
+trimesh==4.12.2
+PyOpenGL==3.1.10
+freetype-py==2.5.1
+imageio==2.37.3
+networkx==3.6.1
+pyglet==2.1.15
+six==1.17.0
+h5py==3.16.0
+pyarrow==24.0.0
+# Two packages pin dependencies that conflict with the above and are installed
+# without theirs (their runtime needs are already listed here):
+#     pip install --no-deps pyrender==0.1.45      # pins PyOpenGL==3.1.0
+#     pip install --no-deps nbtschematic==0.2.1   # pins numpy 1.x; raw .schematic loading only
