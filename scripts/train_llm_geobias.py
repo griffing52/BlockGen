@@ -32,10 +32,18 @@ arm; anything it gains, it learns. Injected through `attention_mask` as a prepar
 minimal intervention, and a blunt one: a null result here bounds a shared-scalar bias,
 not per-head structure.
 
+**Splits.** `--split canonical` (the default) draws train/val from the pinned
+`houses_32` split, which is what `docs/workflow.md` requires for a run to reach the
+leaderboard. `--split trackd` reproduces Track D's own 90/10 shuffle and is what the
+T29 pair used -- it predates the pinned split and puts 53 canonical-*test* builds in
+the training set, so those runs are permanently unranked. Use it only to reproduce
+T29.
+
 Run::
 
     .venv/bin/python scripts/train_llm_geobias.py --arm control
     .venv/bin/python scripts/train_llm_geobias.py --arm bias
+    .venv/bin/python scripts/train_llm_geobias.py --arm bias --split trackd   # T29 repro
 """
 
 from __future__ import annotations
@@ -67,7 +75,15 @@ from probe_llm_attention import piece_instances, line_spans
 
 # --- the bias ---------------------------------------------------------------
 class GeoBias(nn.Module):
-    """Additive attention bias from the relative offset between referenced pieces."""
+    """Additive attention bias from the relative offset between referenced pieces.
+
+    Special-case precedence, applied in this order and therefore in this priority:
+    ``no_ref`` > ``prompt`` > ``same_line`` > the offset table. So line 0's entire
+    row is ``no_ref`` (it has no reference anchor, prompt columns included), and
+    within any later line the same-line block is ``same_line``. Both are
+    anchor-free, which is what keeps the current line's coordinates from leaking
+    backward to tokens emitted before them. Pinned by `tests/test_geobias.py`.
+    """
 
     def __init__(self, radius: int = 4):
         super().__init__()
@@ -95,6 +111,29 @@ class GeoBias(nn.Module):
         out = torch.where(same, self.same_line.expand_as(out), out)
         out = torch.where((ql < 0).unsqueeze(0).expand_as(out), self.prompt.expand_as(out), out)
         out = torch.where((ref < 0).unsqueeze(1).expand_as(out), self.no_ref.expand_as(out), out)
+        return out
+
+    def row(self, tok_line: torch.Tensor, anchors: torch.Tensor, q_line: int) -> torch.Tensor:
+        """`[S]` bias for a single query on line `q_line` against keys `tok_line`.
+
+        The incremental form of the last row of :meth:`matrix`, for KV-cached
+        decoding. `tests/test_geobias.py` pins `row() == matrix()[-1]` -- two
+        implementations of one function is exactly how training and sampling drift
+        apart, so the equality is a test rather than a comment.
+        """
+        ql = tok_line
+        ref = q_line - 1
+        if ref < 0:
+            return self.no_ref.expand(ql.numel()).clone()
+        a_ref = anchors[ref]
+        a_key = anchors[ql.clamp(min=0)]                  # [S, 3]
+        idx = torch.zeros(ql.numel(), dtype=torch.long, device=ql.device)
+        for ax in range(3):
+            d = (a_ref[ax] - a_key[:, ax]).clamp(-self.r, self.r) + self.r
+            idx = idx * self.n + d
+        out = self.table[idx]
+        out = torch.where(ql == q_line, self.same_line.expand_as(out), out)
+        out = torch.where(ql < 0, self.prompt.expand_as(out), out)
         return out
 
 
@@ -242,6 +281,12 @@ def main() -> None:
     ap.add_argument("--radius", type=int, default=4)
     ap.add_argument("--num-samples", type=int, default=8)
     ap.add_argument("--max-new-tokens", type=int, default=1600)
+    ap.add_argument("--split", choices=["canonical", "trackd"], default="canonical",
+                    help="canonical: train/val from the pinned houses_32 split, so the "
+                         "run is eligible for the leaderboard protocol (docs/workflow.md). "
+                         "trackd: Track D's own 90/10 shuffle of whatever fits the token "
+                         "cap -- reproduces T29 exactly, and leaks into the canonical "
+                         "test set (53/267 builds), so those runs can never be ranked.")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -263,11 +308,26 @@ def main() -> None:
 
     examples, considered = build_examples(structures, captions, tokenizer, cv, id_to_name,
                                           args.max_tokens, args.limit)
-    order = list(range(len(examples)))
-    random.Random(args.seed).shuffle(order)
-    n_val = max(1, int(round(len(examples) * 0.10)))
-    train = [examples[i] for i in order[n_val:]]
-    val = [examples[i] for i in order[:n_val]]
+    if args.split == "canonical":
+        from blockgen.eval.bench.splits import load_split
+        sp = load_split("houses_32")
+        tr_idx = set(sp.indices("train").tolist())
+        va_idx = set(sp.indices("val").tolist())
+        train = [e for e in examples if e["idx"] in tr_idx]
+        val = [e for e in examples if e["idx"] in va_idx]
+        n_test = sum(1 for e in examples if e["idx"] not in tr_idx and e["idx"] not in va_idx)
+        print(f"[split] canonical houses_32: {len(train)} train / {len(val)} val, "
+              f"{n_test} test-split builds withheld", flush=True)
+        if not val:
+            raise SystemExit("no val examples under the canonical split")
+    else:
+        order = list(range(len(examples)))
+        random.Random(args.seed).shuffle(order)
+        n_val = max(1, int(round(len(examples) * 0.10)))
+        train = [examples[i] for i in order[n_val:]]
+        val = [examples[i] for i in order[:n_val]]
+        print("[split] Track D 90/10 shuffle — NOT leaderboard-eligible (leaks into the "
+              "canonical test set)", flush=True)
     print(f"[data] {len(examples)}/{considered} builds fit {args.max_tokens} tokens; "
           f"train {len(train)} val {len(val)}", flush=True)
 
@@ -293,7 +353,8 @@ def main() -> None:
     steps = math.ceil(len(train) / args.grad_accum) * args.epochs
     sched = get_cosine_schedule_with_warmup(opt, int(0.03 * steps) + 1, steps)
 
-    cfg = {"arm": args.arm, "model": MODEL_NAME, "epochs": args.epochs, "lr": args.lr,
+    cfg = {"arm": args.arm, "split": args.split,
+           "model": MODEL_NAME, "epochs": args.epochs, "lr": args.lr,
            "bias_lr": args.bias_lr, "radius": args.radius, "grad_accum": args.grad_accum,
            "max_tokens": args.max_tokens, "n_examples": len(examples), "n_train": len(train),
            "n_val": len(val), "n_considered": considered, "seed": args.seed,

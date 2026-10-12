@@ -52,7 +52,7 @@ import torch
 from blockgen.eval.novelty import evaluate_novelty
 from blockgen.experiments_gen import canonicalize
 from blockgen.experiments_overnight import _eval_row, _log
-from blockgen.experiments_transfer import _split_houses
+from blockgen.experiments_transfer import _split_houses, _split_houses_canonical
 from blockgen.tokenizers.cluster_bpe import build_cluster_sequences, learn_clusters
 from blockgen.training.train_ar import ARTrainConfig, build_sequences
 from blockgen.training.train_ar_ext import (sample_cluster_structures,
@@ -117,13 +117,15 @@ def arm_flat(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
 
 
 def arm_bpe(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
-            samples: int, batch: int, n_merges: int, oriented: bool = False) -> Optional[dict]:
+            samples: int, batch: int, n_merges: int, oriented: bool = False,
+            geo_bias: bool = False, geo_radius: int = 4) -> Optional[dict]:
     """B: native 32 + 3D-BPE + phase4 — the intervention.
 
     ``oriented`` keeps stair/log/door facings as distinct tokens (notes §19); pair it
     with the orientation-aware D4 augmentation (augment.py) or facings become noise.
     """
-    run = out / "native_bpe"; run.mkdir(parents=True, exist_ok=True)
+    run = out / ("native_geobias" if geo_bias else "native_bpe")
+    run.mkdir(parents=True, exist_ok=True)
     vocab = build_block_vocab(ref + val, max_dim=dim)   # novelty grid only
     cv = learn_clusters(fit, max_dim=dim, n_merges=n_merges, max_corpus=400,
                         oriented=oriented)
@@ -140,15 +142,31 @@ def arm_bpe(fit, ref, val, out: Path, dim: int, seq: int, epochs: int,
         (run / "SKIP.txt").write_text("too few fit"); return None
     cfg = ARTrainConfig(max_seq_len=seq, epochs=epochs, batch_size=batch, device="cuda")
     t = time.time()
-    model, hist = train_from_sequences(seqs, cv.vocab_size, cfg, pe="phase4")
+    if geo_bias:
+        # Same architecture as the control, plus the per-head geometric bias, so the
+        # arms differ in one term. `train_from_sequences` takes a prebuilt module, so
+        # the sampler, constrained decoder and eval path are all still the shared ones.
+        from blockgen.models.voxel_transformer_ar2 import VoxelTransformerAR2
+        gm = VoxelTransformerAR2(
+            vocab_size=cv.vocab_size, max_seq_len=seq, d_model=cfg.d_model,
+            nhead=cfg.nhead, num_layers=cfg.num_layers,
+            dim_feedforward=cfg.dim_feedforward, dropout=cfg.dropout, pe="phase4",
+            geo_bias=True, geo_radius=geo_radius,
+            geo_coord_offset=cv.coord_offset, geo_max_dim=cv.max_dim)
+        _log(DS, f"[B] geo bias ON: per-head table {tuple(gm.geo.table.shape)}, "
+                 f"radius {geo_radius}, zero-init")
+        model, hist = train_from_sequences(seqs, cv.vocab_size, cfg, model=gm)
+    else:
+        model, hist = train_from_sequences(seqs, cv.vocab_size, cfg, pe="phase4")
     torch.save(model.state_dict(), run / "model.pt")
     (run / "cluster_meta.json").write_text(json.dumps(
         {"n_pieces": cv.n_pieces, "num_blocks": cv.num_blocks,
          "n_merges": len(cv.merges), "n_fit": len(kept),
          "median_seq_len": int(np.median([len(s) for s in seqs]))}, indent=2))
     s = sample_cluster_structures(model, cv, num_samples=samples, temperature=1.0, top_k=40)
-    _textured_samples(s, run, "native_bpe")
-    row = _eval_row("native_bpe", s, ref, val, vocab, dim, run)
+    _textured_samples(s, run, "native_geobias" if geo_bias else "native_bpe")
+    row = _eval_row("native_geobias" if geo_bias else "native_bpe",
+                    s, ref, val, vocab, dim, run)
     row.update(final_loss=round(hist["loss"][-1], 4), n_train=len(seqs),
                train_min=round((time.time() - t) / 60, 1),
                val_baseline_nn_iou=_baseline(val, ref, vocab, dim))
@@ -164,12 +182,22 @@ def main() -> None:
     ap.add_argument("--seq-flat", type=int, default=1600)
     ap.add_argument("--seq-bpe", type=int, default=5480)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--val-frac", type=float, default=0.15)
+    ap.add_argument("--val-frac", type=float, default=0.15,
+                    help="only used by --split legacy")
+    ap.add_argument("--split", choices=["canonical", "legacy"], default="canonical",
+                    help="canonical: the pinned houses_32 split, so the run can be "
+                         "ranked (docs/workflow.md). legacy: the pre-split val_frac "
+                         "permutation the July runs used -- trains on 87%% of the "
+                         "canonical test set, permanently unrankable, kept for repro.")
     ap.add_argument("--stamp", default=time.strftime("%Y%m%d_%H%M%S"))
     ap.add_argument("--arms", nargs="+", default=["flat", "bpe"])
     ap.add_argument("--oriented", action="store_true",
                     help="orientation-aware vocab (stairs/logs facings as distinct tokens); "
                          "uses the orientation-aware D4 augmentation")
+    ap.add_argument("--geo-bias", action="store_true",
+                    help="add the per-head geometric relative-offset attention bias "
+                         "(blockgen/models/geo_attention_bias.py) to the bpe arm")
+    ap.add_argument("--geo-radius", type=int, default=4)
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     if args.quick:
@@ -180,8 +208,13 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "cmd.txt").write_text(json.dumps(vars(args), indent=2))
 
-    h_train, h_val = _split_houses(args.seed, args.val_frac)
-    _log(DS, f"houses_32 split: {len(h_train)} train / {len(h_val)} val")
+    if args.split == "canonical":
+        h_train, h_val = _split_houses_canonical(seed=args.seed)
+    else:
+        h_train, h_val = _split_houses(args.seed, args.val_frac)
+        _log(DS, "WARNING: --split legacy trains on 87% of the canonical test set; "
+                 "this run can never be ranked")
+    _log(DS, f"houses_32 {args.split} split: {len(h_train)} train / {len(h_val)} val")
     h_aug, _ = augment_with_labels(h_train, ["h"] * len(h_train))
     _log(DS, f"D4-augmented train: {len(h_train)} -> {len(h_aug)}")
 
@@ -201,7 +234,8 @@ def main() -> None:
             r = arm_bpe(canonicalize(h_aug, 32), canonicalize(h_train, 32),
                         canonicalize(h_val, 32), out, 32, args.seq_bpe,
                         args.epochs, args.samples, args.batch, args.merges,
-                        oriented=args.oriented)
+                        oriented=args.oriented, geo_bias=args.geo_bias,
+                        geo_radius=args.geo_radius)
             if r: rows.append(r)
         except Exception:  # noqa: BLE001
             (out / "bpe_ERROR.txt").write_text(traceback.format_exc())

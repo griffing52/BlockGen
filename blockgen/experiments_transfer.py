@@ -115,6 +115,14 @@ def load_pool(max_dim: int = 48, min_blocks: int = 60,
 
 
 def _split_houses(seed: int, val_frac: float) -> Tuple[List[Structure], List[Structure]]:
+    """Legacy split: a fresh RNG permutation over the whole corpus.
+
+    **Predates the pinned split and is not leaderboard-eligible.** At the default
+    `val_frac=0.15, seed=0` this trains on 346 of the 399 canonical *test* builds --
+    87% of the test set -- so every arm trained through it is scored largely on data
+    it was fitted on. Kept because the July native runs used it and their numbers
+    have to stay reproducible; use `_split_houses_canonical` for anything new.
+    """
     houses, _ = load_house_structures(max_dim=32)
     rng = np.random.default_rng(seed)
     perm = rng.permutation(len(houses))
@@ -122,6 +130,14 @@ def _split_houses(seed: int, val_frac: float) -> Tuple[List[Structure], List[Str
     val = [houses[i] for i in perm[:n_val]]
     train = [houses[i] for i in perm[n_val:]]
     return train, val
+
+
+def _split_houses_canonical(corpus: str = "houses_32", seed: int = 0
+                            ) -> Tuple[List[Structure], List[Structure]]:
+    """The pinned corpus split -- what a run needs to reach the leaderboard."""
+    from blockgen.eval.bench import splits
+    split = splits.load_split(corpus, seed)
+    return splits.split_structures(split, "train"), splits.split_structures(split, "val")
 
 
 def _make_model(vocab_size: int, cfg: ARTrainConfig, state_path: Optional[Path] = None):

@@ -33,6 +33,21 @@ from torch import nn
 
 PE_CHOICES = ("learned", "sin", "rope", "alibi", "phase4", "none")
 
+_FLEX = None
+
+
+def _flex():
+    """`flex_attention`, compiled once. Uncompiled it materializes the score matrix
+    (PyTorch warns about exactly this), which is the cost we are here to avoid."""
+    global _FLEX
+    if _FLEX is None:
+        from torch.nn.attention.flex_attention import flex_attention
+
+        from blockgen.models.geo_attention_bias import ensure_triton_compiler
+        ensure_triton_compiler()
+        _FLEX = torch.compile(flex_attention, dynamic=False)
+    return _FLEX
+
 
 def _sinusoidal_table(max_len: int, d_model: int) -> torch.Tensor:
     pos = torch.arange(max_len).float().unsqueeze(1)
@@ -98,7 +113,7 @@ class _CausalBlock(nn.Module):
         self.rope = rope
 
     def forward(self, x: torch.Tensor, bias: Optional[torch.Tensor],
-                past_kv=None, pos_offset: int = 0):
+                past_kv=None, pos_offset: int = 0, score_mod=None, block_mask=None):
         # x: (B, L, D); bias: (1|B, H, L, L) additive float mask (-inf = blocked),
         # or None to use the fused causal kernel.
         # past_kv: (k, v) from previous steps -> returns (out, (k, v)) for reuse.
@@ -135,7 +150,12 @@ class _CausalBlock(nn.Module):
             x = x + self.dropout(self.proj(att))
             x = x + self.dropout(self.mlp(self.norm2(x)))
             return x, new_kv
-        if bias is None:
+        if score_mod is not None:
+            # FlexAttention applies the per-score bias inside the kernel, so the
+            # [B, H, L, L] matrix an explicit attn_mask would force never exists.
+            # That is the only reason a geometric bias is affordable at L=5480.
+            att = _flex()(q, k, v, score_mod=score_mod, block_mask=block_mask)
+        elif bias is None:
             # An explicit attn_mask disqualifies the flash / mem-efficient SDPA
             # kernels and forces the math fallback, which materializes the full
             # [B, H, L, L] score matrix -- ~9.6 GB at B=8/H=8/L=5480, and the
@@ -171,6 +191,10 @@ class VoxelTransformerAR2(nn.Module):
         piece_factors=None,
         piece_offset: Optional[int] = None,
         semantic_embedding: Optional[nn.Module] = None,
+        geo_bias: bool = False,
+        geo_radius: int = 4,
+        geo_coord_offset: int = 3,
+        geo_max_dim: int = 32,
     ) -> None:
         super().__init__()
         if pe not in PE_CHOICES:
@@ -215,6 +239,16 @@ class VoxelTransformerAR2(nn.Module):
         if pe == "alibi":
             self.register_buffer("alibi_slopes", _alibi_slopes(nhead), persistent=False)
 
+        # Geometric relative-offset bias over the (X,Y,Z,PIECE) grammar. Orthogonal
+        # to `pe`: phase4 supplies the slot grammar, this supplies the 3D relation
+        # between pieces, and they are added in different places.
+        self.geo = None
+        if geo_bias:
+            from blockgen.models.geo_attention_bias import GeoAttentionBias
+            self.geo = GeoAttentionBias(nhead, radius=geo_radius)
+        self.geo_coord_offset = geo_coord_offset
+        self.geo_max_dim = geo_max_dim
+
         rope = _RotaryCache(d_model // nhead, max_seq_len) if pe == "rope" else None
         self.blocks = nn.ModuleList([
             _CausalBlock(d_model, nhead, dim_feedforward, dropout, rope)
@@ -223,6 +257,7 @@ class VoxelTransformerAR2(nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size)
         self.emb_dropout = nn.Dropout(dropout)
         self.nhead = nhead
+        self._block_mask_cache: dict = {}
 
     def needs_bias(self) -> bool:
         """Only ALiBi genuinely needs an additive score bias.
@@ -252,8 +287,45 @@ class VoxelTransformerAR2(nn.Module):
         return bias
 
     def supports_cache(self) -> bool:
-        """ALiBi needs a full [B,H,L,L] bias, which cached decode cannot build."""
+        """ALiBi needs a full [B,H,L,L] bias, which cached decode cannot build.
+
+        The geometric bias does not: one query row against the cache is `[B,H,1,K]`,
+        which is O(K), so cached sampling stays available.
+        """
         return not self.needs_bias()
+
+    def _causal_block_mask(self, seq_len: int, device):
+        """Causal `BlockMask` for FlexAttention, cached per (len, device).
+
+        Rebuilding it per step would dominate the step time, and it depends on
+        nothing but the length.
+        """
+        key = (seq_len, str(device))
+        bm = self._block_mask_cache.get(key)
+        if bm is None:
+            from torch.nn.attention.flex_attention import create_block_mask
+            bm = create_block_mask(lambda b, h, q, kv: q >= kv, B=None, H=None,
+                                   Q_LEN=seq_len, KV_LEN=seq_len, device=device)
+            self._block_mask_cache[key] = bm
+        return bm
+
+    def _geo_decode_bias(self, new_ids: torch.Tensor, past_len: int,
+                         dtype: torch.dtype) -> torch.Tensor:
+        """`[B, H, 1, past_len+1]` geometric bias for a single-token decode step.
+
+        `_geo_history` must have been primed with the tokens generated so far --
+        the bias is a function of the sequence, and a cache holds only k/v.
+        """
+        hist = getattr(self, "_geo_history", None)
+        if hist is None:
+            raise RuntimeError("geo bias cached decode needs prime_geo_history()")
+        full = torch.cat([hist, new_ids], dim=1)
+        dense = self.geo.dense(full, self.geo_coord_offset, self.geo_max_dim)
+        return dense[:, :, -1:, :].to(dtype)
+
+    def prime_geo_history(self, tokens: Optional[torch.Tensor]) -> None:
+        """Tell the model the tokens already decoded, for the cached-decode bias."""
+        self._geo_history = tokens
 
     def forward(self, input_ids: torch.Tensor, pad_mask: Optional[torch.Tensor] = None,
                 past=None, return_cache: bool = False):
@@ -299,10 +371,20 @@ class VoxelTransformerAR2(nn.Module):
         # [B,H,L,L] additive bias, which forces SDPA's math fallback.
         bias = self._bias(L, pad_mask, input_ids.device, h.dtype) \
             if self.needs_bias() else None
+        score_mod = block_mask = None
+        if self.geo is not None:
+            if past is None:
+                score_mod = self.geo.make_score_mod(
+                    input_ids, self.geo_coord_offset, self.geo_max_dim)
+                block_mask = self._causal_block_mask(L, input_ids.device)
+            else:
+                # Cached decode: one query row against every cached key is O(K), so
+                # the dense path is cheap here and needs no kernel of its own.
+                bias = self._geo_decode_bias(input_ids, past_len, h.dtype)
         new_cache = []
         for i, blk in enumerate(self.blocks):
             h, kv = blk(h, bias, past_kv=None if past is None else past[i],
-                        pos_offset=past_len)
+                        pos_offset=past_len, score_mod=score_mod, block_mask=block_mask)
             new_cache.append(kv)
         logits = self.lm_head(self.norm(h))
         return (logits, new_cache) if return_cache else logits
