@@ -37,6 +37,20 @@ AGGREGATE_KEYS = ("blocks", "n_components", "largest_component_frac", "volume_fi
                   "blocks_per_command", "n_failed_commands", "clipped_writes",
                   "completion_tokens", "cost_usd", "elapsed_s")
 
+# Suite (MethodResult) metrics averaged per arm when present. Plain BuildResults do
+# not carry them, so a legacy run's metrics.json gains no key from this list.
+METHOD_KEYS = ("dream_score_first", "dream_score_best", "dream_gain", "n_attempts",
+               "accept_rate", "n_llm_calls", "n_images", "image_cost_usd",
+               "scale_headroom2", "scale_headroom3", "scale_door_ok", "scale_doorways",
+               "scale_low_openings")
+
+# Columns of the extra suite table in summary.md (only written for suite runs).
+SUITE_SUMMARY_KEYS = ("n_builds", "n_empty", "n_truncated", "blocks", "coherence_rate",
+                      "n_attempts", "accept_rate", "dream_score_first",
+                      "dream_score_best", "dream_gain", "scale_headroom3", "scale_door_ok",
+                      "n_llm_calls", "n_images", "total_paid_usd", "total_would_cost_usd",
+                      "cost_known")
+
 
 def save_build(result: BuildResult, out_dir: Path, index: int) -> Path:
     """Write one build's program, plan, transcript and report."""
@@ -51,24 +65,50 @@ def save_build(result: BuildResult, out_dir: Path, index: int) -> Path:
     return out_dir / f"{stem}_build.json"
 
 
+def _air_structure(r: BuildResult):
+    """A 1x1x1 air structure standing in for an empty build (``keep_empty``)."""
+    import numpy as np
+    from blockgen.utils.data import Structure
+    s = Structure(block_ids=np.zeros((1, 1, 1), dtype=np.int32),
+                  block_data=np.zeros((1, 1, 1), dtype=np.int32))
+    s.metadata["error"] = r.error or "empty build"
+    return s
+
+
 def save_structures(results: Sequence[BuildResult], run_dir: Path, arm: str,
-                    max_dim: int = 64) -> Optional[str]:
+                    max_dim: int = 64, *, keep_empty: bool = False,
+                    extra_report: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """Save builds in the standard structure-cache format (``load_structures_from_cache``).
 
     The prompt travels in the manifest's ``title`` field, so a later re-render or
     eval pass can title each build with what it was asked to build.
+
+    ``keep_empty=True`` saves an empty build as a 1x1x1 air structure carrying
+    ``metadata['error']``, so ``n``/``n_empty`` stay honest downstream. It is off by
+    default because the bench does not read ``n_requested`` yet and would score the
+    air blocks as real samples. ``extra_report`` is merged into the manifest's
+    ``report`` (the suite puts recipe provenance there).
     """
     from blockgen.curation.houses import save_house_cache
     keep = [r for r in results if r.blocks > 0]
-    if not keep:
+    if not keep and not keep_empty:
         return None
-    for r in keep:
-        r.structure.metadata.setdefault("corpus", "agentic")
-        r.structure.metadata["title"] = r.description
-        r.structure.metadata.setdefault("category", arm)
-    return save_house_cache(
-        [r.structure for r in keep], max_dim, cache_dir=str(run_dir), name=arm,
-        report={"arm": arm, "n_requested": len(results), "n_nonempty": len(keep)})
+    structures = []
+    for r in results:
+        if r.blocks > 0:
+            s = r.structure
+        elif keep_empty:
+            s = _air_structure(r)
+        else:
+            continue
+        s.metadata.setdefault("corpus", "agentic")
+        s.metadata["title"] = r.description
+        s.metadata.setdefault("category", arm)
+        structures.append(s)
+    report = {"arm": arm, "n_requested": len(results), "n_nonempty": len(keep)}
+    report.update(extra_report or {})
+    return save_house_cache(structures, max_dim, cache_dir=str(run_dir), name=arm,
+                            report=report)
 
 
 def render_samples(results: Sequence[BuildResult], out_path: Path, *,
@@ -105,6 +145,22 @@ def aggregate(results: Sequence[BuildResult]) -> Dict[str, Any]:
     out["coherence_rate"] = round(
         sum(1 for r in coherent if r["largest_component_frac"] >= 0.9)
         / max(1, len(coherent)), 4) if coherent else None
+    # Suite additions. cost_known=False means some call was unpriced (Claude Code,
+    # local, mock), so total_cost_usd is a lower bound, never "free".
+    out["cost_known"] = bool(results) and all(r.cost_known for r in results)
+    out["total_would_cost_usd"] = round(sum(
+        float(getattr(r, "would_cost_usd", r.cost_usd)) for r in results), 4)
+    # Suite results only: per-build cost_usd is the full price (legacy meaning, see
+    # MethodResult.metrics); what was actually paid is summed here.
+    if any("paid_usd" in r for r in rows):
+        out["total_paid_usd"] = round(sum(float(r.get("paid_usd", r["cost_usd"]))
+                                          for r in rows), 4)
+    for key in METHOD_KEYS:
+        vals = [r[key] for r in rows if isinstance(r.get(key), (int, float))
+                and not isinstance(r.get(key), bool)]
+        if vals:
+            out[key] = round(statistics.fmean(vals), 4)
+    out["n_truncated"] = sum(1 for r in results if getattr(r, "truncated", ""))
     return out
 
 
@@ -130,8 +186,14 @@ def summary_table(arms: Dict[str, Dict[str, Any]],
 
 def write_run(run_dir: Path, *, arms: Dict[str, List[BuildResult]],
               config: Dict[str, Any], title: str = "agentic run",
-              max_dim: int = 64, render: bool = True) -> Dict[str, Any]:
-    """Write every artifact for a run and return the metrics dict."""
+              max_dim: int = 64, render: bool = True,
+              provenance: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Write every artifact for a run and return the metrics dict.
+
+    ``provenance`` (suite runs): per-arm recipe provenance (method, recipe_hash,
+    backends, train_split, git commit, ...). It goes into each arm's npz manifest
+    ``report`` (where the bench reads it) and into ``metrics['arms'][arm]``.
+    """
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(json.dumps(config, indent=1, default=str))
@@ -140,8 +202,12 @@ def write_run(run_dir: Path, *, arms: Dict[str, List[BuildResult]],
     for arm, results in arms.items():
         for i, r in enumerate(results):
             save_build(r, run_dir / "builds" / arm, i)
-        save_structures(results, run_dir, arm, max_dim=max_dim)
+        prov = (provenance or {}).get(arm)
+        save_structures(results, run_dir, arm, max_dim=max_dim,
+                        extra_report=dict(prov) if prov else None)
         metrics["arms"][arm] = aggregate(results)
+        if prov:
+            metrics["arms"][arm]["provenance"] = prov
         metrics["builds"][arm] = [r.metrics() for r in results]
         if render:
             render_samples(results, run_dir / f"samples_{arm}.png",
@@ -158,8 +224,16 @@ def write_run(run_dir: Path, *, arms: Dict[str, List[BuildResult]],
             (run_dir / "samples.png").write_bytes(src.read_bytes())
 
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=1))
-    summary = [f"# {title}", "", summary_table(metrics["arms"]), "",
-               "## Config", "", "```json", json.dumps(config, indent=1, default=str),
+    summary = [f"# {title}", "", summary_table(metrics["arms"]), ""]
+    if any(getattr(r, "charges", None) is not None
+           for results in arms.values() for r in results):
+        # Suite runs: loop metrics and the honest cost (paid vs full price).
+        summary += ["## Method metrics and cost", "",
+                    "Paid = what this run spent (cache hits are free); would_cost = the "
+                    "full price of every call; cost_known = False means some call was "
+                    "unpriced (subscription, local or mock), so dollars are a lower bound.",
+                    "", summary_table(metrics["arms"], keys=SUITE_SUMMARY_KEYS), ""]
+    summary += ["## Config", "", "```json", json.dumps(config, indent=1, default=str),
                "```", "", "## Prompts", ""]
     for arm, results in arms.items():
         summary.append(f"### {arm}")
@@ -174,5 +248,5 @@ def write_run(run_dir: Path, *, arms: Dict[str, List[BuildResult]],
     return metrics
 
 
-__all__ = ["aggregate", "render_samples", "save_build", "save_structures",
-           "summary_table", "write_run"]
+__all__ = ["AGGREGATE_KEYS", "METHOD_KEYS", "aggregate", "render_samples", "save_build",
+           "save_structures", "summary_table", "write_run"]

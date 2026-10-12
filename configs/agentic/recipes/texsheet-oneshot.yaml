@@ -1,0 +1,8 @@
+# Texture-palette context: a labelled sheet of block face textures in the first
+# build turn, so the model sees what each block name looks like.
+extends: classic-full
+description: one shot with a labelled block-texture contact sheet in the first turn
+contexts:
+  - palette
+  - {texture_sheet: {blocks: palette, tile: 64, cols: 10, face: side}}
+params: {plan: false, n_examples: 1, repair_rounds: 0, critique_rounds: 0}

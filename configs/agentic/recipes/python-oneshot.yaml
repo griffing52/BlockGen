@@ -1,0 +1,9 @@
+# Python-API action space: sandboxed Python calling fill/walls/... (one canonical
+# DSL op per call). Loops and functions let the model express symmetry compactly.
+extends: _base
+description: one shot in the sandboxed Python API, one example, two repairs
+method: classic
+actions: {python: {timeout_s: 10, max_ops: 200000}}
+contexts: [palette, {examples: {k: 1}}]    # DSL examples auto-converted to python calls
+params: {n_examples: 1, repair_rounds: 2}
+accept: nonempty

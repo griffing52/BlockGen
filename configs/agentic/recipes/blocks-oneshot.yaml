@@ -1,0 +1,9 @@
+# Per-block action space: one '<block[state]> x y z' line per voxel. Tests whether
+# a region-command language matters at all, against classic's dsl.
+extends: _base
+description: one shot in the per-block line format, one repair
+method: classic
+actions: {blocks: {allow_states: true}}    # '<block[state]> x y z' per line
+contexts: [palette]
+params: {n_examples: 0, repair_rounds: 1}
+accept: nonempty

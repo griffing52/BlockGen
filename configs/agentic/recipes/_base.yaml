@@ -1,0 +1,12 @@
+# Shared fragment every shipped recipe extends (names starting with '_' are not
+# listed as recipes). Defaults are the cheapest real backends: gpt-5-mini for text,
+# the textured renderer (the same one samples.png uses), a 32^3 canvas so builds
+# fit the houses32-v1 benchmark protocol, and a per-build budget cap.
+llm: openai:gpt-5-mini
+actions: dsl
+contexts: [palette]
+renderer: textured
+canvas: [32, 32, 32]
+gen: {max_tokens: 16000, temperature: null, reasoning_effort: medium}
+cache: read_write
+budget: {usd_per_build: 0.25}

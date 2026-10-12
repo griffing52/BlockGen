@@ -1,0 +1,5 @@
+# The dream drives materials: its foreground colours are clustered in Lab and matched
+# to the nearest blocks, which are listed and shown as a texture sheet.
+extends: dream
+description: dream loop where the dream's colours pick a 12-block palette shown as a texture sheet
+contexts: [palette, {dream_palette: {k: 12}}, {texture_sheet: {blocks: dream_palette}}, scale]

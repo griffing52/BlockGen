@@ -1,0 +1,19 @@
+# Describe-stage pilot: does putting the building into words help the dream loop?
+#   dream-caption vs dream               a caption of the image (same images)
+#   dream-caption vs dream-caption-shuffled   the description, not the extra tokens
+#   dream-describe-before vs dream       an image drawn from a detailed spec
+#   dream-describe-both vs dream-describe-before   the caption on top (same images)
+#   classic-matched                      the no-dream control
+# Estimate first: python -m blockgen.agentic estimate --battery describe-v1
+name: describe_v1
+description: describe stage (spec before, caption after, both, shuffled control) vs dream and classic-matched
+prompts: {source: detailed, n: 8, seed: 0}     # PILOT; n>=128 per arm before any claim
+budget: {usd: 12.0}
+cache: read_write
+recipes:
+  - classic-matched
+  - dream
+  - dream-describe-before
+  - dream-caption
+  - dream-describe-both
+  - dream-caption-shuffled

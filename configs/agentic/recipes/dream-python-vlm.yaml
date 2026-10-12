@@ -1,0 +1,9 @@
+# Dream loop with the sandboxed Python API as the action space and a VLM judge as a
+# score term. feedback=both sends the renders AND the judge's difference notes, so
+# this arm tests whether verbal feedback helps a code-writing builder.
+extends: dream
+description: dream loop, python action space, VLM judge in the score and in the feedback
+actions: {python: {timeout_s: 10, max_ops: 200000}}
+score: {embed: 1.0, silhouette: 0.5, validity: 0.3, vlm: 1.0}
+params: {feedback: both}
+budget: {usd_per_build: 0.40, max_images: 4}

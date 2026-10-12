@@ -1,0 +1,8 @@
+# Control for dream-caption: the same calls and the same amount of text, but the
+# builder and critic are shown the caption of ANOTHER prompt's dream from the same
+# arm (the previously captioned prompt; the arm's first prompt gets a fixed library
+# caption). dream-caption minus this arm is what a correct description adds beyond
+# more tokens; this arm minus `dream` is the cost of a wrong one.
+extends: dream-caption
+description: control for dream-caption, the caption of a different prompt's dream
+params: {caption_control: shuffled}

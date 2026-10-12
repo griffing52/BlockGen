@@ -1,0 +1,6 @@
+# Token-matched control for texsheet-oneshot: identical tiles, cells and captions,
+# but labels permuted (a derangement: every label is on the wrong tile). If it
+# scores the same, the gain was image tokens, not texture knowledge.
+extends: texsheet-oneshot
+description: control for texsheet-oneshot, same sheet with every label on the wrong tile
+contexts: [palette, {texture_sheet: {blocks: palette, tile: 64, cols: 10, shuffled: true, seed: 0}}]

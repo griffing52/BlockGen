@@ -1,0 +1,7 @@
+# Free-marginal backends: Claude Code CLI (subscription quota) for every LLM role and
+# local SDXL-turbo for dreams. cost_known=False (subscription and local are unpriced).
+# Needs: `claude` on PATH (logged in) and `pip install diffusers accelerate` + a GPU.
+extends: dream
+description: dream loop on Claude Code (sonnet) + local SDXL-turbo dreams, no API spend
+llm: claude-code:sonnet
+image: diffusers:stabilityai/sdxl-turbo?steps=4

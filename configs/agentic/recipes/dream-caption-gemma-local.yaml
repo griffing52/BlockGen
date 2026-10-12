@@ -1,0 +1,5 @@
+# dream-caption, fully local (see dream-gemma-local): the local VLM captions the
+# SDXL-Turbo dream, and the builder and critic see the caption.
+extends: dream-gemma-local
+description: fully local dream-caption (gemma-4-12b + SDXL-Turbo on CPU), no spend
+params: {describe: after}

@@ -1,0 +1,19 @@
+# Plan first, then build storey by storey, bottom up. Same plan and scores as
+# blueprint; the unit is a storey instead of a room (isolates unit granularity). Each
+# storey is dreamed with everything above it removed, conditioned on a render of the
+# storey below as built, and built inside the storey's own region.
+extends: _base
+description: blueprint plan -> exterior dream -> storey-by-storey builds with storey dreams (bottom up) -> LLM roof -> exterior patch loop
+method: floors
+llm: {builder: openai:gpt-5-mini, planner: openai:gpt-5-mini, critic: openai:gpt-5-mini, judge: openai:gpt-5-mini, dream_critic: openai:gpt-5-mini}
+image: openai:gpt-image-1-mini?quality=low&size=1024x1024
+dream_style: render_match
+dreams: [iso]
+contexts: [palette, scale]
+score: {embed: 1.0, silhouette: 0.5, color_lab: 0.3, validity: 0.3}
+gates: {validity: 0.5}
+final_score: {clip_text: 1.0, validity: 0.5}
+accept: improve_valid
+select: best_accepted     # final pass can damage a finished build; never pick a rejected attempt
+params: {max_storeys: 2, storey_dreams: true, max_storey_iters: 2, roof: llm, max_iters: 2}
+budget: {usd_per_build: 0.60, max_images: 5}

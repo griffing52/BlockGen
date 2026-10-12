@@ -1,0 +1,9 @@
+# dream + a text plan that READS the dream: before the first program the planner sees
+# the TARGET image(s) and writes the design out in blocks (what the image shows,
+# storeys, footprint, parts with coordinate ranges, door and windows, at player
+# scale); the build turn then gets that plan. Same dreams as `dream` (same prompts
+# and seed, so the shared cache gives both arms the same images): any difference is
+# the plan turn.
+extends: dream
+description: dream loop whose first build follows a text plan reasoned from the dream, in blocks at player scale
+params: {plan: true}

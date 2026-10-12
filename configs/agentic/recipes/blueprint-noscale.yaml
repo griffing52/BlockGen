@@ -1,0 +1,6 @@
+# Control for the scale context on blueprint: no player-scale rules in the system text,
+# the planner turns or the room/exterior dreams. The repair's hard minimum (room rects
+# at least 5 x 5) still applies, as it does to every blueprint arm.
+extends: blueprint
+description: blueprint without the player-scale context (control for scale)
+contexts: [palette]

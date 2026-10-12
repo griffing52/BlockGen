@@ -1,0 +1,6 @@
+# Ceiling and scorer sanity check: the "dream" is a textured render of a real
+# TRAIN-split house, so a perfect build exists. Tagged oracle_train: never ranked.
+extends: dream
+description: dream = render of a real train-split house (ceiling, scorer sanity; never ranked)
+image: mock:render?split=train
+tags: {train_split: oracle_train, leaderboard: false}

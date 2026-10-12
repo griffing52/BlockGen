@@ -1,0 +1,14 @@
+# Representation battery: does the action space matter? Same one-shot loop (one
+# example, repairs) over dsl, per-block lines, sandboxed Python, plus the texture
+# sheet and its token-matched shuffled control. No dreams, so no image spend.
+name: repr_v1
+description: action spaces (dsl / blocks / python) and the texture-sheet context vs its control
+prompts: {source: detailed, n: 12, seed: 0}     # PILOT size; n>=256 for leaderboard claims
+budget: {usd: 3.0}
+cache: read_write
+recipes:
+  - {classic-full: {as: dsl_oneshot, params: {plan: false, n_examples: 1, repair_rounds: 2, critique_rounds: 0}}}
+  - blocks-oneshot
+  - python-oneshot
+  - texsheet-oneshot
+  - texsheet-shuffled

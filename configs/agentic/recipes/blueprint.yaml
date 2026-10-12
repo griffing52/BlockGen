@@ -1,0 +1,33 @@
+# Plan first, then build room by room. A typed blueprint (LLM JSON, repaired) gives a
+# deterministic shell; the exterior dream is an img2img of OUR massing render (same
+# camera and footprint as every render the loop scores); each room is furnished inside
+# its own region against its own interior dream, scored on a cutaway of that room only.
+extends: _base
+description: blueprint -> det shell -> massing-anchored exterior dream -> room-by-room interiors with per-room dreams -> roof -> exterior patch loop
+method: blueprint
+llm: {builder: openai:gpt-5-mini, planner: openai:gpt-5-mini, critic: openai:gpt-5-mini, judge: openai:gpt-5-mini, dream_critic: openai:gpt-5-mini}
+image: openai:gpt-image-1-mini?quality=low&size=1024x1024
+dream_style: render_match
+dreams: [iso]
+contexts: [palette, scale]           # scale: player-scale rules in every planner/builder turn (blueprint-noscale drops it)
+score: {embed: 1.0, silhouette: 0.5, color_lab: 0.3, validity: 0.3}
+gates: {validity: 0.5}
+final_score: {clip_text: 1.0, validity: 0.5}
+accept: improve_valid
+select: best_accepted     # final pass can damage a finished build; never pick a rejected attempt
+params:
+  plan_source: llm
+  max_rooms: 4
+  max_storeys: 2
+  shell: det
+  roof: det
+  exterior_ref: massing
+  interior_dreams: true
+  room_refs: [cutaway, exterior]
+  room_order: public_first
+  max_room_iters: 2
+  room_mode: patch
+  max_iters: 2
+  final_feedback: both
+  final_mode: patch
+budget: {usd_per_build: 0.80, max_images: 8}

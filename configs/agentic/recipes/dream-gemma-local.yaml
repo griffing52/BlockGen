@@ -1,0 +1,11 @@
+# Fully local dream loop, $0: Gemma 4 12B (vLLM on localhost:8000, image input
+# enabled) for every LLM role and SDXL-Turbo on CPU for dreams (~4 s an image on 24
+# cores, leaving the GPU to vLLM). `compact` dream style because SDXL's text encoder
+# reads only 77 tokens. Thinking on: off, gemma-12b writes valid but generic programs
+# (results.md T47); on, it plans distinctive shapes at ~1-1.5 min a call.
+extends: dream
+description: fully local dream loop (gemma-4-12b via vLLM + SDXL-Turbo on CPU), no spend
+llm: local:gemma-4-12b-it-qat-w4a16-ct
+image: diffusers:sdxl-turbo?device=cpu&dtype=bf16&steps=4
+dream_style: compact
+gen: {max_tokens: 12000, thinking: true, max_images: 4, temperature: null, reasoning_effort: null}   # max_images = the server's --limit-mm-per-prompt

@@ -1,0 +1,8 @@
+# Native re-implementation on Episode. Parity-tested against legacy; use it when you
+# want to change an axis legacy cannot (actions, scorers, accept policy, renderer).
+extends: _base
+description: native classic loop, plan + 1 example + 2 repairs + 1 critique (rewrite)
+method: classic
+params: {plan: true, n_examples: 1, repair_rounds: 2, critique_rounds: 1, critique_mode: rewrite}
+accept: nonempty_legacy
+select: last

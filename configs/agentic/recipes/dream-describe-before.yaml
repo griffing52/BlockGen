@@ -1,0 +1,9 @@
+# dream + EXPAND: before the image, a planner turn writes the request out as a
+# detailed design spec (footprint, storeys and clear heights, roof, materials as
+# palette blocks, openings, features, what to leave out). The spec's description is
+# appended to the dream's {desc}, so the image is drawn from it, and the builder
+# sees the spec. New images (the dream prompt changes), so it does not share
+# `dream`'s cache.
+extends: dream
+description: dream whose image is drawn from a detailed design spec written first; the builder sees the spec
+params: {describe: before}

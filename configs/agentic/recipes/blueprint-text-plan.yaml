@@ -1,0 +1,8 @@
+# blueprint with a TEXT-reasoned plan: the planner first writes a prose design brief
+# (footprint, storey heights, rooms with sizes in blocks, adjacency, how a player walks
+# from the front door to every room), then a second turn transcribes the brief into
+# the blueprint JSON (same fix turn and repair as plan_source llm). Compare with
+# blueprint (direct JSON) and blueprint-image-plan (a dreamed plan read by a VLM).
+extends: blueprint
+description: blueprint whose floor plan is reasoned in a prose design brief, then transcribed to JSON
+params: {plan_source: text}

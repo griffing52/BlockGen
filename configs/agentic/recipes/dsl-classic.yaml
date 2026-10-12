@@ -1,0 +1,7 @@
+# Exactly BuildAgent with the 'full' arm: byte-identical prompts, cache keys, outputs.
+# The legacy method wraps BuildAgent itself, so this arm can reuse every response
+# already cached by blockgen.experiments_agentic.
+extends: _base
+description: legacy BuildAgent, plan + 1 example + 2 repairs + 1 critique (rewrite)
+method: legacy
+params: {arm: full}           # any experiments_agentic.ARMS key; or config: {...AgentConfig fields}

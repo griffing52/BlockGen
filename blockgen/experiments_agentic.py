@@ -30,6 +30,7 @@ battery to add a metric or re-render costs nothing. Start with ``--quick``.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 import traceback
 from typing import Dict, List
@@ -70,7 +71,10 @@ DEFAULT_ARMS = "zeroshot,oneshot,plan,repair,full"
 
 def run_arm(name: str, overrides: dict, prompts: List[str], args) -> List[BuildResult]:
     """Run one arm over every prompt. A failed build is recorded, never fatal."""
-    cfg = AgentConfig(
+    # Battery-wide defaults first, the arm's fields on top. Merging the dicts (rather
+    # than passing both as kwargs) lets an arm override ANY field, e.g. critique_mode
+    # or ontology_path, which used to raise "got multiple values for keyword".
+    base = dict(
         provider=args.provider,
         canvas_size=(args.canvas, args.canvas_height or args.canvas, args.canvas),
         max_tokens=args.max_tokens,
@@ -82,8 +86,8 @@ def run_arm(name: str, overrides: dict, prompts: List[str], args) -> List[BuildR
         ontology_seed=args.ontology_seed,
         cache=not args.no_cache,
         verbose=not args.quiet,
-        **overrides,
     )
+    cfg = AgentConfig(**{**base, **overrides})
     provider = get_provider(cfg.provider, cache=cfg.cache, **cfg.provider_params())
     agent = BuildAgent(provider, cfg)
     results: List[BuildResult] = []
@@ -101,6 +105,28 @@ def run_arm(name: str, overrides: dict, prompts: List[str], args) -> List[BuildR
                 canvas=empty, program_text="", report=ExecutionReport(),
                 config=cfg, error=f"{type(exc).__name__}: {exc}"))
     return results
+
+
+def run_suite(args) -> None:
+    """``--recipes`` / ``--battery``: route to the methods suite (docs/agentic-suite.md).
+
+    The suite owns backends, canvas and budgets per recipe, so only the prompt
+    flags, --name, --no-cache, --no-render and --mock carry over from this CLI.
+    """
+    from blockgen.agentic import suite
+    from blockgen.agentic.recipe import load_recipe
+    cache = "off" if args.no_cache else None
+    common = dict(mock=args.mock, cache_mode=cache, render=not args.no_render)
+    if args.battery:
+        # The battery's own prompt spec wins unless --prompts was given explicitly.
+        explicit = any(a.startswith("--prompts") for a in sys.argv[1:])
+        prompts = load_prompts(args.prompts, n=args.n, seed=args.seed) if explicit else None
+        suite.run_battery(args.battery, prompts=prompts,
+                          name=None if args.name == "agentic" else args.name, **common)
+        return
+    specs = [load_recipe(r.strip()) for r in args.recipes.split(",") if r.strip()]
+    prompts = load_prompts(args.prompts, n=args.n, seed=args.seed)
+    suite.run_recipes(specs, prompts, name=args.name, **common)
 
 
 def main() -> None:
@@ -137,6 +163,13 @@ def main() -> None:
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--quick", action="store_true",
                     help="2 prompts, zeroshot+full only — the smoke test")
+    ap.add_argument("--recipes", default=None,
+                    help="comma list of suite recipes (configs/agentic/recipes); runs "
+                         "them through blockgen.agentic.suite instead of the ARMS path")
+    ap.add_argument("--battery", default=None,
+                    help="suite battery YAML (path or name under configs/agentic/batteries)")
+    ap.add_argument("--mock", action="store_true",
+                    help="with --recipes/--battery: fully offline backends")
     args = ap.parse_args()
     if args.config:
         from blockgen.config import apply_to_parser, load_config
@@ -147,6 +180,9 @@ def main() -> None:
     if args.quick:
         args.n = 2
         args.arms = "zeroshot,full"
+    if args.recipes or args.battery:
+        run_suite(args)
+        return
 
     arm_names = [a.strip() for a in args.arms.split(",") if a.strip()]
     unknown = [a for a in arm_names if a not in ARMS]

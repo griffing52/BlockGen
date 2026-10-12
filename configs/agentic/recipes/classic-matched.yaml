@@ -1,0 +1,11 @@
+# Compute-matched no-dream control for `dream`: same max critique turns and best-of
+# selection, scored by dream-independent terms. Any dream gain over THIS is the image.
+extends: classic-full
+description: no-dream control for dream; 3 render critiques, best-of by clip_text + validity
+# scale rides on the legacy prompts (appended to the system message, classic.py
+# LEGACY_ADDITIVE_CONTEXTS), so this control carries the same scale rules as dream.
+contexts: [palette, scale]
+params: {plan: false, n_examples: 1, repair_rounds: 1, critique_rounds: 3, critique_mode: rewrite}
+score: {clip_text: 1.0, validity: 0.5}
+accept: improve_valid
+select: best

@@ -1,0 +1,40 @@
+# Every shipped recipe once, for the offline smoke test:
+#   python -m blockgen.agentic battery smoke-mock --mock
+# Real backends are listed (it is the same recipes as a paid run), but this battery
+# is meant to be run with --mock; without it the spend gate stops the first miss.
+name: smoke_mock
+description: every shipped recipe on 2 short prompts (run with --mock)
+prompts: {source: short, n: 2, seed: 0}
+budget: {usd: 0.0}
+cache: read_write
+recipes:
+  - dsl-classic
+  - classic-full
+  - classic-matched
+  - best-of-4
+  - blocks-oneshot
+  - python-oneshot
+  - texsheet-oneshot
+  - texsheet-shuffled
+  - dream
+  - dream-refine
+  - dream-multiview
+  - dream-vote
+  - dream-python-vlm
+  - mixed-dream
+  - dream-texpalette
+  - dream-local
+  - dream-oracle
+  - dream-plan
+  - dream-noscale
+  - dream-describe-before
+  - dream-caption
+  - dream-describe-both
+  - dream-caption-shuffled
+  - blueprint
+  - blueprint-nodream
+  - blueprint-image-plan
+  - blueprint-text-plan
+  - blueprint-noscale
+  - floors
+  - turnaround

@@ -1,0 +1,6 @@
+# Control for the scale context on the dream loop: `dream` without the player-scale
+# rules (system text) and without the dream's scale cue. Its dream prompts are the
+# pre-2026-10-03 `dream` prompts, so it reuses images cached before the change.
+extends: dream
+description: dream without the player-scale context or dream cue (control for scale)
+contexts: [palette, {examples: {k: 1}}]

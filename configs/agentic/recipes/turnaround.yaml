@@ -1,0 +1,33 @@
+# Four target views from ONE image: a 2x2 turnaround sheet is generated in one
+# pass (so every panel shows the same building), split into tiles, and the tiles
+# become the iso / left / back / right dreams. After the first build the tiles are
+# reassigned to cameras once, by silhouette against the build's renders (the 8
+# cyclic orders). A bad split falls back to today's per-view edits. The control
+# arm `turnaround_perview` (params.mode: per_view) is today's multi-view generation.
+extends: _base
+description: one 2x2 turnaround sheet -> split into iso/left/back/right targets -> build -> cyclic view assignment -> match loop
+method: turnaround
+llm: {builder: openai:gpt-5-mini, critic: openai:gpt-5-mini, judge: openai:gpt-5-mini,
+      dream_critic: openai:gpt-5-mini}
+image: openai:gpt-image-1-mini?quality=low&size=1024x1024
+dream_style: render_match
+contexts: [palette, scale]
+dreams:
+  - {key: iso, view_search: []}    # each tile is compared with its own camera only
+  - back
+  - left
+  - right
+score: {embed: 1.0, silhouette: 0.5, color_lab: 0.3, validity: 0.3}
+gates: {validity: 0.5}
+final_score: {clip_text: 1.0, validity: 0.5}
+accept: improve_valid
+select: best
+params:
+  mode: sheet
+  order: [iso, iso_left, iso_back, iso_right]
+  assign: cyclic
+  max_iters: 3
+  feedback: raw
+# max_images 5, not 3: a sheet whose split fails falls back to four per-view
+# images (1 + 4), and the per_view control arm needs 4 on its own.
+budget: {usd_per_build: 0.40, max_images: 5}

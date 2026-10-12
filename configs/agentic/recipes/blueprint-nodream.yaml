@@ -1,0 +1,11 @@
+# Image-free control for blueprint: the same plan, deterministic shell, room turns,
+# roof and exterior pass, with every image removed (rooms are built and critiqued
+# from text and cutaway renders only). Any gain of blueprint over THIS is the images.
+extends: blueprint
+description: no-image control for blueprint; same stages and room turns, text-only targets
+image: null
+dreams: []
+dream_style: null
+score: {clip_text: 1.0, validity: 0.5}
+params: {exterior_dream: false, interior_dreams: false}
+budget: {usd_per_build: 0.40, max_images: 0}

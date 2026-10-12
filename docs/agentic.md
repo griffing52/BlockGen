@@ -56,6 +56,34 @@ Full numbers and caveats: [T22](results.md).
 
 ---
 
+## Methods suite (recipes, dream loop, batteries)
+
+This page documents the original loop (`BuildAgent`, `experiments_agentic`). The
+**[agentic methods suite](agentic-suite.md)** builds on it: methods are short
+Python functions, configured by YAML recipes in `configs/agentic/recipes/`, with
+pluggable LLMs per role, image generators, renderers, action spaces (DSL, per-block
+lines, sandboxed Python, mixed), context modules, scorers and accept policies. Its
+headline method is the dream loop (imagine the target image, build, compare the
+render with it, iterate). Its staged methods (`blueprint`, `floors`, `turnaround`)
+plan the floor plan first and build room by room or storey by storey, or draw all
+four views in one image ([section 5.4](agentic-suite.md#54-staged-and-hierarchical-methods)). Everything runs offline with `--mock`:
+
+```bash
+.venv/bin/python -m blockgen.agentic run --recipe dream-multiview --prompts short:2 --mock
+```
+
+Relationship to this page: `BuildAgent` is unchanged and remains the live `/gen`
+path. The suite's `legacy` method wraps it byte for byte (recipe `dsl-classic` and
+the virtual `legacy-<arm>` recipes, which hit the same response cache), and its
+`classic` method is a native re-implementation parity-tested against it.
+`experiments_agentic` gained `--recipes NAME[,NAME]` and `--battery FILE`, which
+route to the suite; without them it runs exactly as before. Its arms may now
+override any AgentConfig field (for example `critique_mode`, `target_blocks` or
+`ontology_path`): the battery-wide defaults and the arm's fields are merged, where
+they used to be passed twice and raise a duplicate-keyword error.
+
+---
+
 ## Quick start
 
 ```bash
@@ -280,9 +308,9 @@ with one setting changed, so the comparison isolates the block reference table:
 | Arm | block reference in the system prompt | prompt size |
 |---|---|---|
 | `ont_none` | the bare 70-name palette list (as shipped) | ~1.3k tokens |
-| `ont_mined` | the measured catalog — colour, layer, form, affinity, rules | ~4.3k |
-| `ont_shuffled` | **the control**: the same table, attributes permuted onto the wrong blocks, token-matched to `ont_mined` | ~4.3k |
-| `ont_stats` | mined fields only — no colours, no game rules | ~3.2k |
+| `ont_mined` | the measured catalog — colour, layer, form, affinity, rules | ~3.2k (12.8k chars) |
+| `ont_shuffled` | **the control**: the same table, attributes permuted onto the wrong blocks, token-matched to `ont_mined` | ~3.2k (12.8k chars) |
+| `ont_stats` | mined fields only — no colours, no game rules | ~2.1k (8.5k chars) |
 
 `ont_mined` beating `ont_none` is not a result; `ont_mined` beating `ont_shuffled`
 is. See [Block ontology](ontology.md), and build the catalog with

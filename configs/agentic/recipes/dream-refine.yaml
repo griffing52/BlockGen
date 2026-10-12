@@ -1,0 +1,13 @@
+# dream + a dream critic that vets each image before anything is built, and one
+# mid-loop re-imagination when the build stalls and the critic calls the dream
+# unbuildable.
+extends: dream
+description: dream_critic vets each dream (buildable, on-prompt, single structure, view) and regenerates up to K=2
+llm: {builder: openai:gpt-5-mini, critic: openai:gpt-5-mini, judge: openai:gpt-5-mini,
+      dream_critic: openai:gpt-5-mini}      # try claude-code:sonnet for $0 marginal
+params:
+  refine: 2               # K: max regenerations per dream before building
+  refine_min_score: 7     # 0-10 critic verdict to accept a dream
+  redream: 1              # option (a) mid-loop: at most 1 re-imagination on stall...
+  redream_patience: 2     # ...after 2 non-improving iterations, if the critic says 'unbuildable'
+budget: {usd_per_build: 0.45, max_images: 6}

@@ -1,0 +1,6 @@
+# Mixed action space inside the dream loop: python for massing, blocks for touch-ups,
+# in patch mode so later turns edit the accepted build instead of rewriting it.
+extends: dream
+description: dream loop with fenced python + blocks sections, patch mode
+actions: {mixed: {parts: [python, blocks]}}   # ```python for massing, ```blocks for touch-ups
+params: {mode: patch}

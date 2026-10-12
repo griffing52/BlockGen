@@ -1,0 +1,7 @@
+# blueprint with an IMAGE-made plan: the floor plan is dreamed on our blank grid paper
+# (so the drawing keeps the axis labels) and read into blueprint JSON by a VLM. Only
+# the ground floor comes from the image; upper storeys are the reader's proposal.
+extends: blueprint
+description: blueprint whose floor plan is dreamed on grid paper and read by a VLM (image-made plan vs LLM JSON plan)
+params: {plan_source: image}
+budget: {max_images: 9}

@@ -1,0 +1,17 @@
+# Sampling control: four independent classic builds (distinct design variations),
+# keep the best by the same dream-independent score as classic-matched. If a dream
+# arm beats this at similar would_cost_usd, the gain is not just "more samples".
+# Extends _base, not classic-matched, because params mappings deep-merge and the
+# classic params are not best_of_n params.
+extends: _base
+description: best of 4 independent classic builds, picked by clip_text + validity
+method: best_of_n
+params:
+  n: 4
+  inner: classic
+  inner_params: {plan: false, n_examples: 1, repair_rounds: 1, critique_rounds: 0}
+contexts: [palette, scale]     # same scale rules as the dream arms it controls for
+score: {clip_text: 1.0, validity: 0.5}
+accept: improve_valid
+select: best
+budget: {usd_per_build: 0.40}

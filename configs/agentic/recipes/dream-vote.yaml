@@ -1,0 +1,7 @@
+# Pick instead of refine: sample several iso dreams (different seeds), let the dream
+# critic choose the most buildable one, then run the normal dream loop on it.
+extends: dream
+description: sample 4 iso dreams, dream critic picks the most buildable, then the dream loop
+method: dream_vote
+params: {n_dreams: 4}
+budget: {usd_per_build: 0.40, max_images: 6}

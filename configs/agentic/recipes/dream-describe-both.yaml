@@ -1,0 +1,7 @@
+# dream + EXPAND + CAPTION: the spec is written first and the image drawn from it,
+# then the image is captioned. Where they disagree the builder is told to follow the
+# image and its caption (the image is what is scored); disagreements are logged.
+# Same images as `dream-describe-before`.
+extends: dream
+description: spec first, image drawn from it, then the image captioned; the builder follows image plus caption
+params: {describe: both}

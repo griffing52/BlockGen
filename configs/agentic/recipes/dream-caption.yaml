@@ -1,0 +1,8 @@
+# dream + CAPTION: after the image, the judge describes what it actually shows
+# (materials as palette blocks, storeys, roof, block dimensions, front and side
+# faces, what is uncertain). The builder sees the caption with the TARGET, and the
+# critic sees it in every match turn. Same dream requests as `dream`, so the shared
+# cache gives both arms the same images: any difference is the caption.
+extends: dream
+description: dream plus a structured caption of what the dream shows, given to the builder and the match critic
+params: {describe: after}

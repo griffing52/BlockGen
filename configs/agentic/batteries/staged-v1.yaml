@@ -1,0 +1,26 @@
+# Staged methods pilot: plan first, build room by room / storey by storey, one-image
+# turnaround. Every image arm has an image-free or shuffled twin (docs/agentic-suite.md,
+# section 5.4, "Controls"). PILOT: n < 256, so no leaderboard claims. Run `estimate`
+# first; the staged arms cost more per build than dream (see the docs cost table).
+#   python -m blockgen.agentic estimate --battery staged-v1
+#   python -m blockgen.agentic battery staged-v1 --mock --prompts short:2   # offline check
+name: staged_v1
+description: staged (blueprint / floors / turnaround) arms vs their controls
+prompts: {source: detailed, n: 8, seed: 0}
+budget: {usd: 25.0}
+cache: read_write
+recipes:
+  - classic-matched                                                 # baseline loop
+  - {classic-matched: {as: classic_long, params.critique_rounds: 12}}  # turns-matched to blueprint-nodream
+  - dream
+  - {dream: {as: dream_rm, dream_style: render_match}}              # one-axis style A/B
+  - dream-multiview
+  - blueprint
+  - blueprint-nodream                                               # stages without images
+  - {blueprint: {as: blueprint_extonly, params.interior_dreams: false}}
+  - {blueprint: {as: blueprint_shuffled, params.room_dream_shuffle: true}}
+  - {blueprint: {as: blueprint_llmshell, params.shell: llm}}
+  - blueprint-image-plan
+  - floors
+  - turnaround
+  - {turnaround: {as: turnaround_perview, params.mode: per_view}}

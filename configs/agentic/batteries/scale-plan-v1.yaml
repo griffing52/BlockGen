@@ -1,0 +1,25 @@
+# Player scale and planning (2026-10-03). Two families, each against its controls:
+#   dream loop:  dream (scale) vs dream-noscale vs dream_scale_textonly (rules, no dream
+#                cue) vs dream-plan (a text plan read from the dream) vs classic-matched
+#   blueprint:   blueprint (scale) vs blueprint-noscale vs blueprint-text-plan (prose
+#                brief -> JSON) vs blueprint-image-plan (dreamed plan read by a VLM)
+# Look at the scale_* method metrics (heuristic: headroom over covered floor, door-like
+# openings), not only the scores: scale is meant to fix interiors the iso score barely
+# sees. PILOT: n < 256, so no leaderboard claims. Estimate first:
+#   python -m blockgen.agentic estimate --battery scale-plan-v1
+#   python -m blockgen.agentic battery scale-plan-v1 --mock --prompts short:2   # offline check
+name: scale_plan_v1
+description: player-scale context and text planning (dream and blueprint families) vs their controls
+prompts: {source: detailed, n: 8, seed: 0}
+budget: {usd: 25.0}
+cache: read_write
+recipes:
+  - classic-matched
+  - dream
+  - dream-noscale
+  - {dream: {as: dream_scale_textonly, contexts: [palette, {examples: {k: 1}}, {scale: {dream_cue: false}}]}}
+  - dream-plan
+  - blueprint
+  - blueprint-noscale
+  - blueprint-text-plan
+  - blueprint-image-plan

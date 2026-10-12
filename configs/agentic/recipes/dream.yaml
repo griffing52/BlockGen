@@ -1,0 +1,16 @@
+# The core dream loop: imagine one iso exterior image, build, render the build at
+# the dream's camera, compare, retry. Scored by an in-loop image similarity that is
+# deliberately NOT a bench backbone (siglipB, not dinov2b/clipL) to avoid Goodhart.
+extends: _base
+description: imagine one iso exterior, build, render iso, compare, retry (<=3)
+method: dream
+llm: {builder: openai:gpt-5-mini, critic: openai:gpt-5-mini, judge: openai:gpt-5-mini}
+image: openai:gpt-image-1-mini?quality=low&size=1024x1024
+dreams: [iso]                       # DREAMS preset: iso exterior, view_search over iso_back/left/right
+contexts: [palette, {examples: {k: 1}}, scale]   # scale: player-scale rules + dream cue (dream-noscale drops it)
+score: {embed: 1.0, silhouette: 0.5, validity: 0.3}
+gates: {validity: 0.5}
+accept: improve_valid
+select: best
+params: {max_iters: 3, stop_at: 0.85, patience: 2, mode: rewrite, feedback: raw, refine: 0}
+budget: {usd_per_build: 0.30, max_images: 4}

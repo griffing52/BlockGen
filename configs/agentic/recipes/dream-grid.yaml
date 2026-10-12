@@ -1,0 +1,7 @@
+# dream + the `grid` context: axis conventions (which axis a flat vertical part holds
+# fixed) and which side of the build each TARGET camera face is. Added after every
+# non-copying windmill build in pilot_diverse_v0 laid its sails flat. Compare with
+# `dream` (identical otherwise).
+extends: dream
+description: dream + grid context (axes, vertical planes, camera faces)
+contexts: [palette, {examples: {k: 1}}, scale, {grid: {views: [iso, iso_back, iso_left, iso_right]}}]

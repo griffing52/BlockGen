@@ -1,0 +1,16 @@
+# The legacy arms through the suite: method `legacy` wraps BuildAgent unchanged
+# (byte-identical requests, so existing response-cache entries hit), and
+# classic-full is the native re-implementation of the `full` arm. Comparing
+# legacy-full and classic-full on the same prompts checks parity end to end.
+name: legacy_parity
+description: legacy BuildAgent arms via the suite, plus the native classic-full
+prompts: {source: detailed, n: 8, seed: 0}
+budget: {usd: 2.0}
+cache: read_write
+recipes:
+  - legacy-zeroshot
+  - legacy-oneshot
+  - legacy-full
+  - legacy-ont_mined
+  - legacy-ont_shuffled
+  - classic-full

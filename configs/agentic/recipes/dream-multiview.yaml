@@ -1,0 +1,16 @@
+# Several targets for one building: two exterior angles, an interior cutaway and a
+# ground-floor plan. Dependants are conditioned on the iso dream (image edit with a
+# reference) so they depict the same building; each is scored against the matching
+# render (iso_back, cutaway, plan).
+extends: dream-refine
+description: iso + back exterior, interior cutaway and ground-floor plan; all scored on matched views
+dreams:
+  - iso                                   # preset: weight 1.0, view iso
+  - {key: back, template: "{style} The SAME building as the reference image, seen from behind (opposite side). {desc}", view: iso_back, weight: 0.5, condition_on: [iso]}
+  - interior                              # preset: view cutaway, weight 0.3, condition_on [iso]
+  - plan                                  # preset: view plan, weight 0.5, condition_on [iso]
+  - {key: mood, template: "{style} {desc}, cozy evening lighting, eye-level", view: null, show_builder: true}   # context only
+score: {embed: 1.0, silhouette: 0.5, color_lab: 0.3, validity: 0.3}
+final_score: {clip_text: 1.0, validity: 0.5}   # dream-independent tie-break across re-dreams
+params: {refine: 1, max_iters: 4, feedback: both}
+budget: {usd_per_build: 0.80, max_images: 12}

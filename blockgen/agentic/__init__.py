@@ -26,6 +26,13 @@ Quick start::
     result.structure   # a blockgen.utils.data.Structure, like any other track's output
 
 See ``docs/agentic.md`` for the full operator's guide.
+
+The methods suite (recipes, dream loop, batteries; ``python -m blockgen.agentic``)
+is documented in ``docs/agentic-suite.md``. Its names are exported lazily, so
+``import blockgen.agentic`` stays as light as before::
+
+    from blockgen.agentic import load_recipe, run_recipes
+    run_recipes([load_recipe("dream")], ["a brick house"], name="try", mock=True)
 """
 
 from blockgen.agentic.agent import AgentConfig, BuildAgent, BuildResult, build_one
@@ -35,7 +42,27 @@ from blockgen.agentic.dsl import (COMMANDS, ExecutionReport, Program,
 from blockgen.agentic.providers import LLMProvider, get_provider
 from blockgen.agentic.tasks import load_prompts
 
+#: Suite names (module that defines them), resolved on first attribute access.
+_LAZY = {
+    "MethodSpec": "core", "MethodResult": "core", "register": "core", "make": "core",
+    "names": "core", "ImageGen": "core", "ActionSpace": "core",
+    "load_recipe": "recipe", "load_battery": "recipe",
+    "run_recipes": "suite", "run_battery": "suite",
+    "run_episode": "episode",
+}
+
+
+def __getattr__(name: str):
+    mod = _LAZY.get(name)
+    if mod is None:
+        raise AttributeError(f"module 'blockgen.agentic' has no attribute {name!r}")
+    import importlib
+    value = getattr(importlib.import_module(f"blockgen.agentic.{mod}"), name)
+    globals()[name] = value
+    return value
+
+
 __all__ = ["COMMANDS", "AgentConfig", "BuildAgent", "BuildResult", "Canvas",
            "ExecutionReport", "LLMProvider", "Program", "build_one",
            "command_reference", "get_provider", "load_prompts", "parse_program",
-           "run_program", "structure_to_canvas"]
+           "run_program", "structure_to_canvas", *_LAZY]
