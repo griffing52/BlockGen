@@ -23,6 +23,7 @@ referenced below are rendered to `outputs/figures/mc_data/` and `outputs/figures
 | **3D-Craft** | `data/minecraft/3d_craft/` | 2,537 houses | research (Meta AI CraftAssist) | single class ("house") + timestamped placement sequences |
 | **text2mc** | `data/minecraft/text2mc/` | 11,092 h5 (of ~38k) | Kaggle/CC (research) | free-text tags on some builds; modern namespaced blocks |
 | **tfrecord crawl** | `data/minecraft/more/` | 36,290 NBT / 69,363 meta | PlanetMinecraft user-content | 15 map categories, title/views/downloads/diamonds/tags |
+| **World-crop** (pilot) | `data/minecraft/worldcrop/201407/` | 2,651 crops / 400 archives (pilot) | none (archive.org MAP; pretraining only) | provenance + bbox + route; no class labels |
 | Legacy schematics | `data/minecraft/raw/` | 12,366 `.schematic` | mixed (drifted crawl) | none reliable — filenames ≠ metadata |
 | Block vocab ref | `data/minecraft/block_ids.csv` | 933 block types | minecraft-data (MIT) | id/name/material/hardness/light/… |
 
@@ -30,9 +31,9 @@ referenced below are rendered to `outputs/figures/mc_data/` and `outputs/figures
 
 | Corpus | Path | Size | License | Labels |
 |---|---|--:|---|---|
-| **OMR** (Open Model Repository) | `data/lego/omr/` | 1,463 sets → 1,819 models, 651,017 placements | **CC BY 4.0** (per file) | set id → title; full color + 3×3 rotation + part ref per placement |
-| **StableText2Brick** | `data/lego/stabletext2brick/` | ~42k train + test | **MIT** | text captions + per-brick stability scores + ShapeNet category |
-| LDraw parts library | `data/lego/ldraw/` | 33,362 part `.dat` | **CC BY 2.0** | part geometry (primitives + meshes) |
+| **OMR** (Open Model Repository) | `data/lego/omr/` | 1,463 sets → 1,819 models, 651,017 placements | **CC BY 2.0** (1,812 of 1,819 files declare `CCAL version 2.0`, which `CAreadme.txt` defines as CC BY 2.0; 7 declare 4.0). **67 files inline LDCad shadow subfiles marked "Free for non-commercial use" — exclude or strip before redistribution.** Attribution required: creator, work URL, licence name, licence URL, note of modification | set id → title; full color + 3×3 rotation + part ref per placement |
+| **StableText2Brick** | `data/lego/stabletext2brick/` | ~42k train + test | **Unresolved.** Card says MIT, but structures derive from ShapeNetCore, whose terms restrict use to non-commercial research and are silent on redistributing derived data | text captions + per-brick stability scores + ShapeNet category |
+| LDraw parts library | `data/lego/ldraw/` | 33,362 part `.dat` | **CC BY 4.0** (of 24,297 files in `parts/`: 22,803 CC BY 4.0, 1,494 dual 2.0+4.0) | part geometry (primitives + meshes) |
 | LDCad Shadow Library | `data/lego/shadow/` | 4,251 files | **CC BY-SA 4.0** | connectivity metas (studs/anti-studs/clips/axles/pins) |
 
 > **Unique parts/blocks.** Minecraft draws from a fixed ~933-entry block vocabulary
@@ -183,6 +184,32 @@ Regenerate:
 ```
 
 ---
+
+### 1.7 World-crop corpus — structures mined from archived worlds (pilot, 2026-10-07)
+
+`blockgen/data/worldcrop/` streams community **world saves** from the Minecraft Archive
+Project on archive.org (89 monthly zips, 2011–2018, ~3.6 TB, ~175k worlds scraped from
+PlanetMinecraft, Minecraft Forum, MediaFire, Dropbox) over HTTP range requests, reads every
+chunk encoding (McRegion, Anvil numeric, 1.13+ palette), and crops out player-built
+components: flat-preset diff for superflat worlds, STRONG/WEAK block tiers plus
+vanilla-structure masks for terrain worlds, an ore-like family filter for modded or
+replaced-ore maps. Operator manual: [World-crop corpus](docs/worldcrop.md); sourcing and
+licensing research: `research.md §F`.
+
+- **Pilot** (`data/minecraft/worldcrop/201407/`, 400 archives of month 2014-07): 381 Java
+  worlds, 911k chunks → **2,651 crops from 366 worlds** (2,557 saved as `.npz`; 94 wider
+  than 320 blocks are indexed only) + 30 whole `.schematic` builds found inside PMC
+  "download schematic" zips. Median 3 crops/world; median largest side 26; 1,562 fit 32³,
+  1,909 fit 48³, 2,386 fit 128³. ~8 min wall on 12 workers; the full archive is ~2 days.
+- Each crop = `ids` (X,Y,Z uint16 legacy ids), `data` (uint8), `mask` (component
+  membership) + provenance (archive item, member path, post permalink/title/description,
+  world bbox, route, seed/weak counts, mean `InhabitedTime`).
+- **License: none** — creators' copyright, archival deposit without rights grant.
+  Pretraining tier only; never redistributed. Code, provenance index and statistics are
+  releasable.
+
+*Sheets:* `data/minecraft/worldcrop/201407/sheet_masked.png` (component only) and
+`sheet_context.png` (full bbox).
 
 ## 2. LEGO corpora
 

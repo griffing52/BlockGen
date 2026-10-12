@@ -34,9 +34,12 @@ nav:
   - Workflow (train → evaluate → view): workflow.md
   - Architecture (code map): architecture.md
   - Data & curation: data-and-curation.md
+  - World-crop corpus: worldcrop.md
+  - Training pipeline plan: pipeline.md
   - Representations & tokenization: representations.md
   - Models (the three tracks): models.md
   - Agentic generation (Track E): agentic.md
+  - Agentic methods suite: agentic-suite.md
   - Block ontology: ontology.md
   - Pick-and-place (Track F): pick-and-place.md
   - MinecraftACE (LegoACE port): minecraftace.md

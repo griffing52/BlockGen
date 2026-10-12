@@ -153,6 +153,20 @@ python -m tools.lab --open
 
 See [BlockLab](lab.md) for all of it.
 
+Images are rendered lazily, so the first load of a fresh run's page renders its
+example builds one at a time. To warm them up front — worth it before showing a
+run to anyone — point the prerenderer at the run directory:
+
+```bash
+python -m tools.lab.prerender --runs outputs/run_<stamp>_bench_<name>
+```
+
+It resolves the run's `examples_<dim>.npz` to its dataset id for you, and the
+cache is content-addressed on the build's voxels, so arms that share builds with
+an already-browsed dataset cost nothing. An arm that **failed** during scoring
+contributes no examples and so has no images — that is a missing arm, not a
+missing render, and it is fixed by re-running the arm.
+
 **Other ways in.** `python -m tools.lab.prerender` warms thumbnails in batch.
 `scripts/render_model_samples.py` and friends produce figures for the paper.
 Hero images go through mcrender/Chunky, not through this pipeline.
@@ -171,6 +185,17 @@ match one.
 This is not a formality. Scoring one model against a 32-build control instead of
 a 128-build one moved its BlockScore from 87.14 to 19.05 — same model, same
 corpus, same split, same tier. The ruler changed, not the model.
+
+A protocol pins the *evaluation*, and that turned out not to be enough. An arm
+also has to have trained on the protocol's own train split, or the board is
+ranking a model against builds it was fitted on. That is checked from the arm's
+`report.train_split`, so **step 2 has to record it** — `sample_to_npz.py` and
+friends write the `report` block, and an arm whose report does not name a
+training split is unranked rather than assumed clean. The failure this prevents
+is not hypothetical: a pair of LLM arms whose training set contained 53 of the
+399 canonical *test* builds scored on the canonical split at n=128 and were
+ranked, with `train_split` sitting unread in the provenance block the page
+already displayed (notes.md §32).
 
 You are not obliged to run the official protocol. A fast-tier run on a different
 corpus is a perfectly good experiment; it simply appears on `/runs` rather than

@@ -41,9 +41,9 @@ real table.
 | arm | what the model sees | system prompt |
 |---|---|---|
 | `ont_none` | today's bare palette list | ~1.3k tokens |
-| `ont_mined` | the full catalog | ~4.3k tokens |
-| `ont_shuffled` | **the control** — same table, wrong blocks | ~4.3k tokens |
-| `ont_stats` | mined fields only, no colours or rules | ~3.2k tokens |
+| `ont_mined` | the full catalog | ~3.2k tokens (12.8k chars) |
+| `ont_shuffled` | **the control**: same table, wrong blocks | ~3.2k tokens (12.8k chars) |
+| `ont_stats` | mined fields only, no colours or rules | ~2.1k tokens (8.5k chars) |
 
 `ont_mined` beating `ont_none` is not a result. `ont_mined` beating
 `ont_shuffled` is.
