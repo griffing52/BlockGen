@@ -1,0 +1,5 @@
+# Symbolic then visual: two inspect-and-repair rounds, then one render critique.
+# Turn-matched to inspect and classic-matched (4 builder turns after generate).
+extends: inspect
+description: 2 inspect-and-repair rounds, then 1 render critique (symbolic + visual)
+params: {inspect_rounds: 2, critique_rounds: 1, critique_mode: rewrite}

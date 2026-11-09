@@ -1,0 +1,4 @@
+# classic-matched plus the retrieved lessons: isolates retrieval from inspection.
+extends: classic-matched
+description: classic-matched + retrieved building lessons (k=6)
+contexts: [palette, scale, {lessons: {k: 6}}]

@@ -1,0 +1,82 @@
+# Building lessons: a small curated knowledge base the `lessons` context retrieves
+# from by tag overlap with the request (ldraw-nova's "admitted construction lessons",
+# in Minecraft terms). Each lesson is one rule a builder can act on, written from
+# what the inspection checks (blockgen/agentic/inspection.py) and the traversal
+# probe (notes: llm builds 2% enterable, real 95%) keep finding wrong. Lessons
+# tagged `always` are included in every request; the rest compete by tag overlap.
+# Keep each under three lines. Numbers are in blocks; a player is 2 blocks tall.
+lessons:
+  - id: order
+    tags: [always]
+    text: >-
+      Build in this order: plinth or floor at y=0, walls, openings (door, windows),
+      roof, then details. Each later step must touch the one before it.
+  - id: door
+    tags: [always, door, entrance, house, cottage, cabin, shop, church, barn, inn, tower]
+    text: >-
+      Every building a player enters needs a door: a 1-wide, 2-tall opening at floor
+      level (air at y=floor and y=floor+1) through an outer wall, facing open ground,
+      with solid wall on both sides and a lintel above.
+  - id: room
+    tags: [always, room, interior, house, cottage, cabin, hall]
+    text: >-
+      A room is a floor, four walls one block thick and a ceiling, with at least 3 x 3
+      of air inside and 3 clear blocks of ceiling. A storey is 4 to 5 blocks floor to
+      floor.
+  - id: roof-sits
+    tags: [roof, gable, hip, house, cottage, cabin, barn, church]
+    text: >-
+      A roof must rest on the wall tops: start it at y = wall top + 1 and let it
+      overhang by at most one block. A gable spans the SHORT axis of the footprint;
+      step it in by one block per row and fill the triangular gable ends.
+  - id: windows
+    tags: [window, windows, house, cottage, cabin, shop, villa, church, tower]
+    text: >-
+      Windows are 1 x 1 or 2 x 1 openings at y = floor+1 to floor+2, every 2 to 3
+      blocks along a wall, glazed with glass or glass panes. Never put a window at
+      floor level or in a corner.
+  - id: storeys
+    tags: [storey, storeys, floors, two-storey, upper, villa, tower, inn, manor]
+    text: >-
+      An upper storey needs a floor slab one block thick, a 1 x 2 hole in that slab,
+      and stairs or a ladder leading up to the hole from the floor below.
+  - id: chimney
+    tags: [chimney, fireplace, cottage, cabin, house]
+    text: >-
+      A chimney is a 1 x 1 or 2 x 2 column that starts on the ground or on an outer
+      wall, passes through the roof and ends 2 blocks above the ridge. It must touch
+      the wall or roof it passes.
+  - id: tower
+    tags: [tower, lighthouse, castle, keep, turret, spire]
+    text: >-
+      A tower is one hollow shaft: walls one block thick, floors every 4 to 5 blocks
+      each with a stair hole, a door at the base and small windows per floor. Taper
+      only by whole steps of one block.
+  - id: supports
+    tags: [balcony, overhang, porch, awning, bridge, pier, platform, deck]
+    text: >-
+      Anything that sticks out more than one block (balcony, porch roof, deck) needs
+      posts or beams down to the ground or to a wall. Nothing may float.
+  - id: fence-garden
+    tags: [garden, fence, yard, path, farm, barn, well]
+    text: >-
+      Yard features (fence, path, garden, well) sit on the ground at y=0 or y=1 and
+      stay outside the walls, leaving a gap in front of the door.
+  - id: materials
+    tags: [always, stone, wood, brick, oak, spruce, cobblestone, sandstone]
+    text: >-
+      Use one main wall material and one trim material (corner posts, lintels, sills)
+      plus a distinct roof material. Three or four materials read as a building; one
+      reads as a box.
+  - id: pitched
+    tags: [steep, pitched, shingled, roof, attic, cottage, cabin]
+    text: >-
+      A steep roof rises one block per row inward; a shallow roof one block per two
+      rows. Give the attic headroom by starting the roof one block above the top
+      storey's ceiling.
+  - id: size
+    tags: [always, small, large, big, tiny]
+    text: >-
+      Size for the player, not the picture: a small house is about 7 x 7 to 11 x 11
+      outside and 5 to 7 tall to the eaves. Do not shrink doors or ceilings to make
+      a shape fit; simplify the shape instead.

@@ -109,6 +109,44 @@ def repair(ep: Any, att: Optional[Attempt] = None, *, rounds: int = 1) -> Option
     return ep.current() or last
 
 
+def inspect_repair(ep: Any, att: Optional[Attempt] = None, *, rounds: int = 1,
+                   mode: str = "rewrite", clean_at: str = "warning",
+                   show_passed: bool = True) -> Optional[Attempt]:
+    """Inspect-and-repair rounds (``inspection.inspect_attempt`` -> ``turns.inspect``):
+    the symbolic twin of the render critique. Runs while the current build still
+    fails a check at ``clean_at`` severity or worse ('error' | 'warning' | 'info'),
+    every round in a worst-case cost estimate (``ep.kit.worst_case``);
+    an empty rejected reply stops the stage. Each round's inspection is stored in
+    ``att.extra['inspection']`` and traced, so a run can count what each turn fixed."""
+    from blockgen.agentic.inspection import inspect_attempt
+
+    last = att
+    for i in range(max(0, int(rounds))):
+        cur = ep.current() or last
+        if cur is None:
+            break
+        insp = inspect_attempt(cur, canvas=tuple(ep.size))
+        ep.trace.event("inspection", stage=cur.stage, round=i, score=round(insp.score, 4),
+                       failed=[f.check for f in insp.failed], worst=insp.worst())
+        if insp.clean(clean_at) and not getattr(ep.kit, "worst_case", False):
+            break
+        stage = f"inspect{i + 1}"
+        turn = turns.inspect(ep, cur, insp, mode=mode, show_passed=show_passed)
+        if ep.spec.keep_history:
+            reply = ep.ask(turn, stage=stage)
+        else:
+            reply = ep.ask(turn, history=[text_message("user", f"Build: {ep.prompt}"),
+                                         text_message("assistant", cur.program_text)],
+                           stage=stage)
+        last = ep.try_(stage, reply, patch=(mode == "patch"))
+        if not last.accepted and last.blocks == 0:
+            break
+    cur = ep.current() or last
+    if cur is not None and "inspection" not in cur.extra:
+        inspect_attempt(cur, canvas=tuple(ep.size))
+    return cur
+
+
 def critique_turn(ep: Any, i: int, *, views: Sequence[str], mode: str = "rewrite") -> Optional[Attempt]:
     """One generic visual self-critique round on the current build. None = no
     render available (no renderer, empty build): the caller stops critiquing."""

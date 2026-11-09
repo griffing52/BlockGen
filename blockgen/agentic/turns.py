@@ -205,6 +205,22 @@ def repair(ep: Any, att: Attempt, *, max_issues: int = 20) -> Message:
     return text_message("user", "\n".join(lines))
 
 
+def inspect(ep: Any, att: Attempt, insp: Any, *, mode: str = "rewrite",
+            show_passed: bool = True) -> Message:
+    """Geometry feedback: what was BUILT, not what ran (``inspection.Inspection``).
+
+    The executor report comes first (a failed line explains many findings), then
+    the inspection block, then the mode instruction. The builder is told to skip a
+    finding that does not apply (a bridge has no interior), so the checks' house
+    bias costs a line, not a wrong build."""
+    lines = [f"Your program ran. Result for: {ep.prompt}", "", att.report.summary(), "",
+             insp.text(show_passed=show_passed), "",
+             "Fix every FAIL first, then the WARN items, without breaking what passed. "
+             "A finding that does not apply to what was asked (an open pavilion has no "
+             "door; a bridge has no room) may be skipped.", _mode(mode), _rule(ep)]
+    return text_message("user", "\n".join(lines))
+
+
 def critique_generic(ep: Any, att: Attempt, views: Sequence[str], images: Sequence[bytes],
                      *, mode: str = "rewrite") -> Message:
     """Self-critique on renders of the current build (classic, non-DSL actions)."""
@@ -393,5 +409,5 @@ def pick_buildable(ep: Any, pngs: Sequence[bytes]) -> Message:
 
 __all__ = ["JSON_RULE", "MODE_INSTRUCTIONS", "PLAN_HEAD", "REDREAM_TOKEN", "build", "builder_dream_parts",
            "compare", "parse_redream",
-           "critique_generic", "dream_review", "judge", "matched_view", "pick_buildable",
+           "critique_generic", "dream_review", "inspect", "judge", "matched_view", "pick_buildable",
            "plan", "reachability", "repair", "score_table", "scored_dreams"]

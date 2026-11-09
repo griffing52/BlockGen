@@ -1,0 +1,5 @@
+# inspect plus the retrieved lessons knowledge base (configs/agentic/lessons.yaml):
+# ldraw-nova's "retrieve" step. Its token-matched control is inspect-lessons-shuffled.
+extends: inspect
+description: inspect + retrieved building lessons (k=6) in the system prompt
+contexts: [palette, scale, {lessons: {k: 6}}]

@@ -1,0 +1,5 @@
+# Token-matched control for inspect-lessons: the same number of lessons, each text
+# replaced by a lesson that does NOT match the request.
+extends: inspect-lessons
+description: inspect-lessons with non-matching lesson texts (token-matched control)
+contexts: [palette, scale, {lessons: {k: 6, shuffled: true}}]

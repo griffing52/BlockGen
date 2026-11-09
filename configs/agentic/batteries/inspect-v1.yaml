@@ -1,0 +1,17 @@
+# Inspect-and-repair pilot: does symbolic geometry feedback (text) do what render
+# critiques (images) do, and does a retrieved lessons knowledge base add to either?
+# classic-matched is the turn-matched visual control; the shuffled arm is the
+# token-matched control for the lessons. Metrics to read first: inspect_pass and
+# inspect_enterable (the same checks for every arm), then the bench. n=12 is a PILOT.
+name: inspect_v1
+description: symbolic inspection vs render critique, with and without retrieved lessons
+prompts: {source: detailed, n: 12, seed: 0}
+budget: {usd: 6.0}
+cache: read_write
+recipes:
+  - classic-matched
+  - classic-lessons
+  - inspect
+  - inspect-lessons
+  - inspect-lessons-shuffled
+  - inspect-critique

@@ -63,7 +63,7 @@ FUNCTION_KINDS = frozenset({"method", "context", "scorer", "accept"})
 BUILTIN_MODULES: Tuple[str, ...] = (
     "blockgen.agentic.actions", "blockgen.agentic.pyapi", "blockgen.agentic.imagegen",
     "blockgen.agentic.render", "blockgen.agentic.scoring", "blockgen.agentic.context",
-    "blockgen.agentic.recipes",
+    "blockgen.agentic.inspection", "blockgen.agentic.lessons", "blockgen.agentic.recipes",
 )
 
 Spec = Union[str, Mapping[str, Any], None]
@@ -1232,7 +1232,29 @@ class MethodResult(BuildResult):
             "n_dream_versions": sum(len(v) for v in self.dreams.values()),
             "truncated": self.truncated,
             **self.scale_metrics(),
+            **self.inspection_metrics(),
         }
+
+    def inspection_metrics(self) -> Dict[str, Any]:
+        """Geometry inspection of the final build (``inspection.inspect_structure``):
+        ``inspect_pass`` = share of applicable checks passed, ``inspect_enterable``
+        1/0, ``inspect_failed`` the failed check names. Reported for every build
+        whatever the method, so a classic arm and an inspect arm compare on the
+        same checks; {} if it cannot be computed."""
+        s = getattr(self, "structure", None)
+        if s is None:
+            return {}
+        try:
+            from blockgen.agentic.inspection import inspect_structure
+            canvas = getattr(getattr(self, "canvas", None), "size", None)
+            insp = inspect_structure(s, canvas=canvas)
+            ent = next((f for f in insp.findings if f.check == "enterable"), None)
+            return {"inspect_pass": round(insp.score, 4),
+                    "inspect_enterable": (float(ent.passed) if ent is not None and ent.applicable
+                                          else None),
+                    "inspect_failed": ",".join(f.check for f in insp.failed)}
+        except Exception:  # noqa: BLE001 - a diagnostic must never fail a result
+            return {}
 
     def scale_metrics(self) -> Dict[str, Any]:
         """Player-scale diagnostic of the final build (``scale.scale_stats``, a

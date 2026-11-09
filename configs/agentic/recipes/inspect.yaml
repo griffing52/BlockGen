@@ -1,0 +1,14 @@
+# Inspect-and-repair: the classic loop whose critique signal is a SYMBOLIC geometry
+# inspection (grounded, connected, supported, interior, roofed, enterable, headroom,
+# openings) rendered as text, instead of images. ldraw-nova's inspect step, in
+# Minecraft terms. Turn-matched to classic-matched (1 repair + 3 critiques) but no
+# images, so cheaper; best-of by the inspection score + validity.
+extends: _base
+description: classic + 3 inspect-and-repair rounds (geometry checks as text), no images
+method: inspect
+contexts: [palette, scale]
+params: {plan: false, n_examples: 1, repair_rounds: 1, inspect_rounds: 3, inspect_mode: rewrite,
+         clean_at: warning, critique_rounds: 0}
+score: {inspection: 1.0, validity: 0.5}
+accept: improve_valid
+select: best

@@ -42,13 +42,13 @@ AGGREGATE_KEYS = ("blocks", "n_components", "largest_component_frac", "volume_fi
 METHOD_KEYS = ("dream_score_first", "dream_score_best", "dream_gain", "n_attempts",
                "accept_rate", "n_llm_calls", "n_images", "image_cost_usd",
                "scale_headroom2", "scale_headroom3", "scale_door_ok", "scale_doorways",
-               "scale_low_openings")
+               "scale_low_openings", "inspect_pass", "inspect_enterable")
 
 # Columns of the extra suite table in summary.md (only written for suite runs).
 SUITE_SUMMARY_KEYS = ("n_builds", "n_empty", "n_truncated", "blocks", "coherence_rate",
                       "n_attempts", "accept_rate", "dream_score_first",
                       "dream_score_best", "dream_gain", "scale_headroom3", "scale_door_ok",
-                      "n_llm_calls", "n_images", "total_paid_usd", "total_would_cost_usd",
+                      "inspect_pass", "inspect_enterable", "n_llm_calls", "n_images", "total_paid_usd", "total_would_cost_usd",
                       "cost_known")
 
 
