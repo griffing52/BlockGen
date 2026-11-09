@@ -1,0 +1,65 @@
+%% Preamble (CVPR 2027 kit). Loaded before hyperref.
+%% cvpr.sty already provides times, xcolor, graphicx, amsmath, amssymb, booktabs,
+%% natbib[numbers], caption, subcaption, url, enumitem and cleveref.
+
+\usepackage{multirow}
+\usepackage{csquotes}   % \enquote{...}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\emergencystretch=1.5em
+
+% ---------------------------------------------------------------------------
+% Draft switch. `make submit` defines \submission; then every leftover \TODO,
+% \UNMEASURED or \com is a hard error.
+% ---------------------------------------------------------------------------
+\newif\ifdraft\drafttrue
+\ifdefined\submission\draftfalse\fi
+\ifdraft
+  \newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+  \newcommand{\UNMEASURED}[1]{\textcolor{red}{\textbf{[UNMEASURED: #1]}}}
+  \newcommand{\com}[1]{\textcolor{blue}{Comment: #1}}
+\else
+  \newcommand{\TODO}[1]{\PackageError{paper}{Unresolved TODO: #1}{}}
+  \newcommand{\UNMEASURED}[1]{\PackageError{paper}{Unmeasured claim: #1}{}}
+  \newcommand{\com}[1]{\PackageError{paper}{Unaddressed comment: #1}{}}
+\fi
+% Short form of \UNMEASURED for narrow table cells: a red "?" in draft, an error at submit.
+\ifdraft
+  \newcommand{\tbd}{\textcolor{red}{\textbf{?}}}
+\else
+  \newcommand{\tbd}{\PackageError{paper}{Unmeasured table cell}{}}
+\fi
+
+% ---------------------------------------------------------------------------
+% Work-specific terminology. One name per concept, never a synonym.
+%   build program   the text the builder LLM writes (commands of the build language)
+%   build           the voxel structure a program produces on the 32^3 canvas
+%   dream           the target image the image model draws from the prompt
+%   caption         the structured description of a dream written by the captioner
+%   spec            a structured description written from the prompt alone (no image)
+%   builder         the LLM role that writes build programs
+%   captioner       the LLM role that writes captions (never sees the prompt)
+%   render          an image of a build from the textured renderer
+%   match turn      one compare-and-repair turn of the dream loop
+%   critique turn   one render-and-repair turn of the no-image loop
+%   arm             one recipe evaluated on the whole prompt set
+% Arms are small caps, metrics roman.
+% ---------------------------------------------------------------------------
+\newcommand{\classicm}{\mbox{\textsc{Classic-Matched}}}   % no image, 3 critique turns, best-of
+\newcommand{\dream}{\mbox{\textsc{Dream}}}                 % one dream, up to 3 match turns
+\newcommand{\dreamcap}{\mbox{\textsc{Dream-Caption}}}      % Dream + caption of the dream
+\newcommand{\shufcap}{\mbox{\textsc{Shuffled-Caption}}}    % Dream + caption of another prompt's dream
+\newcommand{\textspec}{\mbox{\textsc{Text-Spec}}}          % spec from the prompt, no image
+\newcommand{\bestoffour}{\mbox{\textsc{Best-of-4}}}        % 4 independent no-image builds, pick best
+\newcommand{\voxelar}{\mbox{\textsc{Voxel-AR}}}            % 27M trained voxel transformer (recanon20m)
+\newcommand{\realset}{\mbox{\textsc{Real}}}                % held-out real houses
+
+\newcommand{\mvkid}{\mbox{MV-KID}}
+\newcommand{\geomkid}{\mbox{Geom-KID}}
+\newcommand{\blockscore}{\mbox{BlockScore}}
+\newcommand{\enterable}{\mbox{enterable}}
+\newcommand{\twinrate}{\mbox{twin rate}}
+
+\newcommand{\gptmini}{\mbox{gpt-5-mini}}
+\newcommand{\imgmini}{\mbox{gpt-image-1-mini}}

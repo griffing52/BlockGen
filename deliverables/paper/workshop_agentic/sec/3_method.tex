@@ -1,0 +1,163 @@
+\section{Arms and Controls}
+\label{sec:method}
+
+%TL;DR Every arm shares one builder, one build language, one renderer and one canvas, and differs from its control in exactly one ingredient.
+All arms share one builder model (\gptmini{}), one build language, one textured renderer and one
+$32^3$ canvas, and each arm is a recipe file that differs from its control in one ingredient.
+\Cref{tab:arms} lists the ingredients. This section describes the build language
+(\cref{sec:language}), the loop without an image (\cref{sec:classic}), the imagination loop
+(\cref{sec:dream}), the caption (\cref{sec:caption}), the controls (\cref{sec:controls}) and the
+measures that keep the comparison fair (\cref{sec:fair}).
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}lcccr@{}}
+    \toprule
+    Arm & Image & Target text & Turns & \$/build \\
+    \midrule
+    \classicm{}  & no  & none                        & $1{+}3$        & 0.045 \\
+    \dream{}     & yes & none                        & $1{+}{\le}3$   & 0.040 \\
+    \dreamcap{}  & yes & own caption & $1{+}{\le}3$   & 0.048 \\
+    \midrule
+    \shufcap{}   & yes & other caption & $1{+}{\le}3$   & \tbd{} \\
+    \textspec{}  & no  & spec & $1{+}3$        & \tbd{} \\
+    \bestoffour{}& no  & none                        & $4{\times}1$   & \tbd{} \\
+    \bottomrule
+  \end{tabular}
+  % $/build: card run_20261109_121625 cost table (cost_usd, n=133); T51 reports the same 0.045 / 0.040 / 0.048
+  \caption{\textbf{Arms.} ``Turns'' counts one repair turn for execution errors plus the critique
+  or match turns; \bestoffour{} draws four independent builds with one repair turn each. All arms
+  select the best attempt they produce. The lower three rows are controls; their cost is
+  \TODO{n=256 card}.}
+  \label{tab:arms}
+\end{table}
+
+\subsection{Build language}
+\label{sec:language}
+
+%TL;DR The builder writes a short program in a WorldEdit-style language whose commands place many blocks each, over a fixed palette of about seventy block names.
+The builder writes a program of one command per line in a language modelled on the in-game
+editor WorldEdit~\citep{worldedit}. Commands take inclusive integer coordinates with $y$ up and
+the origin at a canvas corner: \texttt{set} places one block, \texttt{fill}, \texttt{clear},
+\texttt{box}, \texttt{walls} and \texttt{replace} act on cuboids, \texttt{line},
+\texttt{sphere}, \texttt{cylinder}, \texttt{pyramid} and \texttt{gable} draw primitives, and
+\texttt{copy}, \texttt{paste} and \texttt{stack} repeat parts. Blocks are named from a curated
+palette of about seventy modern names, with block states such as stair orientation where the game
+stores them. The system prompt lists the commands and the palette, gives one example program, and
+states player scale: a player is two blocks tall and one block wide, so doors are two blocks tall.
+
+%TL;DR Parsing and execution report errors per line instead of failing, which gives every repair turn a precise list of what to fix.
+The executor parses the whole program before running it and reports syntax errors with line
+numbers. A command that fails is recorded and skipped while the rest executes, writes outside the
+canvas are clipped and counted, an unknown block name is an error on its line rather than a
+silent substitution, and a command that changes no block raises a warning, which almost always
+marks a coordinate mistake. Every arm spends one repair turn on these reports after its first
+program.
+
+\subsection{The loop without an image: \classicm{}}
+\label{sec:classic}
+
+%TL;DR The compute-matched control writes a program, repairs execution errors, then critiques and rewrites from two renders of its own build three times, and keeps the best attempt.
+\classicm{} is the control for every arm that draws an image. After the first program and its
+repair turn, it runs three critique turns. In each, the builder sees renders of its current build
+from two fixed cameras and rewrites the whole program. A new attempt is accepted when its score
+improves and the share of blocks in its largest connected component drops by at most 0.1, which
+blocks the cheap trick of adding floating decoration. The arm returns its best attempt under a
+score that does not depend on any image target: the similarity between the prompt and the render
+under CLIP ViT-B/16~\citep{radford2021clip}, plus half the largest-component share.
+
+\subsection{The imagination loop: \dream{}}
+\label{sec:dream}
+
+%TL;DR The dream loop draws one isometric target image, builds toward it, and then compares render and target in up to three match turns.
+\dream{} adds a target image, the dream, and nothing else (\cref{alg:dream}). The image model
+(\imgmini{}~\citep{openai2025gptimage}, low quality, $1024{\times}1024$) draws the prompt from a
+fixed isometric camera in a pinned style: a single build of full cube blocks in flat daylight on a
+white background, with no terrain, sky, people or text. The template also states the canvas size
+and player scale. The builder sees the dream labelled as the target in its first turn. After the
+repair turn, up to three match turns follow. In each, the builder sees the target next to a render
+of its build from the dream's camera, labelled as its own, and rewrites the program.
+
+\begin{algorithm}[t]
+  \caption{\dream{}, \dreamcap{} and \shufcap{}. Lines marked $\dagger$ run only in the caption arms.}
+  \label{alg:dream}
+  \small
+  \begin{algorithmic}[1]
+    \Require prompt $p$, canvas $32^3$, at most $K{=}3$ match turns
+    \State $I \gets \textsc{ImageModel}(\text{style}, p)$ \Comment{cached by request}
+    \State $c \gets \textsc{Captioner}(I)$, or another prompt's caption \Comment{$\dagger$}
+    \State $P_0 \gets \textsc{Builder}(p, I, [c])$; repair once from executor errors
+    \For{$k = 1, \dots, K$}
+      \State \textbf{if} $s(P_{k-1}) \ge 0.85$ or two turns without gain \textbf{then break}
+      \State $R \gets$ render of $P_{k-1}$ at the camera that best matches $I$
+      \State $P_k \gets \textsc{Builder}(\text{target } I, \text{yours } R, [c])$
+      \State accept $P_k$ if $s$ improves and connectivity holds
+    \EndFor
+    \State \Return $\arg\max_k s(P_k)$
+  \end{algorithmic}
+\end{algorithm}
+
+%TL;DR The in-loop score compares render and dream with backbones disjoint from the evaluation's, gated on connectivity, and the loop stops early on success or stall.
+The loop scores each attempt against the dream with the cosine similarity of SigLIP-B
+embeddings~\citep{zhai2023siglip} (weight 1.0), a silhouette overlap (weight 0.5) and the
+largest-component share (weight 0.3); an attempt whose largest component holds less than half its
+blocks scores zero. The render is taken from whichever of the four isometric cameras matches the
+dream best, because the image model's camera is approximate. The loop stops when the score reaches
+0.85 or after two turns without improvement, applies the same acceptance rule as \classicm{}, and
+returns the best attempt. Neither in-loop backbone (SigLIP-B here, CLIP ViT-B/16 in \classicm{})
+appears among the evaluation's backbones~\citep{anonymous2027blindness}, so no arm optimizes the
+quantity it is ranked by.
+
+\subsection{Describing the dream: \dreamcap{}}
+\label{sec:caption}
+
+%TL;DR The caption arm adds one vision turn in which a captioner, who never sees the prompt, describes the dream in a fixed schema that the builder reads in every turn.
+\dreamcap{} adds one vision turn to \dream{} and changes nothing else. A captioner (also
+\gptmini{}) receives the dream and the canvas size, but not the prompt, and describes what the
+image shows in a fixed JSON schema: a one-sentence summary, the size and footprint in blocks, the
+storey count, the roof shape and material, the palette blocks of the walls, trim, roof, windows,
+door and foundation, the openings, distinctive features, notes on the front and side faces,
+anything around the building to leave out, and a list of what is uncertain. Fields the image does
+not show, such as the back or the interior, are marked unknown. The builder reads the caption as
+a description of the target in its first turn and in every match turn. Because the image cache
+returns the same dream for the same request, \dreamcap{} and \dream{} build toward identical
+images, and any difference between them is the caption.
+
+\subsection{Controls}
+\label{sec:controls}
+
+%TL;DR Three controls ask whether the caption helps through its content, whether the image is needed for that content, and whether more samples alone do as well.
+Each control answers one question about the caption result.
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \shufcap{} makes the same calls as \dreamcap{} but shows the builder the caption of the
+    dream of the previous prompt in the same arm; the first prompt receives the one of five fixed
+    library captions that shares the fewest words with it. Since the captioner never sees the
+    prompt, a shown caption carries no trace of where it came from. If \shufcap{} matches
+    \dreamcap{}, the gain is extra text, not description.
+  \item \textspec{} writes a specification of the house from the prompt alone, in the fields
+    of the caption without the size and per-face notes, plus the floor material and storey heights, and runs the \classicm{}
+    loop with the specification in place of an image. If \textspec{} matches \dreamcap{}, the
+    image is not needed: a structured description is. \TODO{\textspec{} has no recipe yet in
+    \texttt{configs/agentic/recipes}; the closest is \texttt{dream-describe-before}, which draws
+    an image from the spec. Add a no-image recipe and confirm this description matches it.}
+  \item \bestoffour{} draws four independent \classicm{} builds with no critique turns and keeps
+    the best under the \classicm{} score. If it matches \dream{} or \dreamcap{}, the gain is
+    sampling, not imagination.
+\end{itemize}
+
+\subsection{Fair comparison}
+\label{sec:fair}
+
+%TL;DR Shared caches, recipe hashes and a cost ledger make arms paired on images, exactly reproducible, and comparable in dollars.
+Three mechanisms keep the arms comparable. First, dreams and model replies sit in
+content-addressed caches, so arms that issue the same request receive the same response, and a
+rerun in read-only mode reproduces a whole arm at zero cost. Second, each recipe resolves to a
+hash over all of its fields, and two runs count as the same arm only when their hashes match.
+Third, a ledger prices every call before it is made, enforces a budget per build and per run, and
+records both the price paid and the full price of calls served from the cache.
+All arms run on the same prompts, the titles of held-out houses written as
+``\textit{title} (a Minecraft \textit{category})'', so each build has a real house with the same
+name in the evaluation set (\cref{sec:setup}).
+\TODO{n=256: confirm the 123 added prompts are validation-split titles in the same format, and that the card reports full-price cost.}

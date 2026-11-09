@@ -1,0 +1,89 @@
+\section{Introduction}
+\label{sec:intro}
+
+%TL;DR (X) Generating buildings in block worlds is a standing 3D generation task, and trained generators need a corpus and a training run for every new condition.
+Block worlds such as Minecraft hold millions of player-made buildings, and generating new ones is
+a standing task for procedural content and 3D generation~\citep{salge2018gdmc,chen2019voxelcnn,merino2026dreamcubed}.
+A building in such a world is a voxel grid in which every cell holds one of hundreds of block
+types. Trained generators write this grid cell by cell or denoise it as a
+volume~\citep{chen2019voxelcnn,merino2026dreamcubed,pun2025brickgpt}, and each new form of
+conditioning, such as a text prompt or a reference image, requires a labelled corpus and a new
+training run.
+
+%TL;DR (X) A language model that writes a short build program instead gets text conditioning for free, at a few cents per house.
+A language model that writes a build program avoids both. The program is a few dozen commands
+in the style of WorldEdit~\citep{worldedit}, such as \texttt{fill}, \texttt{walls} and
+\texttt{gable}, and one command places tens to hundreds of blocks. The prompt is the conditioning,
+and the model needs no Minecraft training data. With \gptmini{}~\citep{openai2025gpt5} as the
+builder, one house on a $32^3$ canvas costs 4.0 to 4.8 US cents in our runs (\cref{sec:method}).
+% 0.040 / 0.045 / 0.048 USD per build: card run_20261109_121625 cost table; T51
+Several systems already let language models build in Minecraft from text or from a given
+reference image~\citep{hu2024t2bm,chen2024apt,fu2026craftutopia,wei2025mineanybuild}.
+
+%TL;DR (X) A popular upgrade for program-writing agents is visual imagination: draw the target image, then build toward it with render-and-compare repair.
+A popular upgrade for such agents is visual imagination. A text-to-image model first draws what
+the result looks like, and the agent then acts toward that picture. Robot policies
+condition on generated subgoal images or videos~\citep{black2024susie,du2023unipi}, web agents
+simulate the outcome of an action before taking it~\citep{gu2024webdreamer}, and code-writing
+3D agents render their program, compare the render with a target image and edit the
+code~\citep{yin2026viga,li2026legoanything}. For a building the appeal is direct: a picture fixes
+the massing, the materials and the roof at once, which a short prompt such as
+``Small Brick Library (a Minecraft brick house)'' leaves open.
+
+%TL;DR (Y) Measuring what the image adds is hard: an imagination loop also adds repair turns and extra text, and comparing against a one-shot builder credits the image with their effect.
+What the image adds is harder to measure than it looks. An imagination loop changes three
+things at once. It gives the builder a target picture; it adds repair turns in which the builder
+sees its own render; and, in most designs, it adds text about the picture that the builder reads.
+A comparison against a builder that writes one program and stops credits the image with the
+effect of all three. The image is also an incomplete target for a house: it shows one exterior
+view, while what makes a house a house, rooms, doors and stairs a player walks through, sits
+behind its walls.
+
+%TL;DR (Z) We build a recipe harness in which every arm differs from its control in one ingredient, with images shared across arms through a content-addressed cache.
+We therefore run imagination as a controlled study. A recipe harness defines each arm as one
+YAML file over the same builder, build language, renderer and budget, and a content-addressed
+image cache gives every arm that draws a dream exactly the same images (\cref{sec:method}).
+\classicm{} runs the same number of repair turns and the same best-of selection as the
+imagination loop, but critiques its own renders without a target image. \dream{} adds the target
+image. \dreamcap{} adds a structured caption of that image, written by a captioner that never sees
+the prompt. Three controls separate the caption's content from its length and from the image
+itself: \shufcap{} shows the caption of another prompt's dream, \textspec{} shows a specification
+written from the prompt with no image, and \bestoffour{} spends the same compute on independent
+samples without any repair.
+
+%TL;DR (1a) Finding on appearance: the caption nearly halves the multi-view render distance to real houses, and the image without the caption ties the no-image loop.
+On 133 house prompts, the caption carries the visual gain. \dreamcap{} reaches a multi-view
+render distance to real houses (\mvkid{}) of 0.217, against 0.403 for \classicm{} and 0.342 for
+\dream{}, and beats both in Holm-corrected paired tests ($p=0.014$). \dream{} and \classicm{} share
+a significance group. The image alone therefore buys nothing a matched loop without an image
+does not, and the gain appears once the image is turned into words the builder reads.
+\TODO{n=256 numbers; \shufcap{} and \textspec{} decide whether the gain is the caption's content or its length.}
+% MV-KID 0.217 / 0.342 / 0.403, p_holm 0.009 both pairs, dream~classic same group: T51 addendum 2; card run_20261109_121625 (groups d / e / ef)
+
+%TL;DR (1b) Finding on structure: no arm moves geometry, the no-image loop builds the most enterable houses, and all arms repeat themselves far more than real houses do.
+Structure does not follow appearance. On the voxel-geometry distance (\geomkid{}) no agentic arm
+separates from another (\dream{} 17.9, \classicm{} 18.4, \dreamcap{} 15.7), and a 27M-parameter
+voxel transformer trained on houses (\voxelar{}) reaches 9.06. A simulated player enters 68\% of
+\classicm{} builds, 50\% of \dream{} builds and 51\% of \dreamcap{} builds, against 93\% of real
+houses. Within each arm, 21\% to 32\% of builds have a near-copy in the same set, against none
+of the real houses, so all three arms fail the near-twin gate of the evaluation protocol we
+adopt~\citep{anonymous2027blindness}. None of them copies a training house.
+\TODO{n=256: replace \geomkid{}, \enterable{} and \twinrate{} with the n=256 card; check whether the
+distinct-prompt card lowers the twin rate.}
+% geom_kid 17.882 / 18.351 / 15.712 (groups ef / ef / de), recanon20m_s0 9.063: card run_20261109_121625; 27M params: T118
+% enterable 0.68 / 0.50 / 0.51, real 0.93: card run_20261109_121625 (T63 gives 0.95 at n=128)
+% twin rate 0.211 / 0.301 / 0.316: card run_20261109_121625; real 0.000 on this card (0.008 at n=256, T91); voxel_dup_rate 0 for all agentic arms: same card
+
+%TL;DR (C) Contributions: a one-ingredient-at-a-time study of imagination, the finding that captions carry the visual gain, and the finding that neither image nor caption reaches structure.
+Our contributions are:
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item A controlled study of visual imagination for a program-writing building agent, in which
+    each arm differs from its control in one ingredient: turns, image, caption, caption
+    content, or sampling (\cref{sec:method}).
+  \item Evidence that the visual gain comes from a caption of the imagined image and not from the
+    image itself: the caption nearly halves the multi-view render distance to real houses, and the image
+    alone ties a compute-matched loop without an image (\cref{sec:results}).
+  \item Evidence that neither the image nor the caption reaches structure: geometry is not
+    separated, the loop without an image builds the most enterable houses, and every arm repeats
+    near-identical builds far more often than real houses do (\cref{sec:results}).
+\end{itemize}

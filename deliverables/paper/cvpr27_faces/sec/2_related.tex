@@ -1,0 +1,50 @@
+\section{Related work}
+\label{sec:related}
+
+%TL;DR Multi-view and 2.5D generation share our factorization, but in continuous space consistency is approximate and learned; ours is exact and enforced. They do not apply directly because they output RGB/depth for meshes, not discrete block grids.
+\paragraph{Multi-view and 2.5D generation.}
+MVDream~\citep{shi2024mvdream}, SyncDreamer~\citep{liu2024syncdreamer} and Wonder3D~\citep{long2024wonder3d}
+generate several views of one object and encourage agreement through shared attention or synchronized
+denoising. MVDD~\citep{wang2024mvdd}, Direct2.5~\citep{lu2024direct25} and recent 2.5D latent
+models~\citep{latents25d2025} generate depth or normal maps and fuse them into a mesh or point cloud.
+All of them share our factorization of a 3D object into images, and all of them reduce view
+disagreement without removing it, because consistency between continuous images has no exact test. We
+differ in two ways. Our faces are exact projections of a discrete grid, so we check consistency cell by
+cell, and we enforce it at decoding time instead of learning it. These methods output RGB, depth or
+normals for continuous shapes and do not produce block identities, so we do not run them as baselines;
+\TODO{decide: add one continuous-fusion baseline (e.g. lift free faces with majority voting instead of overwriting) as the closest applicable analogue.}
+
+%TL;DR Native 3D generators (voxel AR, octree AR, sparse-voxel diffusion, Minecraft-specific models) avoid view consistency but pay a cubic or hierarchical cost; we compare against a voxel AR on the same data.
+\paragraph{Native 3D generation.}
+TRELLIS~\citep{xiang2025trellis}, XCube~\citep{ren2024xcube} and OctGPT~\citep{wei2025octgpt} generate
+structured 3D latents, sparse voxel hierarchies or octrees and never face the consistency problem,
+at the cost of a representation that grows with volume or needs a learned hierarchy. For block worlds,
+VoxelCNN~\citep{chen2019voxelcnn} places blocks one at a time, Dream-Cubed~\citep{merino2026dreamcubed}
+trains masked diffusion on two million $32^3$ chunks, and BrickGPT~\citep{pun2025brickgpt} writes LEGO
+bricks as text. Our voxel baseline is an autoregressive transformer~\citep{vaswani2017attention} over
+the same houses and the same split as our face model, which isolates the representation from the data.
+\TODO{state whether Dream-Cubed is scored on our split; it is a chunk model, not a house model.}
+
+%TL;DR Constrained decoding enforces formal languages in LMs; we apply it to a geometric invariant whose legal set depends on all earlier faces, not on a grammar.
+\paragraph{Constrained decoding.}
+Language models generate valid SQL, JSON or code when a decoder masks tokens that a parser or grammar
+rejects~\citep{scholak2021picard,geng2023grammar,willard2023outlines}. \cfd{} decoding uses the same
+mechanism for a different kind of constraint. Its legal set is not given by a grammar over the token
+string; it follows from a 3D state built by every earlier face, and it fixes about a fifth of all
+cells outright. To our knowledge, no prior work enforces exact multi-view consistency by decoding.
+
+%TL;DR Procedural and inverse-procedural facade modeling generates exteriors from rules; we learn faces from data and handle six faces jointly.
+\paragraph{Procedural buildings and facades.}
+Shape grammars generate buildings and facades from hand-written rules~\citep{muller2006procedural,muller2007facades},
+and Infinigen generates whole scenes procedurally~\citep{raistrick2023infinigen}. In Minecraft, the
+Settlement Generation Challenge evaluates rule-based builders by human
+judgment~\citep{salge2018gdmc,salge2020gdmcreport}. These methods produce consistent geometry by design
+but need rules per style. We learn faces from player builds and obtain consistency from the decoder
+instead of the rules.
+
+%TL;DR We use the evaluation protocol of a concurrent submission and claim nothing about evaluation.
+\paragraph{Evaluation.}
+We score generators with the realism metrics, gates and \blockscore{} aggregate of a concurrent
+submission~\citep{anonymous2027blindness}, which is included in the supplementary material. We make no
+claim about evaluation in this paper. \com{Confirm with the metric paper that the two share no result
+tables, and remove the facade rows from its supplement if they stay there.}

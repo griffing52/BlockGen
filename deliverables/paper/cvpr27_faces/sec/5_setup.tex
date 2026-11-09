@@ -1,0 +1,45 @@
+\section{Experimental setup}
+\label{sec:setup}
+
+%TL;DR Data: Minecraft houses at up to 32^3 with a pinned train/val/test split; 86% show a door from outside.
+\paragraph{Data.}
+We use 2{,}661 Minecraft houses at up to $32^3$ from GrabCraft and two public corpora~\citep{chen2019voxelcnn,comino2025text2mc},
+deduplicated and split 70/15/15 by build group with a fixed seed. The face model trains on the faces
+of the training houses, augmented with the eight symmetries of the square footprint (D4). We evaluate
+on 399 test boxes, and on the first 256 of them where a comparison needs the protocol's paired card at
+$n{=}256$. \TODO{report face-shard size (2,114 training houses in T68) and why it differs from 70\% of 2,661.}
+
+%TL;DR Models: the 20M joint face transformer with D4 augmentation; a 5M variant and the independent-face model as ablations; a voxel transformer on the same houses as the 3D comparison.
+\paragraph{Models.}
+Our main model is a 20M-parameter \jointface{} transformer trained on the D4-augmented faces (selected
+at step 18{,}000 of 24{,}000 by holdout likelihood). Ablations use a 5M \jointface{} and a 5M
+\indepface{} model. The 3D comparison \voxelar{} is a 27M-parameter transformer over learned,
+orientation-aware 3D block pieces trained on the same houses and split \TODO{name the arm of record
+(canon\_oriented 5M or the 20M legacy model) and its card}. All models sample with top-$k$ 40.
+
+%TL;DR Decoders: Free, a Grammar control that only enforces per-face syntax, and Cross-Face; each at T=1.0 and T=0.7; optional best-of-4 and an RFT model.
+\paragraph{Decoders.}
+\freedec{} samples the model as is. \grammar{} forces face headers and the end token and makes every
+cell either see-through or an in-box depth followed by a block, with no state across faces; it is the
+control that isolates the cross-face rule. \cfd{} adds the rule of \cref{sec:method}. We run each at
+temperature 1.0 and 0.7, and the \grammar{} and \cfd{} decoders also under \bestof{4} selection and on
+the fine-tuned model.
+
+%TL;DR Baselines and references: Patchwork (six real faces from six houses), unigram and Markov face baselines, and the Real-Shell reference.
+\paragraph{Baselines and references.}
+\patchwork{} lifts six real faces drawn from six different training houses, so every face is real but
+the set is not. Unigram and Markov baselines sample cells from per-face statistics of the training
+faces. \shellref{} lifts each test house's own faces and is the target a perfect face generator reaches.
+
+%TL;DR Metrics: consistency rate and reprojection error; parts per building; Geom-KID and MV-KID with Holm-corrected paired permutation tests; BlockScore from the concurrent protocol.
+\paragraph{Metrics.}
+\emph{Consistency} is the share of face sets with $\proj(\lift(F)) = F$, and \emph{reprojection error}
+the share of cells that change. \emph{Parts} counts 26-connected components of the lift (real houses
+2.7). \geomkid{} is a kernel distance on voxel geometry descriptors and \mvkid{} a kernel
+distance~\citep{binkowski2018kid} on DINOv2~\citep{oquab2024dinov2} features of four rendered views.
+\blockscore{}~\citep{anonymous2027blindness} reports the worst of five realism pillars in units of the
+real-versus-real noise floor, and disqualifies generators that copy training builds or repeat
+themselves. We compare arms with paired permutation tests (10{,}000 permutations) and correct for
+multiple comparisons with Holm's method~\citep{holm1979simple}. \TODO{decide whether to score every arm
+against \shellref{} as the reference set (exterior-only evaluation) in addition to real houses; this
+removes interiors from the comparison by design.}

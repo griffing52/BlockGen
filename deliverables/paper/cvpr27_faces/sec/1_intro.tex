@@ -1,0 +1,79 @@
+\section{Introduction}
+\label{sec:intro}
+
+%TL;DR (X) Generating discrete 3D structures such as Minecraft buildings is useful and expensive, because volume grows cubically.
+Block worlds such as Minecraft hold millions of player-made buildings, and generating new ones is a
+standing goal for procedural content and for 3D generation research~\citep{salge2018gdmc,chen2019voxelcnn,merino2026dreamcubed}.
+A building in such a world is a voxel grid in which every cell holds one of hundreds of block types.
+Autoregressive models that write this grid cell by cell work~\citep{chen2019voxelcnn,merino2026dreamcubed},
+but their sequences grow with the volume: a $32^3$ house spans up to 28{,}672 cells, and at $48^3$ the
+largest houses in our corpus span 106{,}032.
+
+%TL;DR (X) The exterior of a building is six images, and image-like 2.5D representations are the standard way to make 3D generation cheap.
+Most of what a player sees of a building is its exterior: four walls, a roof and a footprint. Each of
+these is an image, a face that records, for every cell, how deep the first block lies and which block
+it is. Six such faces cost a quadratic, not cubic, number of tokens (at most 5{,}632 cells at $32^3$
+and 13{,}442 at $48^3$ in our corpus). Continuous 3D generation already exploits the same idea:
+multi-view and 2.5D methods generate depth or normal images and fuse them into a
+shape~\citep{wang2024mvdd,lu2024direct25,long2024wonder3d,latents25d2025}.
+
+%TL;DR (Y) The hard part is agreement: independently written faces describe different objects, and free decoding almost never produces a consistent set.
+The difficulty is that six faces describe one object only if they agree. Where two faces see the same
+voxel they must report the same block, and no face may report a first hit behind a voxel that another
+face has already filled. A transformer that writes the six faces of a house in one sequence learns the
+style of each face but not this agreement. Under free decoding, between 0.0\% and 1.8\% of its face
+sets equal the projection of their own lift, and about three cells in ten change when we lift a face
+set and project it back (\cref{tab:consistency}). The lift resolves every disagreement by overwriting,
+and the result is a building in 34 pieces where a real house has three.
+
+%TL;DR (Y) Continuous multi-view methods treat consistency as approximate and learn it; in a block world it is exact, so it can be enforced rather than learned.
+Continuous multi-view generators face the same problem and address it with cross-view attention,
+synchronized denoising or a learned fusion step~\citep{shi2024mvdream,liu2024syncdreamer,wang2024mvdd},
+which reduces disagreement without removing it. A block world differs in one useful way: its faces are
+exact projections of a discrete grid, so whether two faces agree is a yes-or-no question about
+individual voxels. This makes consistency a constraint that a decoder can enforce, in the same way
+that grammar-constrained decoding enforces syntax in language models~\citep{scholak2021picard,geng2023grammar,willard2023outlines}.
+
+%TL;DR (Z) Our method: cross-face constrained decoding keeps a voxel state of what earlier faces committed and masks the logits of later faces to what agrees.
+We introduce \cfd{} decoding. While the model writes the faces in order, a shell state records every
+voxel that an earlier face has committed: the first block along each ray as known, and the cells in
+front of it as empty. For each cell of a later face, the state determines which depths are still
+possible and which block, if any, a depth must carry; the decoder masks the model's logits to exactly
+that set. The model keeps every choice the earlier faces left open. The method needs no training, no
+change to the model, and about 12\% extra sampling time.
+
+%TL;DR (1a) Results: consistency becomes exact, fragmentation and render distance halve, it stacks with best-of-N, and the face generator matches a voxel transformer.
+On 399 held-out Minecraft houses, \cfd{} decoding makes every face set consistent and writes 21\% to
+25\% of all cells without sampling, because only one answer agrees with the faces before them. It
+reduces the number of disconnected parts from 33.7 to 12.9, the multi-view render distance
+\mvkid{} from 0.299 to 0.166, and \blockscore{}~\citep{anonymous2027blindness} from 679 to 589,
+against a control decoder that enforces only per-face syntax. Combined with best-of-4 selection it
+reaches an \mvkid{} of 0.098, the best of any learned generator we evaluate, at 7.7 parts per
+building. In a paired comparison the face generator ties a 3D voxel transformer on geometry and beats it
+on appearance (\cref{sec:vsvoxel}).
+
+%TL;DR (1b) A dimensional study from one face to six faces to voxels shows the failure sits at the agreement between views, not at single-facade realism.
+To locate where generating through 2D images breaks, we train the same model family on one facade
+without depth, one facade with depth, and six faces, and compare each with a voxel model projected to
+the same representation. \UNMEASURED{Single facades are close to the real distribution at every model size,
+and the largest loss appears when six faces must agree, which is the loss \cfd{} decoding removes
+(\cref{sec:ladder}).}
+
+%TL;DR (2) Contributions as bullets.
+In summary, we make the following contributions.
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item A face representation of block-building exteriors, six (depth, block) images with an exact
+        lift and projection, and a measure of how far a face set is from consistent (\cref{sec:background}).
+  \item \cfd{} decoding, a training-free sampler under which every generated face set is consistent
+        by construction (\cref{sec:method}, \cref{prop:consistent}).
+  \item Evidence that consistency, not model capacity, limited face generators: the constraint
+        halves fragmentation and render distance, composes with best-of-$N$ selection, and lets a face
+        generator match a voxel transformer on geometry at a quadratic token cost (\cref{sec:results}).
+  \item A dimensional study from one facade to six faces to voxels that shows where 2D generation of
+        3D structures breaks (\cref{sec:ladder}).
+\end{itemize}
+
+%TL;DR Future work in one line: larger grids, entrance-aware faces, other exact 2.5D domains such as LEGO.
+Because faces scale with area rather than volume, the method points to larger buildings than voxel
+models reach today; we discuss larger grids, entrance-aware ordering and other exact 2.5D domains in
+\cref{sec:conclusion}.

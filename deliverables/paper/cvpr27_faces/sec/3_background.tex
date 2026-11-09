@@ -1,0 +1,49 @@
+\section{Background and problem setting}
+\label{sec:background}
+
+%TL;DR A build is a voxel grid of block ids inside a box; empty is id 0.
+\paragraph{Builds.}
+A build is a grid $x \in \mathcal{B}^{X \times Y \times Z}$ over a vocabulary $\mathcal{B}$ of block
+types, with $0 \in \mathcal{B}$ for empty space and $y$ pointing up. The box $(X,Y,Z)$ is at most
+$32^3$ in our main experiments. We write $x_v$ for the block at voxel $v$.
+
+%TL;DR A face is the (depth, block) image seen along one axis direction; six faces cover the exterior.
+\paragraph{Faces.}
+For each of the six axis directions $f \in \{\pm x, \pm y, \pm z\}$, the face $F_f = \proj_f(x)$ is
+an image over the two other axes. Each cell $c$ of $F_f$ follows the ray $r_f(c)$ into the box and
+records either \emph{see-through}, if the ray meets no block, or the pair $(d, b)$ of the depth $d$
+of the first non-empty voxel and its block $b$. The face set $F = \proj(x) = (F_f)_f$ holds the six faces.
+It takes at most $2(XY + YZ + XZ)$ cells, against $XYZ$ voxels.
+
+%TL;DR The lift turns a face set into the voxel shell it describes; overwriting resolves conflicts.
+\paragraph{Lift.}
+The lift $\lift(F)$ places the block $b$ at depth $d$ along each ray and leaves every other voxel
+empty. When two faces put different blocks on one voxel, the later face overwrites the earlier one.
+For a real build, $\lift(\proj(x))$ is its visible shell: every block that some axis-aligned camera
+at infinity sees, and nothing behind it. We call this reference \shellref{}.
+
+%TL;DR Definition: a face set is consistent iff it equals the projection of its own lift; real face sets always are, generated ones rarely.
+\paragraph{Consistency.}
+\begin{definition}
+A face set $F$ is \emph{consistent} if $\proj(\lift(F)) = F$.
+\end{definition}
+Every face set of a real build is consistent, because it is a projection of one grid. A generated face
+set is consistent only if no face reports a first hit behind a voxel another face has filled, no face
+sees through a voxel another face has filled, and faces that see one voxel agree on its block. We
+measure the distance from consistency as the share of cells that change under $\proj \circ \lift$.
+
+%TL;DR Problem: learn a distribution over consistent face sets for a given box whose lifts look like real exteriors.
+\paragraph{Problem.}
+Given a training set of builds and a box, we want to sample face sets whose lifts match the
+distribution of real exteriors $\lift(\proj(x))$. \emph{Exteriors} is the scope: a face set cannot
+describe what no axis-aligned camera sees, and we do not attempt to generate it. A generator meets the
+problem only if its samples are consistent, since an inconsistent set has no single lift.
+
+%TL;DR The face model is an autoregressive transformer over one sequence holding all six faces in a fixed order.
+\paragraph{Face model.}
+We serialize a face set as one token sequence: a header per face, then its cells in raster order, each
+cell either a see-through token or a depth token followed by a block token. The six faces follow a
+fixed order (front, right, back, left, top, bottom), so each face conditions on all earlier ones. A
+decoder-only transformer~\citep{vaswani2017attention} models this sequence; the box size is given
+as a prefix. We call this model \jointface{}, and the variant that samples each face on its own
+\indepface{}.

@@ -1,0 +1,26 @@
+\begin{abstract}
+%TL;DR (X) A language model that writes build programs makes Minecraft houses from text for cents, and a natural upgrade is to let it imagine the target as an image first.
+%TL;DR (Y) Whether the image helps is hard to measure, because a dream loop also adds turns and text, and its extra text is what the builder reads.
+%TL;DR (Z) We separate the image from the turns with a compute-matched loop without an image, and the image from its description with caption controls.
+%TL;DR (V) The caption of the dream moves multi-view realism; the image alone does not; no arm moves geometry, and all arms build houses players rarely enter and that repeat each other.
+A language model that writes short WorldEdit-style build programs turns a text prompt into a
+Minecraft house for about four cents, with no training data. A popular upgrade for such agents
+is visual imagination: a text-to-image model draws the target, and the agent builds, renders,
+compares and repairs until its build matches the picture. Measuring what the picture adds is
+harder than it looks, because an imagination loop also adds repair turns and gives the builder
+extra text, and either one alone changes the builds. We isolate the image with a no-image loop
+that matches the number of turns and the selection rule, and we isolate the information in the
+image with a structured caption of it, a caption of a different prompt's image, and a text
+specification written without any image. On 133 house prompts, with \gptmini{} as the builder and
+\imgmini{} as the image model, the caption arm nearly halves the multi-view render distance to real
+houses against the no-image loop (\mvkid{} 0.217 against 0.403, Holm-corrected $p=0.014$), while
+the image without a caption ties it. No arm separates from another on geometry, the
+no-image loop builds the most enterable houses (68\% against 50\% and 51\%, real 93\%), and in every
+arm a fifth to a third of the builds have a near-copy in the same set, against none of the real houses. Visual imagination
+buys a program-writing agent appearance, not structure. \TODO{n=256: replace every number in this
+abstract with the n=256 card (lands Nov 10) and add the shuffled-caption, text-spec and best-of-4 results.}
+% 0.04 USD/build: card run_20261109_121625 cost table (0.040 to 0.048), T51
+% MV-KID 0.217 vs 0.403, p_holm 0.009: T51 addendum 2 (n=133); the 2026-11-09 card gives p_holm 0.0136 with more arms
+% enterable 0.68 / 0.50 / 0.51, real 0.95: T63
+% twin rate 0.21 to 0.32 vs real 0.008 (ratios 26 to 40): card run_20261109_121625 novelty table, real from T91 (n=256)
+\end{abstract}

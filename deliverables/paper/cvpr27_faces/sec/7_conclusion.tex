@@ -1,0 +1,18 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+%TL;DR Recap: faces are a cheap representation for block exteriors; their only serious failure was agreement, and an exact decoder removes it without training.
+Six faces describe the exterior of a block building at a fraction of the tokens of its voxels, but a
+transformer that writes them one after another almost never makes them agree. Because agreement in a
+block world is exact, we enforce it in the decoder. \cfd{} decoding makes every face set consistent
+without training, halves the fragmentation and render distance of the generated buildings, stacks
+with best-of-$N$ selection, and brings a face generator level with a voxel transformer on geometry and
+ahead of it on appearance.
+
+%TL;DR Future work: larger grids where the quadratic cost matters, entrance-first ordering so a door face is written first, interior generation conditioned on a consistent shell, other exact 2.5D domains such as LEGO.
+Faces grow with area, so the clearest next step is resolution: at $48^3$ the largest house needs
+eight times fewer face cells than voxels. Entrances are the main weakness of face generators; 86\% of
+our houses show a door on at least one side, so ordering faces to write an entrance face first is a
+direct way to condition on one. A consistent shell is also a natural input for a separate model that
+fills what the faces cannot see, and the same decoder applies to any domain whose views are exact
+projections of a discrete grid, such as LEGO.

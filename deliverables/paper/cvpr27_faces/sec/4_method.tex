@@ -1,0 +1,50 @@
+\section{Cross-face constrained decoding}
+\label{sec:method}
+
+%TL;DR Idea: consistency is a property of voxels, so keep a voxel state while sampling faces and let it decide which tokens are legal.
+Consistency is a statement about voxels, while the model writes cells. \cfd{} decoding bridges the
+two with a state over the box that records what the faces written so far have committed, and it
+masks the model's next-token distribution to the tokens that agree with that state.
+
+%TL;DR The shell state holds known voxels (with their block) and empty voxels; each committed cell adds one known voxel and marks the voxels in front of it empty.
+\paragraph{Shell state.}
+The state holds two maps over the box: \emph{known}, which stores the block a face has placed on a
+voxel, and \emph{empty}, which marks voxels some ray has passed through. When the decoder commits a
+cell $(d,b)$ of face $f$, it sets voxel $r_f(c)[d]$ to known with block $b$ and marks $r_f(c)[0{:}d]$
+empty. A see-through cell marks its whole ray empty.
+
+%TL;DR The legal set for a later cell: depths not already seen through and not behind a known voxel; a known voxel forces its block; see-through only if no known voxel is on the ray.
+\paragraph{Legal tokens.}
+For a cell $c$ of a later face, walk its ray from the front. Let $d^\star$ be the depth of the first
+known voxel on the ray, if there is one. A depth $d$ is legal if $d \le d^\star$ and voxel
+$r_f(c)[d]$ is not empty, because a first hit cannot lie behind a known block or on a voxel another
+ray has passed through. If the chosen depth lands on a known voxel, the block token is forced to that
+voxel's block. See-through is legal only when no known voxel lies on the ray. When exactly one token is
+legal, the decoder writes it without querying the model. Everything the earlier faces left open stays
+the model's choice, including a block in front of a known voxel where no ray has passed.
+
+%TL;DR Proposition: under this decoder every sampled face set is consistent; proof sketch by induction over committed cells.
+\begin{proposition}
+\label{prop:consistent}
+Every face set sampled with \cfd{} decoding is consistent.
+\end{proposition}
+\emph{Proof sketch.} By induction over committed cells, the state is the lift of the partial face
+set, and every committed cell equals the projection of that lift along its ray: its depth is the
+first non-empty voxel on the ray, because no earlier voxel on the ray is known and every voxel the
+cell marks empty stays empty, and its block is the block of that voxel. A later cell can only add
+known voxels at legal depths, which never lie in front of an earlier first hit on any ray, so no
+earlier cell changes under the lift. \TODO{write out the full proof in the supplement; check the case of
+two later faces adding blocks in front of a known voxel on crossing rays.}
+
+%TL;DR The constraint composes with any sampler that draws whole face sets, such as best-of-N with a reward, and with fine-tuned models.
+\paragraph{Composition.}
+\cfd{} decoding changes only which tokens are legal, so it composes with temperature, top-$k$, and any
+selection method that draws whole face sets. We use best-of-$N$ selection with a structural reward,
+\emph{face solidity}, the share of lifted blocks that touch another block, and also apply the decoder to a
+model fine-tuned on its own best samples. \TODO{one-line definition of face\_solidity from the code.}
+
+%TL;DR Cost: one state update per cell and a mask over depth tokens; about four extra minutes on 32 minutes of sampling.
+\paragraph{Cost.}
+The state update and mask take time linear in the box extent per cell and run on the CPU beside
+batched GPU sampling. Sampling 399 face sets at batch 32 took 32 to 36 minutes with the constraint and
+about four minutes less without it.

@@ -1,0 +1,54 @@
+% CVPR 2027 submission 2: consistent face generation for block structures.
+% Kit: cvpr.sty and ieeenat_fullname.bst copied from ../cvpr27 (2027 kit).
+% Build: `make` (draft) or `make submit` (fails on any leftover \TODO, \UNMEASURED or \com).
+%
+% Writing convention (Foerster, "How to write an ML paper"): every paragraph opens
+% with a one-line `%TL;DR` comment that states its single idea. Read only the
+% TL;DR lines to review the flow of the paper.
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE
+% \usepackage{cvpr}              % CAMERA-READY
+\usepackage[review]{cvpr}      % REVIEW version
+% \usepackage[pagenumbers]{cvpr} % arXiv
+
+\input{preamble}
+
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+
+\def\confName{CVPR}
+\def\confYear{2027}
+\def\paperID{*****}
+
+%%%%%%%%% TITLE
+\title{Six Faces, One Building: Exactly Consistent View Generation for Block Structures}
+
+\author{Anonymous CVPR submission}
+
+\begin{document}
+
+\twocolumn[{%
+\renewcommand\twocolumn[1][]{#1}%
+\maketitle
+\input{sec/teaser}
+\vspace{0.5em}
+}]
+
+\input{sec/0_abstract}
+\input{sec/1_intro}
+\input{sec/2_related}
+\input{sec/3_background}
+\input{sec/4_method}
+\input{sec/5_setup}
+\input{sec/6_results}
+\input{sec/7_conclusion}
+
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{references,references_new}
+}
+
+\end{document}

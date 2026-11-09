@@ -1,0 +1,146 @@
+\section{Results and discussion}
+\label{sec:results}
+
+% ---------------------------------------------------------------------------
+\subsection{Free decoding is almost never consistent}
+\label{sec:consistency}
+
+%TL;DR Free decoding produces consistent face sets 0-1.8% of the time; three cells in ten change on reprojection; Cross-Face makes it exact and fixes a fifth of the cells.
+\Cref{tab:consistency} measures consistency directly. Under the \grammar{} control, no face set at
+$T{=}1.0$ and 1.8\% at $T{=}0.7$ are consistent, and 28\% to 39\% of all cells change when we lift the
+set and project it back. More than half of the see-through cells at $T{=}1.0$ are filled by another
+face. Under \cfd{} decoding every face set is consistent, as \cref{prop:consistent} requires, and 21\%
+to 25\% of the cells have exactly one legal answer and need no sampling.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{\textbf{Consistency of sampled face sets} (20M \jointface{}, $n{=}399$). Reprojection error
+  is the share of cells that change under $\proj\circ\lift$; forced is the share of cells \cfd{}
+  decoding writes without sampling.}
+  \label{tab:consistency}
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    $T$ & decoder & consistent & reproj.\ error & forced \\
+    \midrule
+    1.0 & \grammar{} & 0.000 & 0.386 & 0 \\
+    1.0 & \cfd{}     & 1.000 & 0.000 & 0.253 \\
+    0.7 & \grammar{} & 0.018 & 0.281 & 0 \\
+    0.7 & \cfd{}     & 1.000 & 0.000 & 0.214 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------------
+\subsection{Consistency improves every realism measure}
+\label{sec:quality}
+
+%TL;DR At T=0.7 Cross-Face cuts parts 33.7->12.9, MV-KID 0.299->0.166, Geom-KID 19.0->16.5, BlockScore 679->589 versus the Grammar control; same at T=1.0.
+Enforcing consistency improves the buildings, not only the bookkeeping (\cref{tab:main}). At
+$T{=}0.7$, \cfd{} decoding reduces the number of parts per building from 33.7 to 12.9, below the 13.5
+of \shellref{}, cuts \mvkid{} from 0.299 to 0.166 and \geomkid{} from 19.0 to 16.5, and improves
+\blockscore{} from 679 to 589. At $T{=}1.0$ the same comparison gives 62.7 to 29.5 parts and 0.496 to
+0.331 \mvkid{}. The model is unchanged; the gain comes only from removing samples that no building
+could produce. \TODO{Holm groups for the grammar vs constrained pairs from the T117 card.}
+
+%TL;DR Cross-Face stacks with best-of-4: MV-KID 0.098 (best learned arm, alone in its Holm group), 7.7 parts, geometry in the same Holm group as Real-Shell.
+\paragraph{Composition with selection.}
+\cfd{} decoding and best-of-4 selection on face solidity improve different things and stack. Best-of-4
+alone reaches \mvkid{} 0.149 and 15.9 parts; with the constraint, \mvkid{} falls to 0.098 and parts to
+7.7. The paired tests place this arm alone in its \mvkid{} group, ahead of best-of-4 and of the
+constrained fine-tuned model (0.149, 0.147), and place its \geomkid{} (13.9) in one group with
+best-of-4 (13.5) and \shellref{} (13.8). \cfd{} \bestof{4} is the best learned face generator on
+appearance and coherence.
+
+\begin{table*}[t]
+  \centering
+  \small
+  \caption{\textbf{Decoders, selection and references} ($T{=}0.7$ unless noted, $n{=}399$, 20M
+  \jointface{}). Lower is better for every column but none; real houses have 2.7 parts. Best learned
+  value in bold. \TODO{add Holm group letters; add T=1.0 rows; add the 5M and \indepface{} rows (\cref{sec:ablations}).}}
+  \label{tab:main}
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    arm & \blockscore{} & \geomkid{} & \mvkid{} & parts \\
+    \midrule
+    unigram faces (baseline)       & 2208 & 39.8 & 2.119 & 332.6 \\
+    Markov faces (baseline)        & 1335 & 37.4 & 1.141 & 144.7 \\
+    \patchwork{}                    & 990  & 27.7 & 0.538 & 26.5 \\
+    \grammar{}                      & 679  & 19.0 & 0.299 & 33.7 \\
+    \cfd{}                          & 589  & 16.5 & 0.166 & 12.9 \\
+    \bestof{4}                      & \textbf{483} & \textbf{13.5} & 0.149 & 15.9 \\
+    fine-tuned + selection          & 553  & 15.4 & 0.182 & 17.6 \\
+    \cfd{} fine-tuned               & 552  & 15.4 & 0.147 & 10.4 \\
+    \cfd{} \bestof{4}               & 497  & 13.9 & \textbf{0.098} & \textbf{7.7} \\
+    \midrule
+    \shellref{} (reference)         & 493  & 13.8 & 0.001 & 13.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+% ---------------------------------------------------------------------------
+\subsection{Faces against voxels}
+\label{sec:vsvoxel}
+
+%TL;DR On one paired card at n=256, the face generator ties the voxel transformer on Geom-KID and beats it on MV-KID; the voxel model wins palette, coherence and traversal.
+A face generator writes fewer than half as many cells as a voxel generator on the median box. We
+compare the two on one paired card at $n{=}256$ (T104). Free-decoded \bestof{4} faces tie \voxelar{} on
+\geomkid{} (13.9 against 14.2, one Holm group) and beat it on \mvkid{} (0.160 against 0.254, Holm
+$p{=}0.009$). \voxelar{} keeps a better block palette (6.1 against 30.6 noise floors) and is more often
+enterable (0.61 against 0.35). \UNMEASURED{the same card with \cfd{} \bestof{4} and the 20M voxel model.}
+
+%TL;DR Token cost: faces need ~2.3x fewer tokens at the median and 5-8x fewer at the largest boxes, and the gap grows with resolution.
+\paragraph{Cost.}
+Across our houses, the median build needs 1{,}238 face cells against 2{,}783 voxels at $32^3$; the
+largest needs 5{,}632 against 28{,}672. At $48^3$ the largest needs 13{,}442 against 106{,}032.
+\UNMEASURED{wall-clock sampling time per build for both models on the same GPU.}
+
+% ---------------------------------------------------------------------------
+\subsection{Where 2D generation breaks}
+\label{sec:ladder}
+
+%TL;DR Same model family trained on one facade without depth, one facade with depth, six faces; plus voxel samples projected down. Per-rung Face-KID with a real-vs-real floor.
+To locate where generating a building through images fails, we train the same transformer on three
+increasingly 3D targets: a single front facade as a block image, the same facade with depth, and the
+six faces. We also project \voxelar{} samples to each of these targets, which tells whether a 3D model
+draws better facades than a 2D model trained on facades alone. \facekid{}, a kernel distance on DINOv2
+features of face images with its own real-versus-real noise floor, scores every rung.
+\UNMEASURED{all of this subsection: models, metric and table.}
+
+%TL;DR Expected reading: single facades are near the floor; the jump to six faces is where distance grows; Cross-Face recovers most of it.
+\UNMEASURED{Hypothesis to confirm or refute: single facades sit within a few noise floors of real,
+the largest increase in \facekid{} and \geomkid{} appears when six faces must agree, and \cfd{}
+decoding removes most of that increase. If projected \voxelar{} facades beat native facade models,
+we report that 3D training helps 2D facades instead.}
+
+% ---------------------------------------------------------------------------
+\subsection{Ablations}
+\label{sec:ablations}
+
+%TL;DR Joint faces beat independent faces (1128 vs 1205 at 5M); the constraint on the independent model shows how much of the joint gain is consistency.
+\paragraph{Joint against independent faces.}
+Conditioning each face on the earlier ones improves the 5M model from 1205 to 1128 \blockscore{} and
+from 0.702 to 0.633 \mvkid{} at the same training budget; the independent model gives every wall of a
+house a different material. \UNMEASURED{\cfd{} decoding on \indepface{}: how much of the joint gain the
+constraint alone recovers.}
+
+%TL;DR Face order, temperature and model size; RFT plus constrained best-of-4 saturates the reward and collapses to repeated solid boxes, which the twin gate disqualifies.
+\paragraph{Order, temperature, size.}
+\UNMEASURED{face order (front-first against top-first), temperature sweep, 5M against 20M under \cfd{}.}
+\paragraph{A reward that saturates.}
+Applying constrained \bestof{4} to the fine-tuned model drives face solidity to 0.97 and produces
+near-identical solid boxes: 27\% of its builds are near-twins of another, against 1\% for real
+houses, and the protocol disqualifies the arm. Selection on a structural reward helps only while the
+reward has room.
+
+% ---------------------------------------------------------------------------
+\subsection{Limitations}
+\label{sec:limitations}
+
+%TL;DR Scope is exteriors at 32^3, houses only, one seed so far; entrances are under-generated (0.32 enterable vs 0.73 for Real-Shell).
+Our faces describe exteriors, and we do not generate what no axis-aligned camera sees. We evaluate on
+houses at up to $32^3$. Face generators place entrances poorly: 32\% of \cfd{} \bestof{4} builds are
+enterable from outside, against 73\% for \shellref{}, because a face rarely puts a door where the floor
+meets the wall. \UNMEASURED{seeds: all numbers above are seed 0; add two seeds for the headline arms.}
+The constraint removes inconsistency but does not choose good faces: it inherits the model's style and
+palette errors.

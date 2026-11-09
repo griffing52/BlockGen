@@ -1,0 +1,60 @@
+\section{Related Work}
+\label{sec:related}
+
+%TL;DR Trained block-world generators learn structure from a corpus; we test a training-free agent against them and find the trained model still ahead on geometry.
+\paragraph{Trained generators for block worlds.}
+Learned generators for Minecraft write a building block by block in the order a player placed
+it~\citep{chen2019voxelcnn}, denoise whole chunks after training on billions of
+cubes~\citep{merino2026dreamcubed}, or optimize a block field against a text-image score for each
+prompt~\citep{earle2024dreamcraft}. For bricks, \citet{pun2025brickgpt} train an autoregressive
+model on a text-annotated brick corpus and reject unstable placements during decoding. All of these
+learn structure from data or from per-prompt optimization, and each new kind of condition needs a
+new corpus or objective. Our agent needs neither, which makes it cheap to condition on an imagined
+image; we keep a trained voxel transformer in the comparison to show what the agent gives up in
+geometry.
+
+%TL;DR LLM building agents in Minecraft take text, a plan or a given reference image; none measures whether a self-drawn image helps against a loop matched in turns.
+\paragraph{Language-model building agents in Minecraft.}
+\citet{hu2024t2bm} prompt language models to write Minecraft buildings from text, and
+\citet{chen2024apt} decompose the prompt into an architectural plan and blueprint with memory and
+reflection modules. CraftUtopia~\citep{fu2026craftutopia} turns a given 2D reference image into a
+blueprint and splits construction across parallel workers. Word2Minecraft~\citep{huang2025word2minecraft}
+generates game levels from text, Voyager~\citep{wang2023voyager} writes skill code to act in the game, and
+MineAnyBuild~\citep{wei2025mineanybuild} and MC-Bench~\citep{mcbench2025} evaluate agents and
+models that build from instructions. In these systems the image, when present, is an input the user
+provides. We ask a different question: whether an image the agent draws for itself improves the
+build, measured against a loop that spends the same turns without one.
+
+%TL;DR Code-writing 3D agents with render feedback chase a given target image or a validator; our target is self-made, so the open question is whether it beats having no target.
+\paragraph{Code-writing 3D agents with visual feedback.}
+Agents that write graphics programs and repair them from renders are common outside block worlds.
+SceneCraft~\citep{hu2024scenecraft} and LL3M~\citep{lu2025ll3m} write Blender code for scenes and
+assets, CADCodeVerify~\citep{alrashedy2025cadcodeverify} checks CAD code against renders of its
+output, and VIGA~\citep{yin2026viga} and LEGO-Anything~\citep{li2026legoanything} run a
+write-render-compare loop until the program reproduces a target image. For bricks,
+BrickWright~\citep{pun2026brickwright} and BrickBench~\citep{kulits2026brickbench} give coding
+agents a brick assembly API with a physical validator. In inverse graphics the target is given and
+the render-to-target distance is the task; in our setting the target is itself generated, so a
+build that matches it perfectly is only as good as the picture. Benchmarks of code-written 3D
+report that executable code is often not spatially correct~\citep{zheng2026voxelcodebench} and that
+successful renders often hide floating or disconnected geometry~\citep{gao2026threedcodebench}. We
+find the analogous gap one level up: a build that looks closer to real houses in renders is not
+closer in geometry or in walkability.
+
+%TL;DR Imagined goals help robot and web agents because there the image fixes the goal state; one exterior view underspecifies a building, which predicts our result.
+\paragraph{Imagined goals for acting.}
+Generating the goal before acting helps embodied agents: SuSIE~\citep{black2024susie} edits the
+current camera image into a subgoal for a low-level policy, UniPi~\citep{du2023unipi} plans as a
+generated video and reads actions from it, and WebDreamer~\citep{gu2024webdreamer} uses a language
+model to simulate the outcome of each web action. CaP-X~\citep{fu2026capx} studies code-writing robot
+agents and lists visual differencing among the test-time techniques that narrow the gap to human-designed
+abstractions. In manipulation a subgoal image specifies most of the state that matters. A single
+exterior view of a house does not: it fixes the facade and leaves the interior, the back and the
+circulation open. Our results match this difference: the imagined image moves appearance and leaves
+structure where it was.
+
+%TL;DR We adopt an existing evaluation protocol unchanged and make no claim about evaluation.
+\paragraph{Evaluation.}
+We score every arm with the protocol of a concurrent submission~\citep{anonymous2027blindness}
+without modification, including its distribution metrics, its walkability probe and its novelty
+gates, and we make no claim about the protocol itself.

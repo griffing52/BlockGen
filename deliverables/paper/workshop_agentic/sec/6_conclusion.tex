@@ -1,0 +1,23 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+%TL;DR Visual imagination buys a program-writing agent appearance, through the caption of the image, and buys no structure.
+We ask what a target image buys an LLM that writes build programs, and we answer with a compute-matched control on 133 held-out house prompts. % T51 / scorecard n=133
+The image alone does not separate from the control on either co-primary metric. % scorecard groups
+A caption of the image does: \textsc{Dream-Caption} improves MV-KID by 0.186 over the control and is not separated from a 5M trained model on appearance. % scorecard h2h; canon_oriented group d
+Geometry stays tied across all three loop arms, and structure gets worse: a player enters half of the dream houses against two thirds of the control houses and 93\% of real ones. % scorecard traversal
+Every agentic arm repeats itself often enough to fail the near-twin gate, and a 20M trained voxel model still leads on both metrics. % scorecard leaderboard, h2h
+Imagination, in this setting, is a lever on appearance and not on structure.
+
+%TL;DR The evaluation protocol is what makes the negative half of the result visible: without Geom-KID, traversal and the twin gate, the dream loop looks like progress.
+Each negative finding comes from a part of the protocol that a render metric lacks. % anonymous2027blindness
+Geom-KID shows the geometry tie, the traversal probe and the inspector show the entry failures, and the near-twin gate shows the template collapse that an ungated BlockScore rewarded. % T63, T64, T91, T95
+An agentic method that reports only render similarity to its own target reports the one axis on which the image helps.
+
+%TL;DR Open questions: interior targets, symbolic feedback, sampling controls, local models, and more seeds.
+Five questions remain open. % ideas, research tracks
+First, whether a target that shows the interior, such as a cutaway or a floor plan, moves structure the way the exterior moves appearance; in our pilots, image models redraw the exterior when asked for a plan. % T42
+Second, whether symbolic geometry feedback (\texttt{inspect-lessons}) closes the enterability gap that a render critic does not see. % inspect-lessons.yaml, T95
+Third, whether the caption's gain survives the shuffled-caption, text-spec and best-of-4 controls of \cref{tab:controls}. \TODO{n=256}
+Fourth, whether the findings hold for an open local model with an open image generator. % T47, T48 pilots
+Fifth, how large the seed and model variance is, which a single run per prompt does not measure.

@@ -1,0 +1,17 @@
+% Figure 1, full width on page 1.
+%TL;DR: one row shows the whole paper: free faces disagree and the lift falls apart; constrained faces agree and lift to one building.
+\begin{center}
+  \centering
+  \fbox{\parbox[c][4.2cm][c]{0.96\textwidth}{\centering
+    \TODO{Figure 1. Left to right: (a) six faces from free decoding with the disagreeing cells marked in red,
+    (b) their lift (33.7 parts on average), (c) six faces from \cfd{} decoding of the same model, same seed,
+    (d) their lift (12.9 parts), (e) a real house's own six faces and lift for reference.
+    Source: face sheets under the T117 run dirs (\texttt{constrained\_grammar\_t0.7\_n399},
+    \texttt{constrained\_constrain\_t0.7\_n399}); render with \texttt{scripts/figs/} cutaway style.}}}
+  \captionof{figure}{\textbf{Faces of one building must agree.} A transformer that writes the six
+  depth-and-block faces of a house one after another almost never produces faces that describe one
+  object (a, b): only 0 to 2\% of its face sets survive a lift to 3D unchanged. \cfd{} decoding
+  restricts every later face to what the earlier faces left open, so every face set is consistent by
+  construction (c, d), with no retraining.}
+  \label{fig:teaser}
+\end{center}

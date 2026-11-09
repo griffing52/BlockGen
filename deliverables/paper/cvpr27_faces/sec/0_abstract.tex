@@ -1,0 +1,21 @@
+\begin{abstract}
+%TL;DR (X) We generate 3D block structures through their six faces, because faces cost far fewer tokens than voxels.
+%TL;DR (Y) Faces generated one after another rarely describe one object; only 0 to 2% survive a lift to 3D.
+%TL;DR (Z) Cross-face constrained decoding enforces exact agreement during sampling, without training.
+%TL;DR (1a) It removes inconsistency, halves fragmentation, composes with best-of-N, and matches a voxel transformer on geometry while beating it on appearance.
+%TL;DR (1b) Consistency holds by construction; a study from one face to six faces to voxels locates where 2D generation breaks.
+Generating a 3D block structure voxel by voxel is expensive: a $32^3$ Minecraft house is up to
+28{,}672 voxels, while its six axis-aligned depth-and-block faces are at most 5{,}632 cells, and the
+gap widens with resolution. Faces generated one after another, however, rarely describe the same
+object. Under free decoding, 0 to 2\% of the face sets a transformer produces survive a lift to 3D
+unchanged. Block worlds make this agreement exact and checkable, so we enforce it. Cross-face
+constrained decoding tracks what earlier faces have committed and restricts every later face to the
+depths and blocks that agree with them. Every face set is then consistent by construction, without
+retraining, and a fifth of all cells need no sampling. On Minecraft houses the constraint reduces
+the number of disconnected parts per building from 33.7 to 12.9 and the multi-view render distance
+from 0.299 to 0.166, and with best-of-4 selection to 0.098. With best-of-4 selection, the face generator
+ties a voxel transformer on geometry and beats it on appearance.
+\UNMEASURED{paired card with the constrained arm; T104 measured free-decoded best-of-4} A study that moves from a single facade
+to six faces to full voxels shows that agreement between views, not the realism of a single facade,
+is where 2D generation breaks. \UNMEASURED{last sentence rests on the per-rung study, Sec.~\ref{sec:ladder}}
+\end{abstract}

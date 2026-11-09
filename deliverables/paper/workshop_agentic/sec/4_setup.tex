@@ -1,0 +1,71 @@
+\section{Experimental setup}
+\label{sec:setup}
+
+%TL;DR Prompts are the GrabCraft titles of the held-out test houses, so every prompt has a real house it names and the generated set has a real distribution to match.
+\paragraph{Prompts.}
+Each prompt is the GrabCraft title of a held-out house, phrased as ``\texttt{<title> (a Minecraft <category>)}'', for example ``Viking Inn (a Minecraft medieval house)''. % T51; configs/agentic/prompts/houses32_test_grabcraft.txt
+The main comparison uses the 133 test houses of the \texttt{houses32-v1} split that carry a GrabCraft title. % T51: 133 test titles
+Their categories are medieval (84), modern (19), wooden (10), survival (6), stone (4), tree (4), starter (3), brick (2) and quartz (1). % counted from houses32_test_grabcraft.txt
+To reach the protocol's headline size of $n{=}256$, we add 123 titles of validation houses, disjoint from the test titles. % configs/agentic/prompts/houses32_val_grabcraft.txt; val run config: 123 prompts; file holds 124 distinct titles, 0 shared with test
+\TODO{state why the val run uses 123 of the 124 distinct titles in houses32\_val\_grabcraft.txt (the dropped title is ``Medieval City Hall With a Bell Tower (a Minecraft wooden house)'').}
+Every arm receives the same prompts in the same order, and the builder never sees a real house.
+
+%TL;DR All arms share one builder (gpt-5-mini at medium reasoning effort), one action space (WorldEdit-style commands; 32^3 canvas for the loop arms, 48^3 for One-Shot) and one textured renderer; the dream arms add gpt-image-1-mini at low quality.
+\paragraph{Models.}
+Every text and vision role (builder, critic, judge, captioner) is \texttt{gpt-5-mini}~\citep{openai2025gpt5} with reasoning effort ``medium'', default temperature and a 16{,}000-token completion cap. % configs/agentic/recipes/_base.yaml
+The builder writes a WorldEdit-style program that an executor runs on a $32^3$ canvas, and a textured renderer draws the result for the critic. % _base.yaml: actions dsl, canvas [32,32,32], renderer textured
+The dream arms generate one $1024{\times}1024$ isometric target per build with \texttt{gpt-image-1-mini}~\citep{openai2025gptimage} at low quality. % dream.yaml: image openai:gpt-image-1-mini?quality=low&size=1024x1024; n_images 1.000 per build
+\textsc{One-Shot} runs on a $48^3$ canvas and its builds are reduced to the protocol's 32-voxel maximum by the benchmark's structure cache. % oneshot config.json: canvas [48,48,48]; output legacy-oneshot_32.npz
+\TODO{confirm how the $48^3$ One-Shot builds reach max\_dim 32 (crop or rescale) and whether to rerun One-Shot at $32^3$ for parity.}
+
+%TL;DR Four arms are measured: One-Shot, Classic-Matched, Dream and Dream-Caption; each differs from its neighbour by one component.
+\paragraph{Arms.}
+\textsc{One-Shot} writes one program from the prompt and one in-context example, with no repair and no critique. % oneshot config: plan False, n_examples 1, repair_rounds 0, critique_rounds 0
+\textsc{Classic-Matched} adds one executor-error repair turn and three render-critique turns, each of which rewrites the program after seeing a render of the current build. % classic-matched.yaml: repair_rounds 1, critique_rounds 3, critique_mode rewrite
+\textsc{Dream} first draws a target image, builds from it, renders the build from the target's camera, and runs up to three compare-and-rewrite iterations (patience 2, early stop at an in-loop score of 0.85). % dream.yaml: max_iters 3, patience 2, stop_at 0.85
+\textsc{Dream-Caption} adds one vision turn in which a captioner that never sees the prompt describes the image (materials as palette blocks, storeys, roof, dimensions, per-face notes, an uncertainty list); the builder and the critic receive this caption beside the image. % dream-caption.yaml: describe after; docs/agentic-suite.md 5.6
+\textsc{Dream} and \textsc{Dream-Caption} share an image cache, so both arms build from the same target image for every prompt and their difference is the caption alone. % dream-caption.yaml comment
+\textsc{Classic-Matched} and both dream arms carry the same player-scale rules in their context. % classic-matched.yaml / dream.yaml: contexts include scale
+
+%TL;DR Classic-Matched is the compute-matched control: it receives at least as many builder turns as Dream, and its in-loop scorer shares no backbone with the benchmark.
+\paragraph{Compute matching.}
+\textsc{Classic-Matched} exists to isolate the image: any gain of \textsc{Dream} over it is attributable to the target image and not to more turns. % classic-matched.yaml comment
+Measured over the 133 test prompts, \textsc{Classic-Matched} makes 4.03 model calls per build against 3.49 for \textsc{Dream} and 4.56 for \textsc{Dream-Caption}, and costs \$0.045 per build against \$0.040 and \$0.048. % run_20261007_092654_bench_houses32_{classic,dream}/summary.md, run_20261008_004051_bench_houses32_dream_caption133/summary.md: n_llm_calls, would_cost/133; scorecard cost table
+\textsc{Dream-Caption} therefore spends 7\% more than the control, one extra call per build. % 6.385/5.968 = 1.07, would_cost totals
+Each arm selects its returned build by an in-loop score: \textsc{Classic-Matched} by CLIP text similarity~\citep{radford2021clip} plus a validity term, the dream arms by SigLIP~\citep{zhai2023siglip} image similarity to the target plus silhouette and validity terms. % classic-matched.yaml score {clip_text 1.0, validity 0.5}; dream.yaml score {embed 1.0, silhouette 0.5, validity 0.3}; docs/agentic-suite.md 9: in-loop siglipB / clipB16
+Both in-loop backbones are disjoint from the DINOv2 and CLIP-L backbones of the benchmark, so no arm optimizes the metric it is scored on. % docs/agentic-suite.md section 9 (Goodhart)
+
+%TL;DR Planned controls fill the ablation table at n=256: a shuffled caption, a text-only spec, best-of-4 sampling, symbolic inspection feedback and a local model.
+\paragraph{Planned controls.}
+\textsc{Dream-Caption-Shuffled} makes the same calls as \textsc{Dream-Caption} but shows the builder the caption of a different prompt's image, which separates a correct description from extra text. % dream-caption-shuffled.yaml
+\textsc{Text-Spec} gives the builder a written design spec and no image, which separates the description from the picture. \TODO{no recipe named text-spec exists in configs/agentic/recipes; define it (closest existing: dream-describe-before without the image) before the run.}
+\textsc{Best-of-4} keeps the best of four independent builds under \textsc{Classic-Matched}'s selector, which separates the dream from sampling more. % best-of-4.yaml
+Two further arms are built but unmeasured: \texttt{inspect-lessons}, whose critic receives text geometry checks (grounded, connected, enterable, headroom) and retrieved building lessons in place of a render, and a local Gemma~4 12B builder with SDXL-Turbo dreams. % inspect-lessons.yaml, docs/agentic-suite.md 5.7; dream-caption-gemma-local.yaml, T48
+
+%TL;DR We score every arm with the protocol of a concurrent submission: Geom-KID and MV-KID as co-primary distances, plus a traversal probe, all against 399 held-out real houses.
+\paragraph{Evaluation.}
+We use the evaluation protocol of a concurrent submission~\citep{anonymous2027blindness}, unchanged. % scorecard: reference 399, seed 0
+MV-KID is a kernel inception distance~\citep{binkowski2018kid} on DINOv2~\citep{oquab2024dinov2} features of multi-view textured renders and reads appearance. % scorecard realism table: mv_dino_kid
+Geom-KID is the same distance on an 80-dimensional voxel descriptor of occupancy patterns, thickness, height and the player's room scalars, and reads geometry. % T64: 80-dim descriptor with room scalars
+The protocol reports the two as co-primary, because render metrics miss interiors and structure. % anonymous2027blindness; memory eval-suite-bench
+A traversal probe sets a two-block player down outside each build and flood-fills every cell it walks to; a build is \emph{enterable} when the player reaches an interior standing cell. % T63
+The reference is 399 real test houses, and a held-out real sample scored as an arm gives the noise floor. % scorecard: reference 399, real_test arm
+
+%TL;DR Gates disqualify an arm for training-set memorization, for mode collapse, and for near-twins inside its own set, before any score is read.
+\paragraph{Gates.}
+Three gates act before ranking. The memorization gate disqualifies an arm whose builds sit closer to the training set in DINOv2 space than held-out real builds do (DINO-NN percentile). % scorecard leaderboard: dino_nn_percentile memorization gate
+The diversity gate disqualifies mode collapse. % scorecard: voxel_diversity gate (real@single_mode)
+The near-twin gate counts the share of builds that have a near-copy inside the same set (occupancy IoU at least 0.8 under the eight footprint symmetries and translation) and disqualifies an arm more than three real spreads above the real rate, with the spread floored at 0.02. % T91
+An arm that passes all three receives a BlockScore, the worst of its realism pillars in units of the real-versus-real spread. % scorecard footnote; docs/benchmark.md
+
+%TL;DR We test every pair of arms with paired permutation tests under Holm correction, and we compare BlockScore only between arms scored at the same n.
+\paragraph{Statistics.}
+We compare arms with permutation tests (10{,}000 permutations), scoring both arms of a pair against the same reference, and correct the whole family of pairs on the card with Holm's method~\citep{holm1979simple}. % scorecard: "paired, Holm-corrected ... permutation, n_perm=10000"; docs/benchmark.md head-to-head
+We report the resulting compact letter display: arms that share a letter are not separated at $\alpha{=}0.05$. % scorecard
+The Holm family contains every pair among 17 arms of the card, so it is conservative for the four agentic arms. % scorecard arms: 17 in mv_dino_kid ranking
+Intervals are 95\% bootstrap intervals over builds. % scorecard: bootstrap unit structure
+BlockScore is calibrated against a real sample of the arm's own $n$, so we compare it only between arms at equal $n$. % docs/benchmark.md Protocols
+The calibration matters in practice: the same \texttt{canon\_oriented} samples score BlockScore 150.5 on the $n{=}133$ card and 297 on an $n{=}256$ card. % scorecard (150.53, real_test n=133); T118 (297)
+Every arm runs once, with one build per prompt, and the benchmark uses seed 0. % scorecard: seed 0; summaries: n_builds 133
+All agentic numbers in \cref{sec:results} come from one card scored at $n{=}133$. % outputs/run_20261109_121625_bench_agentic_arms_beside_the_20M_legacy/scorecard.md
+\TODO{n=256: replace with the n=256 card once the val runs of Dream-Caption, Dream and Classic-Matched finish and One-Shot is benched.}

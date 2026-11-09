@@ -1,0 +1,22 @@
+% Figure 1, full width on page 1.
+%TL;DR: one prompt, three arms and the real house show the whole paper: the caption moves the look toward the dream, and no arm builds a house a player walks into as often as real ones.
+\begin{center}
+  \centering
+  \fbox{\parbox[c][4.4cm][c]{0.96\textwidth}{\centering
+    \TODO{Figure 1. One row per prompt (two prompts). Columns: (a) the prompt, a houses32-v1 test title;
+    (b) the dream drawn by \imgmini{}; (c) the \classicm{} build; (d) the \dream{} build;
+    (e) the \dreamcap{} build; (f) the real GrabCraft house with the same title.
+    Under (c) to (f) a cutaway render with the player-walk flood fill overlaid, marked \enterable{} yes or no.
+    Sources: \texttt{builds/<arm>/NNN/dreams/*.png} and \texttt{iters/} in
+    \texttt{outputs/run\_20261007\_092654\_bench\_houses32\_\{dream,classic\}} and
+    \texttt{outputs/run\_20261007\_145754\_bench\_houses32\_dream\_caption};
+    real houses from the houses32-v1 test split; walk overlay from \texttt{blockgen/eval/traversal.py};
+    textured renderer, same camera for every column. Pick prompts present in all three runs.}}}
+  \captionof{figure}{\textbf{Imagination buys appearance, not structure.} A language model writes a
+  build program for each prompt. With a dream image and a caption of that image (e), the builds
+  look closer to real houses in multi-view renders than those of a compute-matched loop without
+  an image (c), and the image alone (d) does not move them. In geometry the three arms are not separated, and
+  a player enters 50\% to 68\% of the builds, against 93\% of real houses (f).}
+  % 0.50 / 0.51 / 0.68 enterable, real 0.95: results.md T63
+  \label{fig:teaser}
+\end{center}

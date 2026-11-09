@@ -1,0 +1,55 @@
+%% Preamble (CVPR 2027 kit). Loaded before hyperref.
+%% cvpr.sty already provides times, xcolor, graphicx, amsmath, amssymb, booktabs,
+%% natbib[numbers], caption, subcaption, url, enumitem and cleveref.
+
+\usepackage{amsthm}
+\newtheorem{proposition}{Proposition}
+\newtheorem{definition}{Definition}
+\usepackage{multirow}
+\usepackage{csquotes}   % \enquote{...}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\emergencystretch=1.5em
+
+% ---------------------------------------------------------------------------
+% Draft switch. `make submit` defines \submission; then every leftover \TODO,
+% \UNMEASURED or \com is a hard error.
+% ---------------------------------------------------------------------------
+\newif\ifdraft\drafttrue
+\ifdefined\submission\draftfalse\fi
+\ifdraft
+  \newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+  \newcommand{\UNMEASURED}[1]{\textcolor{red}{\textbf{[UNMEASURED: #1]}}}
+  \newcommand{\com}[1]{\textcolor{blue}{Comment: #1}}
+\else
+  \newcommand{\TODO}[1]{\PackageError{paper}{Unresolved TODO: #1}{}}
+  \newcommand{\UNMEASURED}[1]{\PackageError{paper}{Unmeasured claim: #1}{}}
+  \newcommand{\com}[1]{\PackageError{paper}{Unaddressed comment: #1}{}}
+\fi
+
+% ---------------------------------------------------------------------------
+% Work-specific terminology. One name per concept, never a synonym.
+%   face        one of the six axis-aligned (depth, block) images of a build
+%   face set    the six faces of one build
+%   lift        faces -> voxel shell;  project: voxels -> faces
+%   consistent  a face set that equals the projection of its own lift
+% Methods are small caps, metrics roman.
+% ---------------------------------------------------------------------------
+\newcommand{\cfd}{\mbox{\textsc{Cross-Face}}}            % our constrained decoder
+\newcommand{\grammar}{\mbox{\textsc{Grammar}}}           % per-face syntax only
+\newcommand{\freedec}{\mbox{\textsc{Free}}}              % unconstrained decoding
+\newcommand{\jointface}{\mbox{\textsc{Joint-Face}}}      % six faces in one sequence
+\newcommand{\indepface}{\mbox{\textsc{Indep-Face}}}      % faces sampled independently
+\newcommand{\patchwork}{\mbox{\textsc{Patchwork}}}       % six real faces from six houses
+\newcommand{\shellref}{\mbox{\textsc{Real-Shell}}}       % lift of a real house's own faces
+\newcommand{\voxelar}{\mbox{\textsc{Voxel-AR}}}          % 3D voxel transformer
+\newcommand{\bestof}[1]{\mbox{\textsc{Best-of-#1}}}
+
+\newcommand{\mvkid}{\mbox{MV-KID}}
+\newcommand{\geomkid}{\mbox{Geom-KID}}
+\newcommand{\facekid}{\mbox{Face-KID}}
+\newcommand{\blockscore}{\mbox{BlockScore}}
+
+\newcommand{\proj}{\mathcal{P}}
+\newcommand{\lift}{\mathcal{L}}

@@ -1,0 +1,197 @@
+\section{Results and discussion}
+\label{sec:results}
+
+% Source of every agentic and trained-model number in this section unless noted:
+% outputs/run_20261109_121625_bench_agentic_arms_beside_the_20M_legacy/scorecard.md
+% (houses_32.s0.70-15-15.v1, seed 0, reference 399, 17 arms, permutation n_perm=10000, Holm).
+% p_Holm = 0.0136 is the smallest Holm-adjusted p the card reports; we print it as 0.014.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{\textbf{Agentic arms on the house benchmark, $n{=}133$ test prompts.} MV-KID reads appearance and Geom-KID geometry (lower is better; letters: arms sharing a letter are not separated after Holm correction). Enterable is the share of builds a player walks into (real reference 0.945). Twin is the share of builds with a near-copy in the same set. Trained models are scored on the same card at $n{=}256$, so their BlockScore is not comparable with an $n{=}133$ arm (\cref{sec:setup}). Brackets are 95\% intervals.}
+\label{tab:main}
+\begin{tabular}{@{}llcccccl r@{}}
+\toprule
+Arm & $n$ & MV-KID $\downarrow$ & Geom-KID $\downarrow$ & Enterable & Twin & Diversity & Gate & \$/build \\
+\midrule
+Real (held out) & 133 & $-0.001$\,\textsuperscript{a} & $-0.08$\,\textsuperscript{a} & 0.932 & 0.000 & 0.902 & pass & -- \\ % scorecard real_test rows
+\midrule
+\textsc{One-Shot} & 133 & \multicolumn{6}{c}{\TODO{bench One-Shot}} & 0.010 \\ % run_20261109_130512_bench_houses32_oneshot_test: paid $1.3892 / 133 builds; not yet benched
+\textsc{Classic-Matched} & 133 & 0.403\,\textsuperscript{ef} & 18.35\,\textsuperscript{ef} & 0.677 & 0.316 & 0.833 & DQ twin & 0.045 \\ % scorecard realism/traversal/novelty/cost/leaderboard
+\textsc{Dream} & 133 & 0.342\,\textsuperscript{e} & 17.88\,\textsuperscript{ef} & 0.496 & 0.301 & 0.786 & DQ twin & 0.040 \\ % scorecard
+\textsc{Dream-Caption} & 133 & \textbf{0.217}\,\textsuperscript{d} & \textbf{15.71}\,\textsuperscript{de} & 0.511 & \textbf{0.211} & 0.790 & DQ twin & 0.048 \\ % scorecard
+\midrule
+\multicolumn{9}{@{}l}{\emph{Trained voxel models (reference rows)}} \\
+\texttt{canon\_oriented} 5M & 256 & 0.254\,\textsuperscript{d} & 14.24\,\textsuperscript{d} & 0.605 & 0.000 & 0.885 & pass (150.5) & -- \\ % scorecard canon_oriented rows; BlockScore 150.53
+20M legacy & 256 & 0.159\,\textsuperscript{c} & 9.06\,\textsuperscript{c} & 0.629 & 0.008 & 0.878 & DQ mem. & -- \\ % scorecard recanon20m_s0 rows; T118 model
+\bottomrule
+\end{tabular}
+\end{table*}
+% Intervals for the agentic rows (scorecard realism table):
+% MV-KID: classic 0.403 [0.361, 0.450], dream 0.342 [0.311, 0.375], caption 0.217 [0.200, 0.237]
+% Geom-KID: classic 18.351 [17.056, 19.534], dream 17.882 [17.028, 18.980], caption 15.712 [14.888, 16.681]
+% Twin: classic 0.316 [0.241, 0.391], dream 0.301 [0.226, 0.383], caption 0.211 [0.143, 0.286]
+
+%TL;DR We organize the results as six findings, each tied to one row group of the main table; the dream buys appearance through its caption and buys nothing in geometry or structure.
+\Cref{tab:main} holds the main comparison. Each subsection below states one finding and the test behind it.
+
+\subsection{The caption, not the image, moves appearance}
+
+%TL;DR Dream-Caption is the only agentic arm separated from the compute-matched control on MV-KID; Dream alone is not.
+\textsc{Dream-Caption} reaches MV-KID 0.217, against 0.342 for \textsc{Dream} and 0.403 for \textsc{Classic-Matched}. % scorecard realism
+It beats \textsc{Dream} by 0.125 (95\% interval $[0.089, 0.164]$, $p_{\text{Holm}}{=}0.014$) and \textsc{Classic-Matched} by 0.186 ($[0.135, 0.229]$, $p_{\text{Holm}}{=}0.014$). % scorecard mv_dino_kid h2h: dream-caption vs dream -0.125, vs classic-matched -0.186
+\textsc{Dream} and \textsc{Classic-Matched} share a letter, so the image alone does not separate from the compute-matched control. % scorecard groups e / ef
+Because the two dream arms build from identical cached images, the 0.125 gap belongs to the caption. % dream-caption.yaml shared cache
+\textsc{Dream-Caption} also shares its letter with the trained \texttt{canon\_oriented} model (0.254), so on appearance a prompted agent with a captioned image is not separated from a 5M model trained on the corpus. % scorecard groups d / d
+
+%TL;DR Small pilots show what the caption does: it names parts the builder misreads in the image and lists scenery to leave out.
+Pilots show the mechanism, at sizes too small to test. % T46 n=4; T48 n=6
+In a four-prompt pilot, the caption arm was the only arm whose windmill ended with upright sails, after the caption named ``four large diagonal sail arms''. % T46
+In a six-prompt local pilot with SDXL-Turbo dreams that place every house on terrain, the caption listed the terrain as surroundings to omit and the builds dropped it (coherence rate 1.00 against 0.83 without the caption). % T48: coherence 1.00 vs 0.83
+In the same four-prompt pilot, a caption from a different prompt turned the lighthouse into a red box house. % T46 dream-caption-shuffled
+\textsc{Dream-Caption-Shuffled} tests this at full $n$ (\cref{tab:controls}).
+
+%TL;DR The caption arm builds smaller houses than real ones, which is part of how its renders differ.
+The caption also shrinks the builds: \textsc{Dream-Caption} places 704 blocks with a largest extent of 13.4, against 953 and 15.0 for \textsc{Dream}, 1{,}202 and 19.1 for \textsc{Classic-Matched}, and 904 and 19.2 for real houses. % scorecard coherence table: n_blocks, max_dim
+\TODO{check whether MV-KID renders normalize build size; if not, measure how much of the caption's MV-KID gain survives a size-matched comparison.}
+
+\subsection{Geometry: the three agentic arms tie}
+
+%TL;DR No pair of agentic arms separates on Geom-KID, so neither the image nor the caption moves the distribution of shapes.
+On Geom-KID the three arms score 15.71, 17.88 and 18.35, and every pair shares a letter. % scorecard geom_kid groups de / ef / ef
+The image and the caption leave the shape distribution where the compute-matched control puts it.
+\textsc{Dream} and \textsc{Classic-Matched} also share a letter with the protocol's Patchwork baseline (18.79), and only \textsc{Dream-Caption} separates from it ($-3.08$, $[-4.52, -1.55]$, $p_{\text{Holm}}{=}0.014$). % scorecard: patchwork 18.791 group f; patchwork vs dream-caption +3.080
+All three beat the solidified-real control (21.56), whose interiors are filled. % scorecard: real@solidify 21.562 group g; vs classic-matched p_holm 0.0425
+
+\subsection{Structure: the dream arms are harder to enter}
+
+%TL;DR A player walks into 68% of Classic-Matched houses but only half of the dream houses, against 93% of real ones.
+The traversal probe orders the arms the other way from MV-KID. % scorecard traversal table
+A player enters 0.677 of \textsc{Classic-Matched} builds, 0.511 of \textsc{Dream-Caption} builds and 0.496 of \textsc{Dream} builds, against 0.932 for held-out real houses. % scorecard enterable
+In real-sample spreads the distance to real is 1.17 for the control and 1.90 and 1.96 for the dream arms. % scorecard traversal: enterable spreads
+Players reach 0.77 storeys per \textsc{Classic-Matched} build and 0.51 to 0.53 per dream build, against 1.57 for real houses. % scorecard floors_reached
+The protocol reports traversal as a distance to real without a pairwise test. \TODO{run a paired permutation test on per-build enterability between Classic-Matched and each dream arm.}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{\textbf{Inspection failures.} Share of builds failing each text geometry check at warning severity or worse; checks with no failures in any row are omitted. Real houses fail mostly through crop artefacts (missing floors, detached yard pieces).}
+\label{tab:inspect}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Arm & $n$ & Clean & Roofed & Enterable & Headroom \\
+\midrule
+\textsc{Classic-Matched} & 133 & 68\% & 6\% & 33\% & 1\% \\
+\textsc{Dream} & 133 & 53\% & 2\% & 54\% & 7\% \\
+\textsc{Dream-Caption} & 133 & 48\% & 0\% & 57\% & 13\% \\
+Real houses & 400 & 55\% & 10\% & 17\% & 9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+% Source: T95 (blockgen/agentic/inspection.py on the T51 builds and 400 real houses_32 builds, seed 1).
+% Real also fails connected 6%, supported 14%; agentic 0% on both; dream-caption interior 2%.
+
+%TL;DR An independent rule-based inspector agrees: the enterable check fails on more than half of the dream builds and a third of the control builds.
+A rule-based inspector, run on the same builds, agrees (\cref{tab:inspect}). % T95
+The enterable check fails on 54\% of \textsc{Dream} builds and 57\% of \textsc{Dream-Caption} builds, against 33\% for \textsc{Classic-Matched} and 17\% for real houses. % T95
+Headroom failures rise from 1\% for the control to 7\% and 13\% for the dream arms. % T95
+The agentic builds never fail the connected or supported checks, which real crops fail at 6\% and 14\%. % T95
+The dream arms build connected, supported shells that a player does not get into.
+
+%TL;DR All agentic arms leave interiors too small and too symmetric, and the image moves neither.
+Interiors are the shared gap. % scorecard coherence / geometry scalars
+The enclosed-air ratio is 0.039 to 0.043 for the three arms against 0.114 for real houses, and yaw symmetry is 0.92 to 0.96 against 0.68. % scorecard: enclosed_air_ratio, yaw_symmetry
+The target is an exterior view: it fixes facades, roof and materials and says nothing about rooms, doors or stairs. % dream.yaml: dreams [iso]
+The appearance gain and the structural loss are consistent with a builder that spends its edits on what the critic sees.
+\TODO{test the interpretation with a cutaway or plan dream at n=256 (recipes dream-multiview, blueprint exist; T42 found the plan dream redraws the exterior).}
+
+\subsection{Template collapse: every agentic arm fails the near-twin gate}
+
+%TL;DR A fifth to a third of each agentic set has a near-copy inside the same set, against none of the real houses, so all three arms are disqualified.
+Within each set, 31.6\% of \textsc{Classic-Matched} builds, 30.1\% of \textsc{Dream} builds and 21.1\% of \textsc{Dream-Caption} builds have a near-twin, against 0.0\% of real houses. % scorecard novelty: voxel_twin_rate
+The gate disqualifies all three, at 15.8, 15.0 and 10.5 real spreads above the real rate. % scorecard leaderboard DQ reasons
+Diversity agrees: 0.833, 0.786 and 0.790 against 0.902 for real houses. % scorecard voxel_diversity
+On inspection, \textsc{Classic-Matched} draws most prompts as the same oak cottage with a gabled roof. % T51 (by eye)
+The caption lowers the twin rate by 0.105 against the control, inside overlapping intervals ($[0.143, 0.286]$ against $[0.241, 0.391]$). % scorecard
+Both trained models pass the near-twin gate (0.000 and 0.008). % scorecard
+
+%TL;DR Before the twin gate existed, BlockScore ranked Dream-Caption above the other agentic arms and an LLM baseline, which shows why the gate is required.
+Before the near-twin gate entered the protocol, BlockScore ranked \textsc{Dream-Caption} (155.8) above \textsc{Dream} (177.2) and \textsc{Classic-Matched} (181.9), and above an LLM block-serialization baseline (167.9). % T64 (n=128 card, 2026-10-23), before T91 (2026-11-04)
+A leaderboard without the gate rewards an agent that repeats one house. % T91: ungated vanilla templates 202.95 / 194.98 ahead of every BlockGen model
+No memorization gate fires on an agentic arm: DINO-NN percentiles are 0.460 to 0.591 against 0.536 for real houses. % scorecard dino_nn_percentile
+
+\subsection{Trained models still lead}
+
+%TL;DR The 20M trained model beats the best agentic arm on both co-primary metrics, and the 5M model beats Dream and Classic-Matched on geometry.
+The 20M legacy voxel model beats \textsc{Dream-Caption} on Geom-KID by 6.65 ($[5.24, 8.08]$, $p_{\text{Holm}}{=}0.014$) and on MV-KID by 0.058 ($[0.030, 0.083]$, $p_{\text{Holm}}{=}0.014$). % scorecard h2h: recanon20m_s0 vs dream-caption -6.649, -0.058
+The 5M \texttt{canon\_oriented} model beats \textsc{Dream} by 3.64 and \textsc{Classic-Matched} by 4.11 on Geom-KID (both $p_{\text{Holm}}{=}0.014$) and ties \textsc{Dream-Caption} on both metrics. % scorecard h2h: canon_oriented vs dream -3.638, vs classic -4.106; groups d/de, d/d
+\texttt{canon\_oriented} is the only arm in \cref{tab:main} with a BlockScore (150.5). % scorecard leaderboard rank 2
+On enterability \textsc{Classic-Matched} (0.677) exceeds both trained models (0.605 and 0.629). % scorecard traversal
+
+%TL;DR The 20M model fails the memorization gate on this card and passes it on the n=256 card, which is the equal-n rule at work.
+The 20M model fails the memorization gate here (DINO-NN percentile 0.359 against a real 0.536, 3.5 spreads) and passes every gate on an $n{=}256$ card. % scorecard leaderboard; T118 ("No gate fires on a model arm")
+The gate's spread comes from a real sample of the card's $n$, so this verdict is one more reason to read the agentic and trained rows only through the pairwise tests. % docs/benchmark.md Protocols
+The trained arms are scored at $n{=}256$ and the agentic arms at $n{=}133$; KID is unbiased in $n$, but the tests mix sample sizes. % scorecard n column
+\TODO{n=256: rerun this comparison with all arms at n=256.}
+
+\subsection{Cost}
+
+%TL;DR A loop build costs 3.8 to 4.6 times a one-shot build, and the dream arms cost within 11% of the compute-matched control.
+The three loop arms cost \$0.040 to \$0.048 per build with 3.5 to 4.6 model calls, against \$0.010 and one call for \textsc{One-Shot}, a factor of 3.8 to 4.6. % scorecard cost; run summaries n_llm_calls; oneshot paid $1.3892/133 = 0.01045; 0.040/0.01045=3.8, 0.048/0.01045=4.6
+\textsc{Dream} costs 11\% less than \textsc{Classic-Matched} and \textsc{Dream-Caption} 7\% more. % 0.040/0.045, 6.385/5.968
+Completion tokens per build are 14{,}600 for \textsc{Dream}, 17{,}962 for \textsc{Dream-Caption} and 20{,}315 for \textsc{Classic-Matched}, against 4{,}958 for \textsc{One-Shot}. % scorecard cost completion_tokens; oneshot summary.md
+At these prices the full $n{=}133$ run of an arm costs \$5.30 to \$6.39. % run summaries total_would_cost_usd: 5.299, 5.968, 6.385
+The trained models cost no API calls at sampling time. \TODO{add GPU-hours for training canon\_oriented and the 20M legacy model (T111, T118) so the cost comparison is complete.}
+
+\subsection{Controls and the $n{=}256$ run}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{\textbf{Controls and the $n{=}256$ card.} Each row isolates one component. All rows use the 256 prompts of \cref{sec:setup}.}
+\label{tab:controls}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Arm & Isolates & MV-KID & Geom-KID \\
+\midrule
+\textsc{One-Shot} & the loop & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Classic-Matched} & (control) & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Dream} & the image & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Dream-Caption} & the caption & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Dream-Caption-Shuffled} & correct caption & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Text-Spec} & the picture & \UNMEASURED{} & \UNMEASURED{} \\
+\textsc{Best-of-4} & more samples & \UNMEASURED{} & \UNMEASURED{} \\
+\texttt{inspect-lessons} & text feedback & \UNMEASURED{} & \UNMEASURED{} \\
+Gemma 4 12B (local) & the model & \UNMEASURED{} & \UNMEASURED{} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+% State of outputs/logs/agentic256.log at 2026-11-09 20:58 UTC (in progress, not waited for):
+%   One-Shot test (133) done: run_20261109_130512_bench_houses32_oneshot_test, paid $1.3892, not yet benched.
+%   One-Shot val (123) done: run_20261109_145342_bench_houses32_oneshot_val, paid $1.3107, not yet benched.
+%   Agentic val (123 x [dream-caption, dream, classic-matched]): run_20261109_165950_bench_houses32_agentic_val,
+%   dream-caption at 86/123; dream and classic-matched val not started.
+%   The test-split builds of the three loop arms already exist (T51 runs, dream-caption133).
+
+%TL;DR The control table fixes in advance which comparison answers which question, so the n=256 card reads off directly.
+\Cref{tab:controls} fixes the comparisons the $n{=}256$ card answers. \TODO{n=256}
+\textsc{Dream-Caption} against \textsc{Dream-Caption-Shuffled} measures what a correct description adds beyond more text; if they tie, the gain is tokens. % docs/agentic-suite.md 5.6
+\textsc{Dream-Caption} against \textsc{Text-Spec} measures what the picture adds beyond a description.
+\textsc{Dream} against \textsc{Best-of-4} at matched cost measures whether the image beats sampling four times. % best-of-4.yaml comment; docs 9
+\texttt{inspect-lessons} against \textsc{Classic-Matched} measures whether text geometry feedback fixes the enterability gap of \cref{tab:inspect}, which a render critic does not see. % inspection.py calibrated on 400 real houses (mean 0.93), memory note agentic-suite
+The local Gemma arm measures whether the findings depend on the closed model. % T47, T48 pilots n=6
+
+\subsection{Limitations}
+
+%TL;DR One run per prompt, one builder, one image model, one building type and one canvas size per arm bound every claim above.
+Every arm runs once per prompt with one builder (\texttt{gpt-5-mini}) and one image model (\texttt{gpt-image-1-mini}), so the findings carry no seed variance and no model variance. % summaries: n_builds = prompts; dream.yaml
+The prompts are houses at $32^3$, and the $n{=}133$ card sits just above the protocol's minimum of 128 per arm. % docs/benchmark.md min_n 128
+\textsc{One-Shot} ran on a $48^3$ canvas, unlike the loop arms. % oneshot config.json
+The selectors differ between arms (CLIP text for the control, SigLIP image similarity for the dream arms), so a dream arm changes both its input and its selection signal. % recipes score fields
+The titles name real GrabCraft builds that the builder may have seen during pretraining; the memorization gate checks proximity to our training split, not to the web. % scorecard dino_nn_percentile is against the training split
+The $n{=}256$ prompt set adds validation titles while the reference stays the test split. % prompts files; scorecard reference 399
