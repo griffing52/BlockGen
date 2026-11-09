@@ -1,66 +1,66 @@
 # BlockGen
 
-Generative models for discrete 3D **buildable** structures — Minecraft voxel builds today,
-LEGO brick assemblies next. The research thesis: *guaranteed-buildable generation with
-diverse parts, trained on open data, transferred across media, with honest novelty
-accounting.* See `roadmap.md` for the paper plan and `research.md` for the field survey.
+Generative models for discrete 3D buildable structures: Minecraft voxel builds today, LEGO
+brick assemblies next. The research thesis: guaranteed-buildable generation with diverse
+parts, trained on open data, transferred across media, with honest novelty accounting.
+The plan is `research.md` §I; the field survey is the rest of `research.md`.
 
-This README is the practical guide: how the repo is laid out, how to run each model, and
-how to render structures. For the research narrative, results tables, and idea backlog see
-the [Documentation map](#documentation-map) at the bottom.
+This README is the practical guide: how the repo is laid out, how to run each part, and
+where the documentation lives. The MkDocs site under `docs/` (start at `docs/index.md`)
+has the long form.
 
 ---
 
 ## 1. Setup
 
+The pipeline's interpreter is the conda `python` on `PATH` (torch 2.7 + CUDA 12.8,
+pandas 3.0). The corpus layer and the lab need pandas; the project `.venv` (torch 2.10)
+has no pandas, so every command below says `python`. Two exceptions still run under
+`.venv/bin/python`: the legacy batteries that need `nbtschematic`, and the MinecraftACE
+trainers under `libs/MinecraftACE/train/`, which need `diffusers` (`docs/minecraftace.md`).
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .                 # base package (declares pyyaml; numpy/torch/h5py assumed present)
+pip install -e .                 # base package
 pip install -e ".[render]"       # textured rendering: pyrender, trimesh, PyOpenGL, pillow
-pip install -e ".[gnn]"          # graph track: torch, torch-geometric
+pip install -e ".[gnn]"          # graph track: torch-geometric
+python -c "import torch, pandas; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-- Python 3.10+, Linux. Rendering is headless via EGL (works on the RTX 5070 Ti box).
-- CUDA is used automatically when available; everything falls back to CPU.
+Linux, one 16 GB GPU (RTX 5070 Ti in development), headless rendering through EGL.
+Tests: `PYTHONPATH=. python -m pytest tests/corpus tests/train tests/posttrain -q`.
 
 ---
 
 ## 2. Data layout
 
-All corpora live under `data/`, split by medium. Raw caches are gitignored; the loaders
-below produce in-memory `Structure` objects (see §4).
-
 ```
 data/
   minecraft/
-    cache/            legacy NBT cache (build_cache.py)          — 1.12-era (id,data) vocab
-    grabcraft/        GrabCraft category-labeled builds          — preferred labeled set
-    3d_craft/         3D-Craft house corpus
-    text2mc/          text2mc modern builds (h5) + tok2block.json — remapped to legacy ids
-    more/             tfrecord-derived labeled crawl (npz caches)
-    raw/              raw schematics/NBT
-    text2mc_index.json
-  lego/               LEGO corpora (LDraw MPD) — see data/lego/README.md
-    omr/              Open Model Repository: 1,819 models / 651k placements (CC BY / CCAL)
-    stabletext2brick/ StableText2Brick ~42k (HF, MIT)
-    ldraw/            LDraw official parts library (33,362 parts)
-    shadow/           LDCad Shadow Library — SNAP connection metas (CC BY-SA 4.0)
-  textures/
-    vanilla/          extracted Minecraft block textures (fetch below)
+    cache/            curated caches: houses_32.npz, houses_48.npz, all_32.npz (+ _manifest.json)
+    grabcraft/        GrabCraft category-labelled builds
+    3d_craft/         3D-Craft house corpus with placement traces
+    text2mc/          text2mc .h5 builds and 28k raw .schem
+    more/             tfrecord-derived labelled crawl
+    raw/              legacy schematics (drifted metadata)
+    templates/        1.21.1 structure templates (internal only)
+    worldcrop/        <month>/crops.jsonl + crops/*.npz, gate/, logs/   (pretraining only)
+    corpus/           manifest/*.parquet, dedup.parquet, kinds.parquet, tiers/, shards/
+    splits/           houses_32.s0.70-15-15.v1.json (the pinned benchmark split)
+  lego/               OMR, StableText2Brick, LDraw, Shadow Library (data/lego/README.md)
+  textures/vanilla/   extracted block textures
 ```
 
-**Curated Minecraft house caches** (the training targets), built by
-`blockgen/curation/houses.py` with a per-corpus enclosed-air "house-ness" gate:
+`docs/data.md` follows a build from source to shard. The short version:
 
 ```bash
-.venv/bin/python -m blockgen.curation.houses          # builds houses_32.npz / houses_48.npz
-```
-`load_house_structures(max_dim=32)` → `houses_32` (2,661 builds). See `notes.md §6.1`.
-
-**Fetch textures / LEGO data:**
-```bash
-.venv/bin/python -m blockgen.renderer.textures --fetch     # vanilla block textures → data/textures/vanilla/
-.venv/bin/python -m blockgen.data.fetch_omr                # resumable OMR LEGO scraper → data/lego/omr/
+python -m blockgen.curation.houses --max-dim 32                   # houses_32.npz
+python -m blockgen.corpus.manifest curated --caches all_32 houses_32 houses_48
+python -m blockgen.corpus.dedup && python -m blockgen.corpus.kinds
+python -m blockgen.corpus.tiers build                             # configs/corpus/*.yaml -> tiers/
+python -m blockgen.corpus.shards build sft-houses32 --max-blocks 8192
+python -m blockgen.corpus.shards build eval-holdout --max-blocks 8192
+bash scripts/corpus_refresh.sh --dry-run                          # the whole chain, in order
+python -m blockgen.renderer.textures --fetch                      # block textures
 ```
 
 ---
@@ -69,160 +69,115 @@ data/
 
 ```
 blockgen/
-  data/         corpus loaders: build_cache, grabcraft_dataset, tfrecord_dataset, fetch_omr
-  utils/        serialize (Structure↔tokens↔grid), data (Structure), augment (D4),
-                block_remap (text2mc→legacy), corpora (3D-Craft/text2mc), ordering, graph_data
-  curation/     curate (Curator: dedup/quality), houses (cross-corpus house dataset)
-  tokenizers/   block_tokenizer, standard_vocab, cluster_bpe (3D-BPE anti-memorization)
-  models/       voxel_transformer_ar (Track A), voxel_transformer_ar2 (phase4/rope/alibi PE),
-                voxel_diffusion (Track B UNet3D), large_pyg_graph_generator (Track C), voxel_port_gnn
-  training/     train_ar (+ _ext), train_diffusion, train_graph, train_twostage,
-                constrained_decode (adjacency-constrained sampler)
-  eval/         novelty (NN-IoU + diversity + duplicate rate), validity (connectivity, LCC repair)
-  renderer/     textured (pyrender/EGL real textures), textures (atlas + fetch),
-                grid (dense sample grids), render (legacy matplotlib)
-  agentic/      Track E — an LLM writes the build PROGRAM (no training):
-                dsl (WorldEdit-style command language), canvas, blockstate,
-                providers (OpenAI/Gemini/Anthropic/mock), prompts, examples,
-                tasks (prompt sets), agent (plan→generate→execute→repair→critique), report
-  ontology/     what each block IS, measured not asserted: mine (corpus statistics —
-                layer, form, NPMI affinity, style lift), appearance (colour/surface from
-                the shipped textures), authored (game rules), minecraft (composes the
-                catalog), schema (domain-agnostic Part/Catalog + the shuffled control)
-  experiments_*.py   reproducible run drivers (see §6)
+  data/         corpus readers (grabcraft, tfrecord, legacy cache) and worldcrop/ (archived
+                worlds -> crops, terrain gate)
+  curation/     houses (cross-corpus house caches), corpus (all_32), curate (Curator)
+  corpus/       manifest, canon + dedup, kinds, tiers, tokenizer (voxels | facades), shards,
+                facade, reps, templates                                  -> docs/data.md
+  train/        the shared trainer: config, archs (registry), data, trainer, sample, registry
+                                                                         -> docs/pipeline.md
+  posttrain/    rewards (pillar refusal), bon (best-of-N), rft (rejection-sampling FT), select
+  utils/        Structure, serialize (legacy tokens/grids), corpora, block_remap, schem, growth_order
+  tokenizers/   standard_vocab, cluster_bpe (3D-BPE pieces), piece_factors
+  models/       voxel_transformer_ar2 (Track A), voxel_transformer_cond + condition_resampler,
+                voxel_diffusion (B), large_pyg_graph_generator (C), pick_n_place (F), ...
+  training/     legacy trainers per family + constrained_decode
+  eval/         novelty, validity, traversal (player walk), facade_stats, bench/ (BlockScore,
+                ladder, protocol, pointcloud)                             -> docs/benchmark.md
+  agentic/      Track E: an LLM writes the build program                 -> docs/agentic.md
+  ontology/     what each block is, mined from the corpus                -> docs/ontology.md
+  labeling/     renders -> captions -> frozen embeddings                 -> docs/labeling.md
+  renderer/     textured (EGL), textures, grid
+  export/       converters (MinecraftACE layout)
+  experiments_*.py   legacy run drivers (T10 to T24)
+tools/lab/      BlockLab, the local app                                  -> docs/lab.md
+configs/        corpus/ (tiers), train/ (trainer stages), and the legacy datasets/experiments/models/training/agentic
+scripts/        m2b_seeds.sh, corpus_refresh.sh, facade_oracle.py, facade_baselines.py, figure scripts
+deploy/         live /gen demo: inference server + Minecraft mod
+libs/           MinecraftACE (LegoACE port), BrickNet, BrickAgent
 ```
 
----
-
-## 4. Representation & tokenizer (`blockgen/utils/serialize.py`)
-
-- **`Structure`** (`utils/data.py`): `block_ids` + `block_data` int arrays (legacy Minecraft
-  `(id, data)` vocab) with `occupied_mask`, `shape`, `crop_to_non_air()`.
-- **AR token stream**: `[BOS, (X, Y, Z, BLOCK)*, EOS]` — variable size, no fixed grid. Built by
-  `build_block_vocab(structs, max_dim)` → `BlockVocab`; `build_sequences(...)` emits training seqs.
-- **Canonical grid**: `structure_to_grid` / `grid_to_structure` center-pad to a fixed `dim³`
-  cube for the diffusion track.
-- **Augmentation** (`utils/augment.py`): D4 symmetry group for honest-novelty eval.
+Two letter schemes: a **Track** is a generator family (A autoregressive, B diffusion,
+C graph, D LLM baseline, E agentic, F pick-and-place; `docs/models.md`); an **Arm** is a
+tokenisation story in the shared trainer (A sparse raster, B 3D-BPE, C dense grid, D text
+lines, E facades; `docs/pipeline.md` §4).
 
 ---
 
-## 5. Models & methods
+## 4. Representation
 
-| Track | Class | Spec (defaults) | Notes |
-|---|---|---|---|
-| **A. AR transformer** | `VoxelTransformerAR` | d_model 256, 8 heads, 6 layers, ff 1024, seq 1024 | (X,Y,Z,BLOCK) token stream |
-| **A′. AR + grammar PE** | `VoxelTransformerAR2` | same, `pe ∈ {learned, sin, phase4, rope, alibi}` | **phase4** = pos%4 phase + pos//4 block-index embeddings |
-| **B. Discrete diffusion** | `VoxelUNet3D` | 48 base ch, grid 24–32, 18 sample steps | MaskGIT-style; air class down-weighted |
-| **C. Graph VAE** | `LargePyGGraphGenerator` | block+6-port graph | decodes shared token stream |
-| **E. Agentic program** | — (frontier LLM) | any canvas, `--provider openai:gpt-5-mini` | writes a build *program*; executed onto a canvas — see `docs/agentic.md` |
-
-**Proven methodology (see `notes.md §7`, `results.md`):**
-- **Adjacency-constrained decoding** (`training/constrained_decode.py`): masks the next-voxel
-  logits to the 6-neighborhood of placed voxels → **validity 1.0 by construction**. This is the
-  single biggest quality lever and *dominates* the phase4 PE gain (they don't stack — §7).
-- **Category conditioning** = best cohesion lever (overnight battery T10).
-- **3D-BPE cluster tokens** (`tokenizers/cluster_bpe.py`) = anti-memorization.
-- **Honest novelty**: D4 augmentation + held-out val NN-IoU + duplicate rate (`eval/novelty.py`).
-- **Cross-medium transfer**: pool-pretrain→finetune gives *no in-domain gain* when the target is
-  data-rich (T12) — the transfer claim is reframed for the data-POOR LEGO regime.
+- `Structure` (`blockgen/utils/data.py`): `block_ids` + `block_data` arrays in the legacy
+  `(id, data)` vocabulary, `occupied_mask`, `crop_to_non_air()`.
+- `CorpusTokenizer` (`blockgen/corpus/tokenizer.py`): kind `voxels` writes
+  `[BOS, src, q, size, win, (X, Y, Z, BLOCK)*, EOS]` over a fixed 507-token vocabulary
+  (hash `60684456e598`); kind `facades` writes six `(depth, id)` face images per build,
+  one sequence per face or all faces jointly. A shard is a tier under one tokenizer hash.
+- Legacy streams and grids: `blockgen/utils/serialize.py` (`BlockVocab` per run,
+  `structure_to_grid`); 3D-BPE pieces: `blockgen/tokenizers/cluster_bpe.py`.
+- D4 symmetry: `blockgen/utils/augment.py`; shard-level `--augment d4`.
 
 ---
 
-## 6. Reproducing experiments
-
-Each `experiments_*.py` is a self-contained run driver writing to `outputs/run_<stamp>_<name>/`
-(with `metrics.json`, `leaderboard.md`, per-arm `novelty.json`, `samples.png`). All are
-resumable from their per-arm `novelty.json`.
+## 5. Training
 
 ```bash
-# Ideas ablation battery (PE variants, BPE, conditioning, constrained decode)
-.venv/bin/python -m blockgen.experiments_ideas --stamp $(date +%Y%m%d_%H%M%S)
-
-# Overnight cohesion + data battery
-.venv/bin/python -m blockgen.experiments_overnight --stamp $(date +%Y%m%d_%H%M%S)
-
-# phase4 + constrained combo (two proven winners)
-.venv/bin/python -m blockgen.experiments_p4c --stamp $(date +%Y%m%d_%H%M%S)
-
-# Pool-pretrain → finetune on houses_32 (cross-medium transfer evidence)
-.venv/bin/python -m blockgen.experiments_transfer --stamp $(date +%Y%m%d_%H%M%S)
-.venv/bin/python -m blockgen.experiments_transfer --stamp smoke --quick   # fast wiring check
-
-# Track E — agentic build programs (API tokens instead of GPU hours; responses cached)
-.venv/bin/python -m blockgen.experiments_agentic --config agentic-scaffolding
-.venv/bin/python -m blockgen.experiments_agentic --quick --provider mock   # offline, no API key
-.venv/bin/python scripts/run_agentic.py "a small oak cottage" --plan --examples 1
-
-# Block ontology — mine what each block IS from the corpus, then feed it to the model
-.venv/bin/python -m blockgen.ontology                                       # ~1 s
-.venv/bin/python -m blockgen.experiments_agentic --config agentic-ontology  # vs. a shuffled control
+python -m blockgen.train --config configs/train/smoke.yaml                 # 60-step wiring check (GPU, ~2 min)
+python -m blockgen.train --config configs/train/anneal-pretrain-5m.yaml     # pretrain on the anneal tier
+python -m blockgen.train --config configs/train/houses32-sft-5m.yaml init_from=outputs/<pretrain run>/last.pt
+python -m blockgen.train --config configs/train/houses32-facades-joint-d4-20m.yaml
+python -m blockgen.train --sample outputs/<run> --n 399                    # structure cache for the bench
+bash scripts/m2b_seeds.sh                                                  # the three-seed pretrain-vs-scratch recipe (T60)
 ```
 
-Configs for parameterized runs live in `configs/{datasets,experiments,models,training,agentic}/*.yaml`
-(loaded via `blockgen/config.py`).
+Runs land in `outputs/run_<stamp>_<name>/` with `run.json`, `metrics.jsonl`, `best.pt`,
+`last.pt`, `samples.png`, `summary.json` and `bench/scorecard.json`, plus one line in
+`outputs/registry.jsonl`. Rules that cost a run before: no dropout change at `init_from`
+(T59), `select=best` on holdout NLL, pin `tokenizer:` in the YAML.
+
+Post-training:
+
+```bash
+python -m blockgen.posttrain.bon --run outputs/<run> --n 256 --k 8 --reward face_solidity
+python -m blockgen.posttrain.rft --run outputs/<run> --reward lcc26 --n 2048 --keep-frac 0.25
+```
+
+Rewards are `face_solidity`, `lcc26`, `novelty_penalty` or a `--weights` composite; a
+BlockScore pillar input is refused as a reward. Legacy batteries still produce Tracks B,
+C and F (`python -m blockgen.experiments_ideas --stamp ...`, `docs/experiments.md`) and the
+agentic track runs through `python -m blockgen.experiments_agentic --config
+agentic-scaffolding` (API calls; `--provider mock` is offline).
 
 ---
 
-## 7. Rendering structures
+## 6. Evaluation
 
-Two renderers. **Use the textured one for figures.**
-
-**Single structure → PNG** (real Minecraft textures, headless EGL, ortho by default):
 ```bash
-.venv/bin/python -m blockgen.renderer.textured \
-    --cache data/minecraft/cache/houses_32.npz --index 0 --out outputs/figures/one.png --px 512
+python -m blockgen.eval.bench --tier both --n 399 --name "my arm" --arms ar/my_arm:outputs/<run>/samples_step399_48.npz
+python -m tools.lab --open          # http://127.0.0.1:8765/leaderboard
 ```
-```python
-from blockgen.renderer.textured import render_structure
-img = render_structure(structure, px=512, azim_deg=45, elev_deg=30, ortho=True)  # (px,px,4) RGBA
-```
-Baked face shading (top 1.0 / N–S 0.85 / E–W 0.70 / bottom 0.55); exposed-face culling; ~0.5–3 s/img.
-~97% block-face texture coverage with a solid-color fallback.
 
-**Dense sample grid** (`blockgen/renderer/grid.py`) — textured by default, `--matplotlib` to force fallback:
+`blockgen/eval/bench` ranks every arm under protocol `houses32-v1`: tier `both`, at least
+128 samples per arm (256 or 399 by convention), real controls (`real_test`,
+`real@solidify`, `real@monochrome`, ...) and procedural baselines added automatically.
+`BlockScore` is the worst pillar in real-sample spreads; the novelty gates disqualify a
+memoriser. Always `--name` a run. The lab reads `outputs/*/scorecard.json` and
+`outputs/*/bench/scorecard.json`, so a trainer run's own card is on `/runs`. Full
+description: `docs/benchmark.md`; human 2AFC and labels: `python -m tools.lab --phone`.
+
+---
+
+## 7. Rendering
+
 ```bash
-# curated house cache, filtered to one corpus
-.venv/bin/python -m blockgen.renderer.grid --houses 32 --corpus grabcraft --rows 8 --cols 12 \
+python -m blockgen.renderer.textured --cache data/minecraft/cache/houses_32.npz --index 0 \
+    --out outputs/figures/one.png --px 512
+python -m blockgen.renderer.grid --houses 32 --corpus grabcraft --rows 8 --cols 12 \
     --out outputs/figures/houses_32_grabcraft.png
-# any .npz structure cache
-.venv/bin/python -m blockgen.renderer.grid --cache <path.npz> --rows 6 --cols 8 --out grid.png
+python -m blockgen.renderer.grid --cache <path.npz> --rows 6 --cols 8 --out grid.png
 ```
 
-**Model sample figures** (rebuild vocab, reload checkpoints, sample fresh, render textured grids):
-```bash
-.venv/bin/python scripts/render_model_samples.py    --samples 48   # ideas-battery checkpoints
-.venv/bin/python scripts/render_transfer_samples.py --samples 48   # transfer-run checkpoints
-```
-Outputs land in `outputs/figures/` (e.g. `samples_ar_pe_phase4.png`,
-`samples_transfer_{scratch,pretrain_zeroshot,finetune}.png`).
-
-**LEGO / LDraw structures** use a separate package, `legogen/renderer/` (Blender 4.2 +
-ImportLDraw — the canonical LDraw pipeline), kept apart from `blockgen` for now. It renders
-dense dataset sheets of the OMR corpus to `outputs/figures/lego_data/`:
-```bash
-.venv/bin/python legogen/renderer/ldraw_grid.py --rows 8 --cols 12 --band 15 160 \
-    --out outputs/figures/lego_data/omr_grid.png
-```
-See `legogen/renderer/README.md`.
-
----
-
-## 8. Evaluation
-
-`eval/novelty.py` reports per-run: `mean_nn_iou` (train), `val_nn_iou` (held-out — the honest
-number), `diversity`, `duplicate_rate`, `validity_rate` (+ `validity_gated`). `eval/validity.py`
-gives connectivity (`n_components`), largest-connected-component repair (`repair_lcc`), and
-`gated_sample` (resample until valid). Lower val NN-IoU + high diversity + zero duplicates =
-genuinely new structures, not memorized copies.
-
-`blockgen/eval/bench` is the cross-track benchmark on top of that (BlockScore, the calibration
-controls, the procedural baselines — see `docs/benchmark.md`). **Always `--name` a run**: it
-labels the run directory and the leaderboard row, and an unnamed run is anonymous forever.
-
-```bash
-.venv/bin/python -m blockgen.eval.bench --tier fast --n 128 --name "ontology arms v2"
-.venv/bin/python -m tools.lab --open        # http://127.0.0.1:8765/leaderboard?run=<dir>
-```
+Headless EGL with real block textures; matplotlib voxels as the fallback. LEGO sheets use
+`legogen/renderer/ldraw_grid.py` (Blender 4.2 + ImportLDraw).
 
 ---
 
@@ -230,17 +185,24 @@ labels the run directory and the leaderboard row, and an unnamed run is anonymou
 
 | File | Contents |
 |---|---|
-| `README.md` | this file — how to use the codebase |
-| `data_sources.md` | **consolidated data inventory**: every MC + LEGO corpus — counts, licenses, labels, sample sheets |
-| `notes.md` | research notes: data pipeline, methods, proven ideas §7, dead ends §8, idea backlog §9, rendering §13 |
-| `results.md` | every run's metrics tables (T-series) + figure index |
-| `research.md` | field survey; §E = post-LegoGPT LEGO landscape & the typed-connection bet |
-| `roadmap.md` | paper thesis + 3-phase plan (LEGO data → typed-connection AR → cross-medium transfer) |
-| `references.md` | paper bibliography |
-| `data/lego/README.md` | LEGO corpora, licenses, connectivity-coverage stats |
-| `configs/README.md` | experiment config schema |
-| `docs/agentic.md` | **Track E** — the build DSL, the agent loop, providers/caching/cost, arms & metrics |
-| `docs/ontology.md` | the block ontology — what is mined, why the shuffled control exists, how it reaches the prompt |
-| `docs/benchmark.md` | the evaluation suite — BlockScore, the ladder, run identity/provenance, example builds |
-| `docs/lab.md` | **BlockLab** — the local app for curating, labelling and reading a benchmark run |
-```
+| `docs/index.md` | site home: what's here, naming, headline results |
+| `docs/data.md` | sources, curation, manifest, dedup and kinds, tiers, shards |
+| `docs/pipeline.md` | the shared trainer, stages, post-training, the registry |
+| `docs/models.md` | the tracks and their best numbers |
+| `docs/architecture.md` | the codebase map and the model contract |
+| `docs/representations.md` | token streams, grids, graphs, growth, facades |
+| `docs/benchmark.md` | BlockScore, the ladder, the protocol |
+| `docs/lab.md` | BlockLab |
+| `docs/agentic.md`, `docs/agentic-suite.md` | Track E |
+| `docs/minecraftace.md` | the LegoACE port |
+| `docs/getting-started.md`, `docs/workflow.md` | environment, data, the train / sample / bench / view route |
+| `docs/custom-model.md` | the model contract |
+| `docs/add-a-model.md` | adding a model end to end, from an empty editor to a board row |
+| `docs/status.md` | generated matrix: every option used, unused, planned or stale (`scripts/status_matrix.py`) |
+| `docs/experiments.md`, `docs/scripts.md` | the T-series index with run dirs; every script and CLI |
+| `data_sources.md` | per-corpus inventory with licences and sheets |
+| `notes.md` | research notes, the methods ledger |
+| `results.md` | every run's tables (T-series) |
+| `research.md` | field survey; §F data sourcing, §G the training stack, §I the paper plan |
+| `references.md` | bibliography |
+| `configs/corpus/README.md`, `configs/README.md` | config schemas |

@@ -2,6 +2,7 @@ Related Works
 BrickGPT
 
 PYTHONPATH=$PWD python -m tools.lab --open
+python -m tools.lab --phone
 
 Problem setting
 Most general, we have discrete set we'll call a palette of elements $\mathcal{P}={e_1​,e_2​,\dots,e_n​}$. Each $e\in P$ has some properties $[x_1,\dots,x_m]$. 

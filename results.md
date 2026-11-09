@@ -5,7 +5,7 @@ Tables, figures, and ablations backing the paper. Methods/repro live in
 **when**, because the dataset is being migrated (legacy `data/raw` → labeled
 tfrecord cache) and numbers are not comparable across caches.
 
-_Last updated: 2026-09-17._
+_Last updated: 2026-11-09._ The one-line index of every experiment and its verdict is [`tried.md`](tried.md).
 
 > **Policy, 2026-09-17 — decimated real data is not a quality reference.**
 > `real@canon16` / `real@canon8` have been removed as leaderboard controls
@@ -128,7 +128,7 @@ Compare to the old labeled-cache `houses` subset (714): **~3.7–4.2× more clea
 not DQ'd, but leaning the same way as its disqualified sibling. Worth watching on
 the n≥256 re-run rather than treating as clean.
 
-**Still open:** every arm here is at n=128 against a protocol `min_n` of 256 (B1).
+**Still open:** every arm here is at n=128, the protocol `min_n` floor; 256 or 399 is the quotable convention (B1).
 
 ## T31. `native_oriented` at n=128 — BlockScore 106.87, and not a rankable number (2026-09-10, scored 2026-09-16)
 
@@ -3848,3 +3848,2968 @@ Corpus scoring with v4 (810,487 saved crops, 46 months): 746,077 pass at p ≥ 0
 433k / 532k / 586k / 682k; 328k passing crops have ≥ 500 blocks. Reject sheet is terrain
 with about one built piece in ten (spawn boxes, a lighthouse on rock, decorative plates).
 Fragments are untouched by design and remain about a third of the passing set.
+
+## T55. Corpus manifest and dedup over 926k builds (2026-10-12)
+
+Setting: `blockgen/corpus/{manifest,dedup,tiers}.py` over 915,853 saved world crops
+(47 months) and 10,461 curated cache rows. Canonical hash folds translation and the
+eight horizontal symmetries; MinHash with 128 hashes, LSH 16×8, accept at estimated
+Jaccard ≥ 0.8, builds under 20 blocks excluded from the near pass.
+
+| step | rows folded | clusters |
+|---|---:|---:|
+| exact (canonical hash) | 216,038 | |
+| near (MinHash/LSH) | 61,359 | |
+| total | 277,397 (29.9%) | 648,917 |
+
+Duplicate rate by block count: <50: 38.2%, 50-200: 34.9%, 200-500: 30.5%, 500-2k: 26.1%,
+>2k: 23.5%. Largest cluster 9,323 rows across 2,908 worlds. Clusters present in ≥ 5
+distinct worlds: 6,444, holding 139,866 rows (15.1%); the top 24 by world count are all
+vanilla village pieces (sheet `data/minecraft/corpus/sheet_top_clusters.png`), so
+recurrence across worlds is used as the generated-content filter. 164 curated builds
+have world-crop duplicates.
+
+Tiers after dedup and recurrence filtering: pretrain-all 647,838 builds (10.7B blocks,
+358k fit 32³); pretrain-clean 602,406 (6.3B, 340k); anneal 281,240 (5.7B, 66k);
+eval-holdout 798; vanilla 6,444. Wall time: manifest 70 min on 6 workers, dedup 26 s.
+
+### T55.1 Kinds over the manifest (2026-10-13)
+
+Rule: mineshaft = share of {planks, fence, rail, powered/detector rail, cobweb, torch,
+chest, monster egg} among member voxels at or above 0.9 and a rail or cobweb present;
+mixed = share in [0.5, 0.9) with the tell; village = dedup cluster in 5+ distinct
+worlds. Hand check on random 72-crop sheets: mineshaft 70/72, mixed about half shafts,
+below 0.5 all player work. Sheets: `data/minecraft/corpus/sheet_mineshaft.png`,
+`sheet_mineshaft_mixed.png`.
+
+| kind | rows | share |
+|---|--:|--:|
+| build | 714,398 | 77.1% |
+| village | 116,483 | 12.6% |
+| mineshaft | 85,376 | 9.2% |
+| mixed | 10,057 | 1.1% |
+
+Tiers rebuilt with `kind` filters (builds / blocks / fit 32³): pretrain-all 647,838 /
+10.67B / 357,985 (unchanged); pretrain-clean 547,789 / 6.30B / 297,659 (was 602,406);
+anneal 274,413 / 5.66B / 65,171 (was 281,240, 6,827 mineshafts removed); vanilla
+61,130 / 160M / 46,503 (was 6,444, now includes mineshaft representatives).
+
+## T56. Structure templates from the 1.21.1 client jar (2026-10-13)
+
+`python -m blockgen.corpus.templates`: 1,180 templates, 1,113 with blocks, 1,007 in
+the `templates` tier after the 20-block floor and dedup (0.5M blocks, 991 fit 32³).
+State mapping: 396 distinct block states, 0 fall back to stone after overrides.
+Tiers with templates added as a source (builds / blocks / fit 32³): pretrain-all
+648,845 / 10.67B / 358,976; pretrain-clean 548,732 / 6.30B / 298,586; anneal
+275,200 / 5.66B / 65,942. Sheets: `data/minecraft/corpus/sheet_templates_random.png`,
+`sheet_templates_largest.png`.
+
+| family | templates | note |
+|---|--:|---|
+| village | 483 | five biomes plus zombie variants; houses, paths, decor, pens |
+| trial_chambers | 170 | interiors in solid stone |
+| bastion | 167 | interiors; largest pieces |
+| trail_ruins | 84 | |
+| woodland_mansion | 73 | rooms, not the whole mansion |
+| ancient_city | 58 | interiors |
+| underwater_ruin | 48 | |
+| end_city, shipwreck | 20 each | |
+| fossil, nether_fossils | 30 | |
+| ruined_portal, pillager_outpost, igloo | 27 | |
+
+## T57. First runs through the shared trainer: smoke and the houses_32 scratch baseline (2026-10-14)
+
+`python -m blockgen.train --config configs/train/houses32-scratch.yaml`: 5.5M parameters
+(d 256, 6 layers, phase4 PE), token-budget batches of 32k, 8,000 steps, 226M tokens,
+22.8 minutes on the 5070 Ti including evaluation and sampling. Train split
+`sft-houses32` (1,863 whole builds), validation `eval-holdout` (798). Run dir
+`outputs/run_20261014_101448_houses32_scratch_5m`, line 3 of `outputs/registry.jsonl`
+(lines 1 and 2 are the two smoke runs of 2026-10-14).
+
+| step | holdout NLL / token |
+|--:|--:|
+| 1,000 | 1.700 |
+| 2,000 | 1.147 |
+| 4,000 | 0.72 |
+| 6,000 | 0.616 |
+| 8,000 (final) | 0.532 |
+
+Fast-tier scorecard on 64 samples (median 1,260 blocks against a real 904; 0 empty):
+
+| arm | BlockScore | worst pillar | geom_kid | nn_iou | dup | components |
+|---|--:|---|--:|--:|--:|--:|
+| houses32_scratch_5m | 75.75 | geometry 75.8 | 12.5 [11.5, 13.8] | 0.338 | 0.00 | 17.1 (real 2.7) |
+| real@solidify (control) | 130.94 | geometry | 21.8 | | | |
+| real@monochrome (control) | 46.52 | palette | -0.2 | | | |
+
+Status `ok`, so the number is rankable; the run neither memorises (train_verbatim is
+disqualified by the protocol, this arm has duplicate rate 0 and nearest-neighbour IoU
+0.34) nor collapses. Its failure is fragmentation: 17 components per build against 2.7
+real, and 65% of components floating, which the samples sheet shows as layered plates
+and scattered pieces. That is the number the pretrain-then-SFT partner has to beat.
+
+Smoke run (`configs/train/smoke.yaml`, 60 steps, 1.7M tokens): holdout NLL 3.31,
+BlockScore 45.9 on 16 samples (too few to rank), there only to prove the loop, the
+sampler, the benchmark call and resume work.
+
+## T58. Pretrain on anneal, then SFT, against scratch: the first comparison, 5M (2026-10-14)
+
+Three registry lines, all 5.5M parameters, same tokenizer, same holdout.
+`anneal_pretrain_5m`: 20,000 steps on the anneal shard (591M tokens, 31.6 min).
+`houses32_sft_5m`: 8,000 steps on `sft-houses32` from that checkpoint, lr 1e-4.
+`houses32_scratch_5m` is T57.
+
+| run | tokens | holdout NLL | BlockScore (n=64) | worst pillar | median blocks | median length |
+|---|--:|--:|--:|---|--:|--:|
+| scratch | 226M | 0.532 | 75.75 | geometry 75.8 | 1,260 | 7,596 |
+| pretrain only | 591M | 0.546 | 101.58 | geometry 101.6 | 1,093 | 5,168 |
+| pretrain + SFT | 591M + 226M | **0.461** | 80.50 | geometry 80.5 | 1,757 | 8,198 |
+
+Pretraining on the world-crop anneal tier gets within 0.014 nats of the scratch model on
+houses it never trained on, and SFT from it lands 13% below scratch in holdout NLL, the
+first direct evidence that the archive corpus transfers. The samples
+(`outputs/run_20261014_110921_houses32_sft_5m/samples.png`) are visibly more house-like
+than scratch: floors, walls and roofs instead of plates and scattered pieces. The
+scorecard disagrees, and the reason is a bug, not the model. Median sample length for the
+SFT run is 8,198 tokens, which is the generation budget: samples did not end, they were
+cut. Cause: 238 of the 1,863 training houses (12.8%) exceed the 8,200-token context and
+the trainer truncated them, so one sequence in eight taught the model that a long build
+never emits EOS. Samples at 1,757 blocks against a real 904 pay for that in the geometry
+pillar. The scratch run suffered the same (7,596 median length). Fix in
+`blockgen/train/data.py`: over-length sequences are dropped, never truncated, for both
+training and evaluation batches; the holdout loses 62 of 798 builds to the same rule, so
+v2 NLLs are over the first 256 of those 736 builds (`eval_seqs: 256` in
+`configs/train/base.yaml`; `eval_batches` in `blockgen/train/data.py` takes the first
+`n_seqs` sequences that fit, in fixed order) and are reported as their own rows. Every
+trainer run recorded through T68 scored that 256-sequence subset; runs from 2026-10-31
+on with `final_eval_all` on (the default) also score every fitting sequence in the final
+pass, written as `val_nll_all` and `eval_seqs` in `outputs/registry.jsonl`; the first
+such line is registry line 29, `run_20261031_014123_smoke`. Reruns of scratch and SFT
+are queued as `*_v2`.
+
+**v2, truncation fixed** (over-length sequences dropped: 238 of 1,863 training houses, 62
+of 798 holdout; NLL over the first 256 of the remaining 736):
+
+| run | holdout NLL (256 of 736) | BlockScore (n=64) | geometry | median blocks | median length |
+|---|--:|--:|--:|--:|--:|
+| scratch v2 | 0.543 | 138.68 | 138.7 | 1,156 | 4,914 |
+| pretrain + SFT v2 | **0.426** | **95.50** | 95.5 | 1,454 | 6,990 |
+
+Samples now end on their own (median length well under the 8,198 budget). On both the
+likelihood (22% lower) and the scorecard (43 points lower), pretrain then SFT beats
+scratch at matched SFT steps, and the sheets agree:
+`outputs/run_20261014_115238_houses32_sft_5m_v2/samples.png` has walls, pitched roofs
+and towers where `run_20261014_113512_houses32_scratch_5m_v2` has blobs.
+
+Two cautions. The scorecard moved by 63 points for scratch between v1 and v2 for a
+change that made the samples better by eye and shorter, which says that at n=64 and one
+seed the geometry pillar is not a stable number (eval-suite memory: n of 256 or more).
+The likelihood ordering is the same in v1 and v2 and is the result to trust at this
+size. And the pretrained model saw 3.6 times the tokens; the matched-compute,
+three-seed version is the M2 experiment, not this one.
+
+## T59. M2 pilot at 5M, three seeds, n=256: a dropout fault, and the protocol that replaces it (2026-10-15)
+
+Nine registry lines from `scripts/m2_seeds.sh` (unit `blockgen-m2`, 2026-10-14 12:22 to
+18:50). Per seed: `m2_scratch` is 28,000 steps on `sft-houses32` (842M tokens, the
+pretraining and SFT budgets added), `m2_pretrain` is 20,000 steps on the anneal shard
+(591M tokens), `m2_sft` is 8,000 steps on `sft-houses32` from that checkpoint (241M
+tokens, lr 1e-4). All 5.5M parameters, holdout NLL over the first 256 of the 736
+`eval-holdout` builds that fit the context (`eval_seqs: 256`), scorecard at n=256 on `houses_32.s0.70-15-15.v1`.
+
+| seed | scratch NLL, final (best, step) | pretrain NLL | pretrain + SFT NLL | BlockScore scratch | pretrain | pretrain + SFT |
+|---|--:|--:|--:|--:|--:|--:|
+| 0 | 0.483 (0.416, 17k) | 0.579 | 0.529 | 268.7 | 424.2 | 285.1 |
+| 1 | 0.471 (0.400, 16k) | 0.530 | 0.461 | 264.9 | 352.9 | 287.3 |
+| 2 | 0.452 (0.372, 15k) | 0.458 | **0.375** | 219.4 | 392.0 | 285.3 |
+| mean | 0.469 (0.396) | 0.522 | 0.455 | 251.0 | 389.7 | 285.9 |
+
+Read at face value the table says pretraining buys 3% in final NLL and loses on the
+scorecard. It cannot be read at face value, for three reasons that each change the
+protocol.
+
+**The SFT runs for seeds 0 and 1 did not start from the pretrained model.** Their
+first logged training loss (step 20) is 5.65 and 5.47 nats; uniform over the 507-token
+vocabulary is 6.23. Seed 2 started at 1.71. The weights loaded correctly (zero missing
+or unexpected keys). The cause is dropout: the SFT config set 0.1, the pretraining
+config 0. Replayed from the saved checkpoints, the pretrained seed-0 model scores 0.55
+to 0.71 nats on SFT batches in eval mode and 5.6 to 5.7 in train mode with dropout
+on; seed 2 scores 0.35 to 0.46 and 1.6 to 2.0. A model trained without dropout is not
+robust to it, and for two of three seeds the pretraining was gone before the first
+update. Their SFT lines (0.529, 0.461) are what an 8,000-step scratch run at lr 1e-4
+gets (0.543 in T58), which is what they were. The one valid seed shows what the
+comparison is about: pretrain then SFT 0.375 against the scratch run's best 0.372,
+with SFT still falling at its last eval (0.38, 0.38, 0.37) and the scratch curve past
+its minimum. Fixes: `check_init_compat` in `train/trainer.py` refuses `init_from`
+across a dropout change unless `allow_dropout_change=true`, and the SFT config keeps
+the pretraining dropout of 0.
+
+**Matched compute without early stopping penalises the arm that converges first.**
+Every scratch run bottoms out between steps 15,000 and 17,000 and then climbs 0.07 to
+0.08 nats by step 28,000: 28,000 steps on 1,625 eligible houses (5.4M tokens an epoch)
+is 156 epochs, and the final train loss of 0.13 against holdout 0.47 is memorisation.
+The final-step numbers compare an overfitted scratch model with an unconverged SFT
+model. The trainer now tracks the best holdout NLL on the first validation tier,
+writes `best.pt`, and with `select: best` (the default) samples, benchmarks and
+registers that checkpoint; the registry records final and best, and the selected step.
+
+**The scorecard's unit depends on n.** The same control arms score `real@solidify`
+geometry 131 at n=64 (T58) and 444 at n=256, `real@monochrome` palette 46.5 and
+125.0. A pillar is measured in real-sample spreads and the spread narrows with n, so
+scores are comparable only at equal n. The leaderboard protocol (`houses32-v1` in
+`blockgen/eval/bench/protocol.py`) ranks from `min_n` 128, and 256 or 399 is the
+quotable convention; the n=64 numbers in
+T57 and T58 are not on the same scale as these. At n=256 the ordering is scratch
+(219 to 269) ahead of pretrain + SFT (285 to 287) ahead of pretrain alone (353 to
+424), all on geometry. Novelty says why scratch leads: its nearest-training-neighbour
+IoU is 0.41 to 0.42 against 0.375 for real held-out builds and 0.36 to 0.39 for the
+SFT models, so 156 epochs put it closer to the training set than real data is, which
+the realism pillar rewards until the duplicate gate fires (dup rate 0.000 on all
+arms). Pretrain alone sampled with `win:whole` tags produces window-like fragments: 43
+to 80 connected components against a real 2.7.
+
+**Protocol M2b** (`scripts/m2b_seeds.sh`, unit `blockgen-m2b`, launched 2026-10-15
+23:00): the three M2 pretrain checkpoints are reused unchanged (dropout 0 throughout).
+SFT runs 16,000 steps at dropout 0; scratch runs the matched 36,000 steps at dropout 0;
+both arms are early-stopped on holdout NLL and benchmarked at n=256 from the selected
+checkpoint. The first M2b SFT line (seed 0) is at 0.490 by step 2,000 against 0.60 at
+the same step in M2. Results in T60.
+
+## T60. M2b at 5M, three seeds, early stopped: pretraining wins every seed on likelihood and on the board (2026-10-16, written 2026-10-28)
+
+Six registry lines from `scripts/m2b_seeds.sh` (unit `blockgen-m2b`, 2026-10-15 22:52 to
+2026-10-16 01:30), the protocol T59 set out. Per seed: `m2b_sft` is 16,000 steps on
+`sft-houses32` (481M tokens, lr 1e-4) from the M2 pretrain checkpoint of the same seed
+(20,000 steps on the anneal shard, 591M tokens, T59), dropout 0 throughout so the
+checkpoint survives its first SFT batch; `m2b_scratch` is the matched 36,000 steps on
+`sft-houses32` (1.08B tokens), also at dropout 0. Both arms select the best holdout
+checkpoint (`select: best`), and that checkpoint is sampled and scored at n=256 on
+`houses_32.s0.70-15-15.v1`. The holdout NLL is over the first 256 of the 736 `eval-holdout`
+builds that fit the context (`eval_seqs: 256`). The cards were scored before the T64 descriptor change, so these six
+arms are not on the current board until re-scored.
+
+| seed | pretrain NLL | pretrain + SFT NLL (best step) | scratch NLL (best step) | BlockScore pretrain + SFT | scratch | geom_kid SFT / scratch | nn IoU SFT / scratch |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| 0 | 0.579 | 0.479 (8,500) | 0.565 (8,000) | 374.8 | 502.1 | 19.8 / 26.6 | 0.33 / 0.28 |
+| 1 | 0.530 | 0.420 (5,500) | 0.555 (8,000) | 323.2 | 444.9 | 17.1 / 23.6 | 0.35 / 0.31 |
+| 2 | 0.458 | 0.350 (3,000) | 0.509 (10,000) | 324.1 | 333.7 | 17.1 / 17.6 | 0.31 / 0.36 |
+| mean | 0.522 | **0.416** | 0.543 | **340.7** | 426.9 | 18.0 / 22.6 | 0.33 / 0.32 |
+
+Runs: `outputs/run_20261015_225212_m2b_sft_s0`, `run_20261015_231328_m2b_scratch_s0`,
+`run_20261015_235516_m2b_sft_s1`, `run_20261016_002201_m2b_scratch_s1`,
+`run_20261016_010438_m2b_sft_s2`, `run_20261016_013050_m2b_scratch_s2`, each with its
+`samples.png` and `bench/scorecard.md`.
+
+**Within the protocol the result is clean.** Pretraining then SFT beats scratch on every
+seed on both measures: 0.13 nats on holdout NLL (0.09, 0.14, 0.16) and 86 BlockScore
+points (127, 122, 10), with geometry the worst pillar everywhere. SFT lowers the
+pretrained model's NLL by 0.10 to 0.11 nats on each seed, and does it early: the
+selected SFT checkpoints are at 3,000 to 8,500 steps (90M to 256M SFT tokens), so the
+pretrained arm reached its best with a fifth to a half of the fine-tuning budget and a
+total of 0.68B to 0.85B tokens against the scratch arm's 1.08B. The palette pillar tells
+the same story (10 to 18 for SFT against 18 to 23 for scratch), and neither arm trips the
+novelty gate (duplicate rate 0.000; nearest-training-neighbour IoU 0.31 to 0.36 for both,
+against 0.375 for real held-out builds).
+
+**The scratch arm overfits, and pretraining is the regulariser.** Every scratch run
+bottoms out between steps 8,000 and 10,000 and then climbs without pause, to 1.34, 1.68
+and 1.81 nats at step 36,000, with a train loss at the selected step of 0.35 to 0.45
+against 0.51 to 0.57 held out. The SFT runs sit on a plateau: seed 2 is within 0.02 nats
+of its minimum from step 2,000 to step 16,000, and its train loss at the selected step
+(0.325) is 0.025 under its holdout (0.350). Seven epochs of world-crop pretraining do
+what 156 epochs of houses cannot, which is to keep a 5M model from memorising 1,625
+houses.
+
+**What the comparison still owes.** The M2 scratch arm (T59) ran at dropout 0.1 and
+reached a best holdout NLL of 0.416, 0.400 and 0.372 at steps 15,000 to 17,000; the M2b
+scratch arm at dropout 0 reaches only 0.565, 0.555 and 0.509. Removing dropout from the
+scratch arm, which the protocol did so that both arms were trained identically, cost it
+0.14 nats, and against the regularised M2 scratch numbers the SFT arm wins one seed of three
+(seed 1: 0.420 vs 0.400 is a loss by 0.02; seed 2: 0.350 vs 0.372 a win by 0.02; seed 0:
+0.479 vs 0.416 a loss by 0.06). So the honest statement today is: at matched tokens and matched
+regularisation, pretraining wins every seed; against the best scratch regularisation
+tried so far, it is at best a tie on likelihood (one seed of three, mean 0.416 against
+0.396). The comparison the paper needs is pretrain +
+SFT against a scratch arm whose dropout and weight decay are chosen on holdout, both
+early stopped, at 5M and 20M, three seeds each (research.md I.5). The M2 scratch
+BlockScores (219 to 269) are not the counterpart on the board: they were sampled from
+the final, overfitted checkpoint, whose nearest-neighbour IoU of 0.41 to 0.42 the
+realism pillar rewards until the duplicate gate fires, which T59 already set out.
+
+## T61. BrickNet Table 2 reproduction from the public 0.6B adapter, and OMR through BrickNet's pipeline (2026-10-20)
+
+**Setup.** `libs/BrickNet`, package `bricknet==0.1.0` (paper collider), Qwen3-0.6B +
+`kulits/BrickNet-0.6B-PT` merged, bf16, `scripts/generate.py` with
+`--stop_after_newlines 199` (100 parts), EOS suppressed, temperature 1, seed 0. Nucleus
+= top-k 20, top-p 0.95; ancestral = no truncation. Scored with `bricknet score`
+(parse validity + autoregressive inset-mesh collision). Metric = mean number of
+successful steps before the first invalidating step; Conn counts parse/connectivity
+failures only, Coll counts the first of parse failure or collision. Intervals are 95%
+normal. Paper used 2^16 samples. Driver: `libs/BrickNet/repro/run_table2.sh`,
+metrics `repro/table2.py`.
+
+| sampler | n | Conn ours | Conn paper | Coll ours | Coll paper | fully parsable | parsable and collision-free |
+|---|---|---|---|---|---|---|---|
+| nucleus | 512 | 94.5 ± 1.5 | 94.1 | 13.6 ± 1.1 | 16.0 | 85.7% | 0.6% |
+| ancestral | 256 | 41.6 ± 3.9 | 45.0 | 10.7 ± 1.2 | 11.0 | 11.7% | 0.0% |
+
+Three of four cells reproduce within the interval; nucleus Coll is 15% low (outside the
+interval). First-collision histogram under nucleus sampling is broad and unimodal
+around steps 5 to 12, so the shortfall is not a handful of early failures. Wall clock:
+512 nucleus samples 105 min at batch 32 on the 16 GB card (about 4 s per 100-part
+sample); batch 64 OOMs.
+
+**OMR through BrickNet.** `repro/omr_to_bricknet.py --n 0` flattens all 1,819 OMR
+`.mpd` files (MPD submodels inlined with composed transforms; `.dat` subfiles treated as
+leaves) and parses them with `bricknet.parse_ldr`: 1,811 parse; 796,886 placements, of
+which 638,906 (80.2%) are in the BrickNet vocabulary. The unknown tail is primitives
+and LDCad flex parts (`4-4cyli`, `166`, `u9218`, `77`, `box4o8a`, `ls`-series). Graph
+stats: parts per model median 137, mean 353; 2.30 edges per part; edge families stud
+1,184,809, axle 244,801, fixed 20,824, hinge 19,978, ball 1,211; components per model
+median 4; largest component holds 82% of parts on average (median 91%); 52.5% of
+models have a largest component of 100+ parts. `repro/sample_omr.py` (one
+collision-free walk per component, BrickNet's own sampler, error-tolerant per model):
+7,584 paths from 1,805 models; 5,629 components of 4+ parts, of which 4,507 are in the
+4 to 100 range and 1,122 exceed 100; the walker places 84.5% of a component on average
+and completes 60.2%; 3,391 complete components in the 4 to 100 range (72,363 parts).
+For scale, BrickNet-SFT has 67,185 models (1.77M parts) and BrickNet-PT 253,623 graphs
+(38.8M parts, 125.8M edges). Paths: `libs/BrickNet/repro/omr_all_paths.jsonl`.
+
+**Perplexity proxy (Table 4 protocol, our data).** PT-0.6B per-token perplexity on
+300 OMR walks (4 to 100 parts, path + EOS, bf16): **2.353** (280,575 tokens); paper
+val 1.331. **Caption-conditioned smoke (8 captions × 2, nucleus, seed 0).** Authors'
+inference code: 8/16 fully parsable, 5/16 unparsable at step 1 (sequence starts at
+`b`), mean steps before failure 11.4. With local `--force_root`: 11/16 fully parsable,
+4/16 collision-free, mean steps before failure 8.8. Renders:
+`outputs/figures/bricknet_repro/`.
+
+## T62. BrickAgent environment check and one BrickBench task end to end (2026-10-20)
+
+**Environment.** `libs/BrickAgent/.venv` (brickagent 0.1.0, bricknet 0.1.1, convex
+colliders in `libs/BrickAgent/.bricknet_data`). README wall (plate 2x8 + 4 courses of
+2xN bricks): `check` passes in 0.1 s. Two stacked 2x4 bricks with the upper one placed
+5 plates too high: rejected, "2 connected components ... unstable", the moving
+component named.
+
+**BrickBench Model task 004** ("A short, black-haired lord in a red hat and red tunic
+sits on an enormous throne. His boots hang far above the floor. A long red carpet
+leads up three steps to the seat."), built by Claude in this session through the
+`brickagent` API (`libs/BrickAgent/work/model-004/build.py`): plate 8x16 floor, two
+rows of red 1x2 tiles, three plate-stepped stairs with carpet tiles, a three-plate
+dais, a seat of two 2x4 bricks, a nine-brick 1x6 back, 1x2 armrests, and a seated
+minifig (legs by their back hole on the seat studs, hips, red torso, arms down,
+head, red fez). `check`: 53 parts, 0 collision pairs, 1 connected component, stable.
+`scripts/verify.py --split model`: **valid**, 53 parts, 16 distinct, 52 authored
+attachments, 210 native connection edges, 1.66 s. Four check iterations were needed;
+all four failures were API-convention mistakes (tile footprint, rotated-part extent,
+facing yaw relative to a rotated stud's roll, arm swing) that `check`'s messages
+located exactly. VQA and ELO not scored (Gemma 4 31B judge, about 62 GB). Render:
+`outputs/figures/bricknet_repro/brickbench_model-004_claude.png`.
+
+**Table 4 on the released val split (data received 2026-10-20, `libs/BrickNet/repro/table4.py`).**
+Protocol as `scripts/train.py`: pt = 1,000 first-round val walks picked with rng 0, path + EOS,
+loss on every token; sft = the 444 (caption, first-round walk) pairs, caption + "\n" + path +
+EOS, loss on path + EOS. bf16, Qwen3-0.6B + released adapters.
+
+| model | ours | paper |
+|---|---|---|
+| PT 0.6B, unconditional | **1.318** (910,771 tokens) | 1.331 |
+| PT + SFT 0.6B, caption-conditioned | **1.297** (296,676 tokens) | 1.298 |
+
+Both cells reproduce to the third digit, so the released adapters are the paper's and the OMR
+perplexity of 2.353 above is a real distribution gap, not a protocol artefact.
+
+**P_inv, first attempt (invalid protocol).** 512 val captions, 1 sample each, but with
+`--stop_after_newlines 199` carried over from the unconditional recipe, which suppresses EOS
+and forces 100-part sequences (val walks average 38 parts): 53.3% parsable, mean steps before
+failure 10.8, invalid placements over all placements 0.603. Not comparable to the paper's
+0.256; rerun with natural EOS below.
+
+**P_inv, natural stopping (`repro/run_pinv.sh`, 512 val captions × 1, nucleus, seed 0,
+max 2,816 new tokens, batch 16).** 462/512 fully parsable (90.2%), 5 unparsable at step 1
+(1.0%; every sample starts at root `a`), mean 31.6 parts (median 19; val walks average 38),
+135/512 parsable and collision-free (26.4%), mean steps before first failure 9.7. The paper
+does not define P_inv precisely, so three readings: invalid placements over all placements
+(parse-failed tail counted) **0.318**; colliding placements over placements among fully
+parsable samples **0.279**; per-sample mean collision fraction among parsable samples
+**0.197**. Paper 0.6B: 0.256, which the second and third readings bracket. The 30% root-skip
+seen with our eight hand-written captions (above) does not occur on val-style captions.
+
+## T63. Traversability: can a player walk into it? Real 95%, agentic 50 to 68%, LLM arms 2% (2026-10-23)
+
+> ### Bottom line
+> A two-block player set down outside the build and flood-filled through
+> everything it can walk reaches the interior of **95%** of real houses and
+> **88%** of their standing room. The LLM piece-serialization arms admit a player
+> **2%** of the time, the native AR arms **58 to 59%**, the agentic recipes
+> **50 to 68%**, with `classic-matched` ahead of both dream recipes. The
+> leaderboard's geometry pillar puts `llm_control` above every agentic arm; the
+> measure a player cares about disagrees 25 to 1.
+
+**Run:** `outputs/run_20261023_004317_bench_traversal` (`scripts/bench_traversal.py
+--n 128 --gif 2`, `houses_32.s0.70-15-15.v1`, seed 0). Method in notes.md §52 and
+docs/benchmark.md ("Traversability: can a player walk in?"). Code
+`blockgen/eval/traversal.py`, 22 tests, nothing in `blockgen/eval/bench` changed.
+
+`enterable` is the share of builds a player can get into at all; `walkable` is the
+mean share of each build's interior standing cells a player can reach, with no
+interior counting as zero; `floors` are storeys with a floor patch and `reached`
+those with a reached cell; `headroom3` is the share of interior standing cells with
+a third free block above.
+
+| arm | n | enterable | walkable | median | no interior | floors reached / floors | headroom3 | entrances | blocks |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `real_test` | 128 | **0.95** | **0.88** | 1.00 | 0.02 | 1.67 / 1.84 | 0.94 | 3.30 | 596 |
+| `real@seal_openings` | 128 | 0.02 | 0.01 | 0.00 | 0.02 | 0.03 / 1.98 | 0.94 | 0.05 | 600 |
+| `real@lower_ceilings` | 128 | 0.82 | 0.73 | 1.00 | 0.05 | 1.22 / 1.47 | **0.56** | 2.80 | 664 |
+| `real@solidify` | 128 | 0.19 | 0.17 | 0.00 | 0.79 | 0.29 / 0.32 | 1.00 | 1.10 | 818 |
+| `real@hollow` | 128 | 0.97 | 0.86 | 1.00 | 0.00 | 1.20 / 1.45 | 0.98 | 2.70 | 502 |
+| `canon_oriented` | 128 | 0.59 | 0.51 | 0.66 | 0.24 | 0.70 / 0.87 | 1.00 | 2.18 | 1101 |
+| `native_oriented` | 128 | 0.58 | 0.52 | 0.66 | 0.34 | 0.60 / 0.76 | 1.00 | 1.78 | 888 |
+| `llm_control` | 128 | **0.02** | 0.02 | 0.00 | 0.97 | 0.02 / 0.02 | 0.88 | 0.02 | 205 |
+| `llm_bias` | 128 | 0.05 | 0.05 | 0.00 | 0.95 | 0.05 / 0.05 | 1.00 | 0.07 | 190 |
+| `dream-caption` | 133 | 0.51 | 0.44 | 0.38 | 0.15 | 0.53 / 1.16 | 1.00 | 0.74 | 628 |
+| `dream` | 133 | 0.50 | 0.45 | 0.00 | 0.14 | 0.51 / 1.06 | 1.00 | 0.67 | 828 |
+| `classic-matched` | 133 | **0.68** | **0.62** | 1.00 | 0.14 | 0.77 / 1.17 | 1.00 | 2.07 | 1093 |
+
+Real floor intervals (80% subsamples): enterable 0.95 [0.93, 0.97], walkable 0.88
+[0.86, 0.90].
+
+**The probes behave.** `seal_openings` (every doorway and window bricked, every
+door, trapdoor and gate turned to wall; interior volume unchanged) takes real
+houses from 0.95 to 0.02 enterable with the block count moving by 4 blocks at the
+median. `lower_ceilings` (top layer of every room filled; exterior untouched)
+leaves 82% enterable but drops `headroom3` from 0.94 to 0.56 and `walkable` to
+0.73: rooms that were two high are gone to a player. `hollow` leaves the walk
+alone (0.97 / 0.86), as it must, because it deletes only blocks no camera and no
+player can reach. `solidify` removes nearly everything to walk (79% of builds
+have no standing room left); the 19% still enterable keep a doorway-reachable
+room the fill does not touch.
+
+**What it says about the arms.** The two LLM arms build sticks and slabs with no
+standing room in 95 to 97% of samples; nothing a player can enter. The native
+arms have rooms in two thirds of samples and a player gets into most of those,
+but with 0.7 to 0.9 floors per build against a real 1.8. The agentic recipes have
+standing room in 85% of samples and a player enters half to two thirds of them;
+`classic-matched` (0.68 / 0.62) is ahead of `dream` (0.50 / 0.45) and
+`dream-caption` (0.51 / 0.44), the reverse of their BlockScore order, and all
+three leave upstairs rooms unreached (0.5 to 0.8 floors reached of 1.1 to 1.2).
+Every generated arm has `headroom3` at 1.00: the player-scale prompt (§38) made
+ceilings tall, and the failure is doors and stairs, not height.
+
+**Against the leaderboard.** BlockScore ranks `llm_control` (145, worst pillar
+appearance) above `dream-caption` (165), `dream` (191) and `classic-matched`
+(194), all of whose worst pillar is geometry. On `geom_kid` the LLM fragments
+score 15.0 against 17.7 to 19.9 for the agentic houses; on `mv_dino_kid` the
+order is already the other way (0.43 against 0.22 to 0.40). So the ordering that
+reads wrong comes from the geometric descriptor, not from the render tier, and
+the player's measure sides with the render tier here. The descriptor is a
+distribution distance over pattern, thickness and height histograms; thin
+fragments of real materials sit closer to real houses in that space than
+program-written cuboid rooms do. Traversability is not in the descriptor and not
+in BlockScore; wiring it in is a change to `blockgen/eval/bench` and is left as a
+decision.
+
+**Caveats.** Seeding from any exterior standing cell tests the building and not
+the site (a balcony door counts as a way in); the interior recipe's 3x3x3 closing
+drops two-high rooms that have an opening, so a doll's house with a door reads as
+"no interior" rather than "unreachable interior"; `entrances` counts clusters of
+entry cells and is inflated by open ground floors. The 5% of real houses not
+entered are open structures with next to no standing room and one tower whose
+ladder stops four blocks short of its room.
+
+Figures: `samples.png` (uncut house beside its finished walk, quadrant cut away),
+`walkthrough_115.gif` (Japanese House, five floors reached, 24 frames) and
+`walkthrough_043.gif` (Medieval Rustic Mansion, three floors), each with a
+four-frame `_strip.png`.
+
+## T64. Leaderboard re-scored with room scalars in the descriptor and a traversal pillar (2026-10-23)
+
+> ### Bottom line
+> With the player's room (standing share, storeys, headroom) in the geometric
+> descriptor, `geom_kid` moves the right way for every arm: up for the LLM
+> fragments, down for the agentic houses. `dream-caption` (155.8) now ranks
+> above `llm_control` (167.9), where it was below. The new `traversal` pillar
+> orders the arms as the player does (`llm_control` 2.6 spreads from real,
+> `dream` 1.3, `classic-matched` 0.8) but is never the worst pillar: BlockScore
+> is still decided by `geom_kid` for every learned arm.
+
+**Run:** `outputs/run_20261023_011035_bench_traversal_pillar_leaderboard_re-score`
+(`python -m blockgen.eval.bench --tier both --n 128 --baselines`, the five
+leaderboard arms of 2026-09-25 plus the three T51 agentic arms; same split, same
+samples; self-validation 6/6). Method in notes.md §53; the descriptor, pillar and
+protocol changes are in docs/benchmark.md. This is the only card the board ranks
+now: `houses32-v1` pins the descriptor, and every earlier card is unranked with
+the reason "re-score with the current bench".
+
+| # | arm | BlockScore ↓ | worst | appearance | geometry | palette | coherence | geom. scalars | traversal |
+|---|---|--:|---|--:|--:|--:|--:|--:|--:|
+| 1 | `real_test` | 0.00 | — | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| unranked (card rank 2; contaminated, T31) | `native_oriented` | 114.05 | geometry | 69.76 | 114.05 | 2.75 | 0.44 | 0.56 | 1.04 |
+| 3 | **`canon_oriented`** | **141.82** | geometry | 85.31 | 141.82 | 2.51 | 0.48 | 0.54 | 1.02 |
+| 4 | `dream-caption` | 155.83 | geometry | 75.84 | 155.83 | 31.58 | 0.41 | 0.45 | 1.24 |
+| 5 | `llm_control` | 167.92 | geometry | 149.19 | 167.92 | 17.02 | 2.48 | 1.74 | **2.59** |
+| 6 | `dream` | 177.23 | geometry | 119.12 | 177.23 | 31.64 | 0.33 | 0.50 | 1.26 |
+| 7 | `classic-matched` | 181.86 | geometry | 140.19 | 181.86 | 30.52 | 0.23 | 0.41 | 0.78 |
+| 8 | `llm_bias` | 191.88 | appearance | 191.88 | 172.51 | 16.48 | 2.74 | 1.84 | 2.49 |
+| 9 | `real@solidify` | 214.57 | geometry | 0.14 | 214.57 | 2.51 | 0.31 | 2.49 | 2.05 |
+| 10 | `real_shuffled_materials` | 231.53 | appearance | 231.53 | 0.00 | 0.00 | 0.00 | 0.00 | 0.41 |
+| 11 | `patchwork` | 246.15 | appearance | 246.15 | 186.18 | −2.97 | 1.28 | 0.81 | 1.42 |
+| 12 | `real@monochrome` | 297.94 | appearance | 297.94 | 0.00 | 79.63 | 0.00 | 0.00 | 2.24 |
+| 13 | `train_copy_noise` | 310.52 | geometry | 153.54 | 310.52 | 1.11 | 1.22 | 0.74 | 0.35 |
+| 14 | `gabled_house` | 312.75 | geometry | 287.97 | 312.75 | 25.61 | 0.33 | 1.24 | 0.45 |
+| 15 | `shell_box` | 476.22 | appearance | 476.22 | 323.73 | 24.91 | 1.20 | 1.71 | 2.65 |
+| 16 | `uniform_random` | 603.10 | appearance | 603.10 | 357.93 | 23.70 | 15.71 | 2.37 | 2.34 |
+| — | `canon_unoriented` | DQ | memorization (+3.1 spreads) | | | | | | |
+| — | `train_verbatim`, `real@single_mode` | DQ | memorization / mode collapse | | | | | | |
+
+**`geom_kid`, before and after the room scalars** (same builds, same reference):
+
+| arm | 77-dim (T32 / T51) | 80-dim (this run) |
+|---|--:|--:|
+| `real_test` | −0.095 | −0.090 |
+| `canon_oriented` | 14.898 | 14.291 |
+| `llm_control` | 15.006 | **16.937** |
+| `llm_bias` | 15.869 | **17.402** |
+| `dream-caption` | 17.650 | **15.712** |
+| `dream` | 19.620 | **17.882** |
+| `classic-matched` | 19.937 | **18.351** |
+
+Three scalars out of eighty moved the two families by about two units in
+opposite directions, which is what T63 predicted: the LLM fragments have no
+standing room, no storeys and no headroom, and the agentic houses have real
+rooms. `canon_oriented`'s 136.73 of T32 is now 141.82 for the same reason in the
+other direction: two thirds of its samples have standing room, a third do not.
+
+**The traversal pillar, per arm** (generated mean / real mean, W1 in real spreads):
+
+| arm | enterable | walkable | floors reached | headroom3 | pillar (RMS) |
+|---|--:|--:|--:|--:|--:|
+| `real_test` | 0.94 / 0.94 | 0.84 / 0.87 | 1.62 / 1.57 | 0.82 / 0.84 | 0.00 |
+| `canon_oriented` | 0.59 (1.6) | 0.51 (1.3) | 0.70 (0.8) | 0.85 (0.3) | 1.02 |
+| `llm_control` | 0.02 (4.1) | 0.02 (3.2) | 0.02 (1.4) | 0.77 (0.5) | 2.59 |
+| `dream-caption` | 0.51 (1.9) | 0.44 (1.6) | 0.53 (0.9) | 0.85 (0.3) | 1.24 |
+| `dream` | 0.50 (2.0) | 0.45 (1.6) | 0.51 (1.0) | 0.92 (0.4) | 1.26 |
+| `classic-matched` | 0.68 (1.2) | 0.62 (1.0) | 0.77 (0.7) | 0.97 (0.5) | 0.78 |
+| `real@solidify` | 0.21 (3.2) | 0.18 (2.6) | 0.31 (1.1) | 0.96 (0.5) | 2.05 |
+| `real_shuffled_materials` | 0.80 (0.6) | 0.68 (0.7) | 1.41 (0.2) | 0.80 (0.2) | 0.41 |
+| `shell_box` | 0.00 (4.1) | 0.00 (3.2) | 0.00 (1.4) | 1.00 (0.6) | 2.65 |
+| `gabled_house` | 1.00 (0.2) | 1.00 (0.5) | 1.00 (0.7) | 1.00 (0.6) | 0.45 |
+
+The pillar does what T63 measured, in the bench's units, and the units are the
+point to read carefully. KID pillars are quoted in noise-floor spreads of a
+set-level statistic and run to hundreds; the scalar blocks are the RMS of
+per-build W1 distances in real-sample spreads and run to a few. Under the max,
+`traversal` can only decide BlockScore when `geom_kid` and `mv_dino_kid` are
+within a few spreads of real, which no learned arm is. It is a veto against a
+future generator that matches the distributions and still builds houses nobody
+can enter (`shell_box` and `real@solidify` show the shape of that case); today
+it is a column that ranks the arms the way a player would, beside a column that
+ranks them the way a kernel does.
+
+**Protocol consequence.** `houses32-v1` now pins `descriptor="patch2_orb55_t5_h8_s12"`.
+T31/T32's 106.87 and 136.73, T51's agentic BlockScores and every number on the
+board before today were measured with the 77-dim descriptor and are not
+comparable with this table; the board unranks those cards with that reason. The
+`agentic_oneshot` (n=12) and `pick_n_place` (n=16) provisional rows are off the
+board until re-scored, and were below `min_n` in any case.
+
+## T65. The facade oracle: real houses reduced to their visible shell (2026-10-23)
+
+Run `run_20261023_204241_bench_facade_oracle_real_houses_reduced_to`
+(`--tier both --n 399`, self-validation 6/6). Three control rungs made by
+`scripts/facade_oracle.py` from `blockgen.corpus.facade` (notes.md §54): every
+test-split house projected to face images and lifted back, keeping only what a
+camera at infinity along each axis sees. `facades4` is the four sides (what a
+facade-only generator hands back), `facades5` adds the roof plan, `facades6`
+adds the underside. Median share of blocks kept: 56%, 65%, 79%. Nothing inside
+survives in any of them. All arms n=399 (a first run at `--n 128` left the
+controls smaller than the oracle arms and is superseded).
+
+| arm | BlockScore | worst pillar | geom_kid | mv_dino_kid | components | thickness mean | sealed interior | walk standing (descr.) | enterable | standing reached |
+|---|--:|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| real_test | 0.00 | appearance | -0.07 | 0.000 | 2.7 | 1.04 | 0.114 | 1.80 | 0.95 | 0.87 |
+| real@facades6 | 492.7 | geometry | 13.76 | 0.001 | 13.5 | 1.00 | 0.069 | 1.79 | 0.73 | 0.69 |
+| real@facades5 | 700.5 | geometry | 19.60 | 0.005 | 18.6 | 1.00 | 0.000 | 1.85 | 0.57 | 0.52 |
+| real@solidify | 846.3 | geometry | 23.70 | 0.000 | 2.3 | 1.56 | 0.000 | 1.82 | 0.18 | 0.16 |
+| real@facades4 | 858.0 | geometry | 24.02 | 0.076 | 23.5 | 1.00 | 0.000 | 1.90 | 0.15 | 0.14 |
+
+(`components` is coherence `n_components`, real 2.7; `sealed interior` is
+`interior_ratio_sealed`; `enterable` and `standing reached` are the traversal
+block; BlockScore pillars in spreads: facades6 appearance +0.96, coherence
++1.96, traversal +0.69; facades4 appearance +78.9, coherence +4.34, traversal
++2.27.)
+
+**The render tier cannot see the shell.** MV-DINO-KID is 0.001 for the six-face
+shell and 0.005 with the roof plan, indistinguishable from real at this n, and
+the appearance pillar sits at one spread. The four-side shell alone is caught
+(0.076, 79 spreads) only because its roofs fall apart: no side ray reaches the
+upper surface of a flat roof, so the roof survives as a ring of eaves and the
+build splits into 23.5 pieces on average. This is `hollow` read from the
+generator's side: a facade model that gets the faces right has beaten the
+appearance pillar.
+
+**Geometry catches it in every version, and it is the worst pillar every time.**
+Thickness collapses to exactly one block everywhere (real mean 1.04, p90 1.16),
+the sealed interior share goes to zero without the floor and to 0.069 with it,
+and `geom_kid` ranks the rungs by how much of the house is missing: 13.8, 19.6,
+24.0 against solidify's 23.7. The facade descriptor room scalars (T64) are near
+real for all three (`walk_standing` 1.79 to 1.90 against 1.80), which is
+correct: a shell has the same standing room as the house it came from.
+
+**Traversal reads the floor.** Without the underside every room opens downward
+and the ground layer the player model stands on is the only floor, so the
+four-side shell is 15% enterable and solidify-like (14% standing reached). The
+roof plan recovers it to 57%, the underside to 73% against real's 95%; the rest
+are rooms whose floor is not the bottom face of the build (upper storeys,
+porches) and interior floors the faces never see.
+
+**What this fixes for the facade track.** A 2.5D arm's ceiling is `facades6`
+at BlockScore 493, decided by geometry, and that ceiling is reached by faces
+alone; the roof plan is worth 200 BlockScore points and the underside another
+200. Interiors remain out of reach by construction, which is the gap the second
+stage (a plan, or an interior fill) has to close. Facade arms should be reported
+against these rungs, not against real.
+
+## T66. The facade track: baselines, two facade models and the ceiling (2026-10-26)
+
+Run `run_20261026_160934_bench_facade_track_baselines_the_per-face_and`
+(`--tier both --n 399`, self-validation 6/6, every arm n=399). The three
+facade baselines of notes.md §55 (fitted on the train split, lifted into real
+train boxes), the per-face facade model (§55, faces sampled independently), the
+joint facade model (§56, every face of a build in one sequence, each face
+conditioned on the ones before it) and `real@facades6`, the ceiling of a facade
+generator (T65). Both models are the 5M preset, 8,000 steps, about seven minutes
+each; holdout NLL 0.67 per face and 0.78 joint, both still falling.
+
+| arm | BlockScore | worst pillar | geom_kid | mv_dino_kid | components | enterable | nn percentile |
+|---|--:|---|--:|--:|--:|--:|--:|
+| real_test | 0 | appearance | -0.07 | 0.000 | 2.7 | 0.95 | |
+| real@facades6 (ceiling) | 493 | geometry | 13.8 | 0.001 | 13.5 | 0.73 | 0.51 |
+| facade_patchwork | 990 | geometry | 27.7 | 0.538 | 26.5 | 0.23 | 0.48 |
+| houses32_facades_joint_5m | 1128 | geometry | 31.6 | 0.633 | 71.5 | 0.25 | 0.65 |
+| houses32_facades_5m | 1205 | geometry | 33.8 | 0.702 | 74.7 | 0.24 | 0.50 |
+| facade_markov | 1335 | geometry | 37.4 | 1.141 | 144.7 | 0.08 | 0.75 |
+| facade_unigram | 2208 | appearance | 39.8 | 2.119 | 332.6 | 0.67 | 0.87 |
+
+(`components` is coherence `n_components`; `nn percentile` is the memorization
+gate `dino_nn_percentile`, 0.5 is held-out real; no arm is disqualified.)
+
+**The ordering is the predicted one.** Unigram below markov below the learned
+models below patchwork below the ceiling, on BlockScore and on both KIDs, with
+every gap outside the intervals. Conditioning the faces on each other moves the
+model from 1205 to 1128 and improves `geom_kid` (33.8 to 31.6) and
+`mv_dino_kid` (0.70 to 0.63) at the same training budget, and the face sheets
+show why: the per-face model gives every wall of a build a different material,
+the joint model keeps one palette and style across all six faces. The joint
+model's palette pillar is worse (17.9 against 12.6 spreads), which is the same
+effect seen from the other side: a build in one material has a narrower palette
+than a real house.
+
+**What the learned models still lose to.** `facade_patchwork`, six real faces
+from six different houses, beats both models on every pillar. Its faces are real
+and the models' are not yet: a 5M model trained for seven minutes draws walls
+with the right bands and materials but not the right windows, and the lifted
+shells fall into 70 pieces where the ceiling falls into 13, because faces that
+disagree at a shared edge do not meet. Enterability is the same for every facade
+generator, about 23%, against 73% for the ceiling: the faces do not yet put a
+door where the floor is.
+
+**What the track has established.** A facade generator is now an arm on the
+same board as everything else, with a floor, a ladder of baselines and a ceiling
+measured under the same protocol; the bench reproduces the intended order of all
+of them; and the first learned result is that the layout, not the model, decided
+the first improvement. The next levers, in order: train longer (both NLLs still
+falling), a bigger preset, and the ceiling's own gap, interiors, which no facade
+model can close and the second stage has to.
+
+## T67. The volumetric row: MMD, coverage and 1-NNA under chamfer and IoU on the ladder (2026-10-28)
+
+`PYTHONPATH=. python -m blockgen.eval.bench.pointcloud --n 64` (notes §58). Same
+reference (248 usable val builds), probe draw (64 usable test builds, seed 0), rungs and
+noise floor as `geom__patch2_orb55_t5_h8_s12.json`, the geometry ladder of record at the
+same n. Separation from `real_heldout` in units of each metric's own noise-floor sd, the
+unit every gate is stated in; the geometry tier's two metrics first for comparison.
+
+| metric | canon16 | canon8 | chunk_del_40 | solidify | hollow | occ_noise_5 | occ_noise_10 | jitter | mat_shuffle | rot90 | validity |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| geom_kid | 46.6 | 65.5 | 31.0 | **70.9** | 42.2 | 57.4 | 92.4 | 109.2 | 0.0 | 0.0 | PASS |
+| geom_mmd_rbf | 58.5 | 84.8 | 39.0 | **96.0** | 52.5 | 71.2 | 121.3 | 148.5 | 0.0 | 0.0 | PASS |
+| cd_volume MMD | 32.0 | 123.5 | 7.2 | -2.7 | 2.3 | -0.7 | -0.9 | -0.9 | 0.0 | 0.9 | FAIL G2 |
+| cd_volume 1-COV | 10.8 | 13.7 | 0.0 | 0.0 | -0.6 | 0.0 | -1.0 | 0.3 | -0.6 | -1.0 | FAIL G2 |
+| cd_volume 1-NNA | 10.7 | 11.3 | 5.4 | 1.2 | 1.0 | -0.5 | 0.5 | -0.2 | 0.0 | 1.2 | FAIL G2 |
+| cd_surface MMD | 32.3 | 125.0 | 7.1 | 1.8 | 2.0 | -1.0 | -1.2 | -1.0 | -0.1 | 0.6 | FAIL G2 |
+| cd_surface 1-COV | 11.4 | 15.1 | 0.0 | -0.7 | -0.3 | 0.3 | -0.3 | 0.3 | 0.3 | -1.3 | FAIL G2 |
+| cd_surface 1-NNA | 10.6 | 11.7 | 5.4 | 0.7 | 1.3 | 0.4 | 0.5 | 0.4 | 0.4 | 1.1 | FAIL G2 |
+| iou MMD | 23.3 | 46.5 | 6.8 | **-8.6** | 6.0 | 1.4 | 3.0 | 7.4 | 0.0 | 1.0 | FAIL G8 |
+| iou 1-COV | 13.1 | 16.2 | 0.8 | 2.0 | 0.4 | 0.4 | 0.4 | -0.4 | 0.0 | 1.6 | FAIL G2 |
+| iou 1-NNA | 8.1 | 8.5 | 2.1 | 0.4 | 1.3 | -0.3 | -0.6 | 0.8 | 0.0 | 1.0 | FAIL G2 |
+
+Raw values for the headline pair: `cd_volume` MMD reads 0.00602 on real held-out builds,
+0.00552 on Fill-Interior and 0.00644 on Hollow, noise sd 0.00018; `cd_surface` MMD 0.00612,
+0.00645, 0.00649, sd 0.00018. 1-NNA sits at 0.48 to 0.53 for real, Fill-Interior and
+Hollow alike (0.5 is indistinguishable), and reaches 0.97 to 1.00 only on the
+decimation rungs.
+
+**The standard 3D suite is as blind to the interior as the render tier.** Every
+point-cloud statistic places Fill-Interior within three noise floors of real, and the
+two MMDs place it on the wrong side: filling a house moves it *closer* to the reference
+under volumetric chamfer (-2.7 sd) and under IoU (-8.6 sd). The mechanism is the
+metric's, not a bug. Chamfer averages squared nearest-neighbour distances; the points
+Fill-Interior adds sit one or two blocks from a wall, nearer than the typical mismatch
+between two different houses (about 2.5 blocks RMS at this scale), so the mean falls.
+A filled grid likewise overlaps every reference grid at least as much as its hollow
+original does. The cavity-wall sampler that Appendix K says sees the probe per pair
+reads +1.8 sd at the set level. Hollow, occupancy noise at 5 and 10 percent, and column
+jitter, which the geometry tier separates at 42 to 148 sd, are within 2.3 sd for every
+point-cloud statistic. What the suite does resolve is what point clouds are built for:
+decimation (8 to 125 sd) and a 40 percent deletion (5 to 7 sd for MMD and 1-NNA).
+
+**None of the nine would be admitted to rank anything.** Eight fail G2, the occupancy
+noise ordering (1 percent, 5 percent, 10 percent of blocks moved must read as
+increasing damage; chamfer and IoU read them as flat), and `iou` MMD fails G8,
+n-stability. The gates were written for render metrics and the geometry tier and were
+not tuned here; the point-cloud suite was run through them unchanged.
+
+**Caveats, for the paper's table.** n=64 (n=128 is running); 1,024 points per cloud,
+PointFlow's squared-distance chamfer, no per-shape normalisation; 1-NNA against an
+equal-size reference draw fixed once per run. Not yet run: EMD (an assignment per pair
+across 2.9M pairs), a KID on a pretrained 3D encoder (Uni3D or PointBERT), and the
+leaderboard arms themselves under these statistics. The row answers the objection as
+stated; the learned-encoder column is the remaining one a reviewer can ask for.
+
+**At n=128 the picture holds** (`--n 128 --out-root outputs/analysis/ladder_n128`, 2,925
+structures). The decimation separations roughly double, as a test statistic should
+(cd_volume MMD canon8 123 to 196 sd), while Fill-Interior stays where it was: -3.9 sd
+under volumetric chamfer MMD, +2.7 under cavity-wall chamfer MMD, -11.4 under IoU MMD,
+0.8 to 2.3 for every 1-NNA and coverage statistic. Hollow reads 0.0 to 3.5 across the
+nine, occupancy noise at 10 percent -1.1 to 5.0. The IoU statistics now also fail G6:
+corner-aligned grids are not rotation invariant and a 90 degree turn moves them 2.6 to
+2.7 sd. Doubling the sample buys the standard suite resolution on what it already saw
+and nothing on the interior.
+
+## T68. The facade track at scale: 20M, D4 augmentation and the complete card (2026-10-28)
+
+Run `run_20261028_143416_bench_facade_track_baselines_five_facade` (`--tier both
+--n 399`, self-validation 6/6, every arm n=399, 80 minutes). The T66 arms plus three
+new joint facade models: the 20M preset on the plain shard (notes.md §57, 24,000
+steps, best checkpoint at step 6,000), the 5M preset on the D4-augmented shard (§59,
+16,000 steps) and the 20M preset on the D4 shard (§59, 24,000 steps). All four
+joint models use `select=best` on the unaugmented holdout. A four-model card without
+the 20M D4 arm, `run_20261028_131522_bench_facade_track_baselines_four_facade`, ran
+first and is superseded; every shared number agrees to the quoted digits.
+
+| arm | NLL | BlockScore | appearance | geom_kid | mv_dino_kid | components | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| real_test | | 0 | 0 | -0.07 | 0.000 | 2.7 | 0.95 | 0.50 |
+| real@facades6 (ceiling) | | 493 | 1 | 13.8 | 0.001 | 13.5 | 0.73 | 0.51 |
+| facade_patchwork | | 990 | 561 | 27.7 | 0.538 | 26.5 | 0.23 | 0.48 |
+| joint 20M plain | 0.806 | 1035 | 566 | 29.0 | 0.543 | 63.1 | 0.23 | 0.63 |
+| joint 20M D4 | 0.479 | 1082 | 487 | 30.3 | 0.468 | 60.0 | 0.35 | 0.48 |
+| joint 5M D4 | 0.589 | 1113 | 591 | 31.2 | 0.567 | 70.0 | 0.32 | 0.61 |
+| joint 5M plain | 0.783 | 1128 | 660 | 31.6 | 0.633 | 71.5 | 0.25 | 0.65 |
+| per-face 5M | 0.67/face | 1205 | 731 | 33.8 | 0.702 | 74.7 | 0.24 | 0.50 |
+| facade_markov | | 1335 | 1189 | 37.4 | 1.141 | 144.7 | 0.08 | 0.75 |
+| facade_unigram | | 2208 | 2208 | 39.8 | 2.119 | 332.6 | 0.67 | 0.87 |
+
+(`NLL` is holdout nats per token on the unaugmented holdout at the selected
+checkpoint; `appearance` is that pillar in spreads; every BlockScore except
+unigram's is the geometry pillar; `components` is coherence `n_components`;
+`nn pct` is the memorization gate, 0.5 is held-out real; no arm is disqualified.)
+
+**Likelihood and the card do not move together.** The likelihood ladder is
+monotone in data and size: 0.806 (20M plain), 0.783 (5M plain), 0.589 (5M D4),
+0.479 (20M D4), a 0.33 nat gain from eight symmetries of the same 2,114 houses.
+The card does not follow it. The plain 20M model, the worst of the four on
+likelihood and a memoriser by step 6,000 (§57), has the best BlockScore of any
+learned arm, 1035, because BlockScore is the geometry pillar and its `geom_kid`
+(29.0) is the lowest; the Holm groups put it with patchwork (`ef` against `e`),
+the only learned model the baseline does not separate on geometry. The 20M D4
+model, the best of the four on likelihood by 0.33 nats, sits second at 1082: its
+`geom_kid` is 30.3, which the Holm groups do not separate from the plain 20M (`fg`
+against `ef`) but which the leaderboard, a point estimate, ranks behind it. On
+every other reading it is the best learned arm on the board. Its `mv_dino_kid` of
+0.468 is the only learned value below patchwork (group `c`, alone; patchwork and
+the plain 20M share `d`; paired delta 0.075 against the plain 20M, Holm p =
+0.0004), its appearance pillar is 487 spreads against patchwork's 561, its shells fall into
+60 pieces against 63 to 75 for the others, it is the only arm whose memorization
+percentile sits at held-out real (0.48, where the plain models sit at 0.61 to
+0.65, closer to train), and it is the most enterable learned arm at 35 percent.
+
+**What the D4 augmentation bought, and what it did not.** On the likelihood it is
+the lever §57 asked for: the 20M model goes from memorising at step 6,000 to still
+fitting at 18,000. On the card it buys appearance (`mv_dino_kid` 0.633 to 0.567 at
+5M, 0.543 to 0.468 at 20M), traversal (enterable 0.25 to 0.32 at 5M, 0.23 to 0.35
+at 20M; the plain models never moved it off the baselines' 0.23) and novelty, and
+it buys nothing on `geom_kid`: 31.6 to 31.2 at 5M is inside the group, and at 20M it
+costs 1.3. The augmented models also drift on the palette pillar (18 to 25 spreads
+against 13 for the per-face model and 6 for patchwork), with `palette_jsd_exact`
+0.185 at 20M D4 against 0.123 for the per-face model: a model that has seen every
+house from eight sides commits harder to one material per build, and real houses
+do not. The one geometry statistic it moves is the one the ceiling itself is held
+by, `n_components`, from 71.5 to 60.0; the ceiling is 13.5. Faces that disagree at
+a shared edge still do not meet, and that, not the walls themselves, is what
+`geom_kid` is reading.
+
+**Patchwork still leads every learned model** on BlockScore (990 against 1035),
+by geometry alone: six real faces from six houses have real windows, doors and
+edge rows, and lift into 26 pieces. The learned models have overtaken it on
+appearance (20M D4) and tied it on geometry at the group level (20M plain), and no
+learned model has yet matched it on `n_components`. The gap to the ceiling is
+unchanged by any of this: 493 against 990 to 1205, held by `geom_kid` 13.8 and by
+enterability 0.73, both of which no facade generator reaches because the interior
+behind the faces is empty.
+
+**What the track has established.** Four joint models and two levers on one card:
+size without data memorises and does not help the card; data (eight symmetries)
+helps likelihood, appearance, traversal and novelty and leaves geometry where it
+was; and the geometry pillar, which is BlockScore for every facade arm, is held by
+edge agreement between faces and by the empty interior, neither of which more
+training on the same representation addresses. The next levers are therefore not
+training levers: an edge-consistency term or decoding constraint so adjacent faces
+share their corner column, and the second stage that fills the interior the
+ceiling (T65) says is missing.
+
+## T69. BrickNet recipe on Minecraft walks: data built, trainer fitted to 16 GB, pilot launched (2026-10-30)
+
+Setup in notes.md §61. Files in `data/minecraft/bricknet/`, code in `libs/BrickNet/repro/`.
+
+| file | source tier | builds | walks | blocks | note |
+|---|---|--:|--:|--:|---|
+| paths_val + captions_val | eval-holdout, ≤800 blocks, largest component | 494 of 798 | 1,976 | 930,792 | 4 walks per house, one per caption |
+| paths_sft + captions_sft | sft-houses32, same cut | 927 of 1,863 | 3,708 | 1,813,356 | |
+| paths_pt | pretrain-clean, 320k random seqs ≤600 blocks, components ≥4 | 320,000 | 1,322,324 | 69,550,049 | median 10 blocks per walk |
+| paths_pt16 (training pool) | components ≥16 blocks | | 524,542 | 63,935,261 | median 59, p90 344, max 600; ≈600M tokens |
+
+Grammar cost on val walks: 9.43 Qwen3 tokens per block (walk p50 4,418 tokens, p90 6,823,
+max 8,038); captions p50 24 tokens. Round-trip 2,500 walks exact; ground-truth realisation
+renders correctly (`outputs/figures/bricknet_repro/mc_val_truth_20.png`).
+
+Trainer smoke (0.6B, LoRA r32, max_len 6400, val walks, 16 steps of 4 sequences):
+
+| config | peak GPU | time per sequence |
+|---|--:|--:|
+| micro-batch 1, no compile | 11.67 GiB | 0.53 s |
+| micro-batch 1, torch.compile | 10.70 GiB | 23 s (recompiles per width) |
+| micro-batch 2, gradient checkpointing | 3.70 GiB | 0.79 s |
+
+liger-kernel pinned to 0.6.5 (0.8.x requires transformers ≥5). Pilot `mc_pt_base`: 6,000
+iterations, global batch 32 via 32 accumulated micro-batches, warmup 300, lr 5e-4 cosine to
+1%, eval every 500 on 256 val walks; launched 2026-10-30 23:10, 11.2 GiB resident, 7.9 s per
+iteration (ETA 2026-10-31 midday). Queued behind it (`repro/run_mc_chain.sh`): its Table 2
+readout (`repro/run_mc_eval.sh`, 256 samples nucleus and ancestral), then `mc_pt_legoinit`
+(same budget, initialised from `kulits/BrickNet-0.6B-PT`) and its readout.
+
+**Pilot outcome (2026-11-02).** Finished on schedule (13.2 h). Validation per-token NLL on
+256 holdout-house walks, still falling at the end:
+
+| step | 500 | 1000 | 2000 | 3000 | 4000 | 5000 | 6000 |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| eval loss | 0.762 | 0.732 | 0.707 | 0.695 | 0.685 | 0.678 | 0.677 |
+
+Perplexity 1.97 (BrickNet-0.6B-PT on its own val: 1.32; different medium, grammar and
+budget, so not a comparison). Table-2-style readout, 256 unconditional 100-block samples
+per mode (`repro/run_mc_eval.sh mc_pt_base`, `mc_eval.py`):
+
+| sampler | Conn | Coll | fully parsable | parsable and collision-free | collisions p50/p90 | compact (max dim ≤20) | compact and collision-free |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| nucleus 20/0.95 | 99.6±0.6 | 53.0±4.4 | 99.2% | 33.2% | 4/16 | 37% | 2% |
+| ancestral | 91.1±2.5 | 36.9±3.3 | 77.7% | 9.0% | 7/17 | 67% | 5% |
+
+The grammar is learned (nucleus samples are 99% parsable; BrickNet-0.6B gets 86%) and the
+collision-free action count is three times BrickNet's 16 on LEGO, but the collision-free
+samples are dominated by degenerate walks: 48% of nucleus collision-free samples are a
+line (second bounding-box dimension ≤2), median bounding box 29×8×1. Samples with
+collisions are blobby single-material fragments, not buildings
+(`outputs/figures/bricknet_repro/mc_pt_base_ns_20.png` collision-free,
+`mc_pt_base_ns_all_20.png` all). Read: 192k random-walk fragments of mostly terrain-like
+windows teach the walk syntax and local material continuity, not building structure.
+`mc_pt_legoinit` (LEGO-adapter init, same budget) launched 2026-11-02 17:10 after the
+queue stalled for a day (notes §61); the comparison at equal steps is the transfer test.
+The chain stalled because its wait loop's pgrep pattern matched the shell that launched
+it; rewritten without the wait.
+
+**LEGO-init twin (2026-11-03).** `mc_pt_legoinit`, same data and budget, LoRA merged from
+`kulits/BrickNet-0.6B-PT` before the new adapter. Val NLL at every 500-step eval, base
+first:
+
+| step | 500 | 1000 | 1500 | 2000 | 2500 | 3000 | 3500 | 4000 | 4500 | 5000 | 5500 | 6000 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| base init | 0.761 | 0.732 | 0.717 | 0.707 | 0.701 | 0.694 | 0.690 | 0.684 | 0.681 | 0.678 | 0.676 | 0.676 |
+| LEGO init | 0.770 | 0.745 | 0.728 | 0.719 | 0.710 | 0.704 | 0.700 | 0.695 | 0.691 | 0.688 | 0.687 | 0.686 |
+
+The LEGO-pretrained start is behind at every checkpoint by about 0.01 nats per token and
+never catches up: no transfer from LEGO connector walks to Minecraft face walks at this
+budget, if anything a small penalty from the merged adapter. Its sampling readout crashed
+on a sample whose node label was the word "An" (English leaking from the LEGO adapter's
+caption training; the parser raised the wrong exception class, fixed) and is being
+re-run at the head of the SFT queue.
+
+**SFT queue (launched 2026-11-04 00:50, `repro/run_mc_chain2.sh`).** For each PT adapter:
+`repro/run_mc_sft.sh` runs the SFT recipe (lr 2.5e-4, alpha 64, global batch 8, loss on
+the walk only) for 2,000 iterations (16k caption-walk pairs, 4.3 epochs of the 3,708) at
+max_len 8192 with gradient checkpointing, eval every 500 on the 1,976 val pairs; then
+`repro/run_mc_sft_eval.sh` samples one walk per val caption for 256 houses (natural EOS,
+4,096 new tokens, nucleus) and scores/renders it.
+
+**SFT training (2026-11-04).** Both runs finished (about 2.5 h each). Val NLL on the walk
+tokens of the 1,976 holdout caption-walk pairs:
+
+| step | 500 | 1000 | 1500 | 2000 |
+|---|--:|--:|--:|--:|
+| SFT from base-init PT | 0.657 | 0.651 | 0.649 | 0.649 |
+| SFT from LEGO-init PT | 0.672 | 0.659 | 0.654 | 0.653 |
+
+Captions buy 0.027 nats per token over the unconditional PT model (0.676 to 0.649), and
+the LEGO-init gap persists through SFT.
+
+**Readout bug (found 2026-11-05 by the voxel-pipeline session).** The first sampling
+readouts of `mc_pt_legoinit` and both SFT runs loaded only the run's own adapter onto
+plain Qwen3, whereas train.py had merged the parent adapter(s) into the base before
+training it; the samples were garbage (0 to 3% parsable) and are quarantined in
+`repro/gen/invalid_single_adapter/`. `run_mc_eval.sh` and `run_mc_sft_eval.sh` now take
+the base adapters as trailing arguments and stack them in training order. The training
+eval losses above were computed on the merged model and are unaffected. Re-run
+(`repro/run_mc_chain3.sh`, 2026-11-05) results. Unconditional 100-block readout of the
+LEGO-init PT run, base-init rows repeated for comparison:
+
+| run | sampler | Conn | Coll | fully parsable | collision-free |
+|---|---|--:|--:|--:|--:|
+| base init | nucleus | 99.6±0.6 | 53.0±4.4 | 99.2% | 33.2% |
+| LEGO init | nucleus | 100.0±0.1 | 45.3±4.3 | 99.6% | 26.2% |
+| base init | ancestral | 91.1±2.5 | 36.9±3.3 | 77.7% | 9.0% |
+| LEGO init | ancestral | 91.4±2.6 | 35.2±3.1 | 79.7% | 7.4% |
+
+Caption-conditioned readout of `mc_sft_base` (stack mc_pt_base then mc_sft_base; one
+nucleus sample per holdout caption, 256 houses, natural EOS, 4,096-token budget):
+
+| metric | value |
+|---|--:|
+| fully parsable | 91.8% |
+| blocks per sample, p50 / p90 | 216 / 372 |
+| ended with EOS inside the budget | 95% |
+| collisions per sample, p50 / p90 | 22 / 54 |
+| collision-free samples | 1.2% |
+| bounding box p50 | 18×13×8 |
+| max dimension ≤32 | 93% |
+| actions before first collision (Coll) | 32.1±2.3 |
+
+The conditioned samples are compact and house-sized with a house palette (planks,
+cobblestone, logs, leaves, glass) but are amorphous clumps, not buildings
+(`outputs/figures/bricknet_repro/mc_sft_base_val_20.png`, realised first-node-wins), and
+almost every walk revisits a cell. For the voxel bench they are realised with collisions
+kept (`mc_eval.py --all`).
+
+`mc_sft_legoinit` is confounded: chain2 passed only the Minecraft delta as `--pt_adapter`,
+so its SFT ran on plain Qwen3 plus a delta trained relative to the LEGO-merged model (the
+eval loss 0.653 above is that confounded arm). Its readout with the three-adapter stack
+produced empty walks (median 0 nodes) and is discarded.
+
+**Clean LEGO-init SFT arm `mc_sft_legoinit2`** (2026-11-05, `repro/run_mc_chain4.sh`;
+`--pt_adapter kulits/BrickNet-0.6B-PT --pt_adapter repro/runs/mc_pt_legoinit/adapter`,
+same 2,000 iters, peak 2.9 GiB). Eval loss at 500/1000/1500/2000:
+0.663, 0.657, 0.654, 0.654 (base arm 0.657, 0.651, 0.649, 0.649): the LEGO-init stack
+stays 0.005 nats/token behind the base arm through SFT, the same gap as after PT. Readout
+with the three-adapter stack (kulits PT, mc_pt_legoinit, mc_sft_legoinit2), same protocol as
+the base arm; both columns recomputed with one script (bounding box from the realised
+volumes, "ended inside budget" = under 4,090 Qwen3 tokens):
+
+| metric | base init | LEGO init |
+|---|--:|--:|
+| fully parsable | 91.8% | 93.8% |
+| nodes per sample, p50 / p90 | 216 / 372 | 212 / 336 |
+| ended inside the 4,096-token budget | 91% | 95% |
+| collisions per sample, p50 / p90 | 22 / 54 | 27 / 51 |
+| collision-free samples | 1.2% | 2.0% |
+| actions before first collision (Coll) | 32.1±2.3 | 31.2±1.9 |
+| actions before first grammar failure (Conn) | 235.9±11.8 | 225.2±10.3 |
+| realised bounding box p50 | 14×9×15 | 15×8×15 |
+| max dimension ≤32 | 94% | 95% |
+
+Every difference is inside the standard error of the readout. The LEGO-init samples
+(`outputs/figures/bricknet_repro/mc_sft_legoinit2_val_20.png`) are the same compact
+house-palette clumps as the base arm: single-material plank or cobblestone blobs with
+stray arms, no walls, roofs or openings. Verdict for the transfer question: null on eval
+loss (0.686 vs 0.676 after PT, 0.654 vs 0.649 after SFT) and null on every sampling
+metric, so LEGO connector pretraining buys nothing for Minecraft face walks at a 220M-token
+PT budget plus 2k SFT steps. Closed.
+
+## T70. Post-training, first rung, facades: temperature and best-of-N against the raw 20M D4 model (2026-10-31)
+
+Run `run_20261031_080537_bench_facade_post-training_best-of-4_on_face` (`--tier both
+--n 399`, self-validation 6/6). The raw 20M D4 joint facade model of T68 beside two
+inference-time arms drawn from the same checkpoint: the same sampler at temperature 0.7
+(395 builds, four empty draws dropped), and best-of-4 under the `face_solidity` reward of
+`blockgen/posttrain/rewards.py` (1,596 draws at temperature 1.0, the best of each four kept,
+399 builds; reward mean 0.64 over all draws, 0.79 over the kept). Patchwork and the six-face
+ceiling as before. The reward is not a BlockScore pillar input; by the honesty rule
+(`blockgen/posttrain/__init__.py`) its own statistics are method-internal, movement on
+coherence is pre-registered transfer, and the claims below are about the pillars the reward
+did not touch.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| real@facades6 (ceiling) | 493 | 1 | 13.8 | 0.001 | 13.5 | 0.81 | 0.73 | 0.51 |
+| 20M D4, temperature 0.7 | 637 | 280 | 17.8 | 0.268 | 29.8 | 0.84 | 0.31 | 0.51 |
+| 20M D4, best-of-4 face_solidity | 871 | 313 | 24.4 | 0.300 | 27.6 | 0.93 | 0.49 | 0.42 |
+| facade_patchwork | 990 | 561 | 27.7 | 0.538 | 26.5 | 0.90 | 0.23 | 0.48 |
+| 20M D4, raw (T68) | 1082 | 487 | 30.3 | 0.468 | 60.0 | 0.81 | 0.35 | 0.48 |
+
+(`lcc` is coherence `lcc_ratio`; other columns as in T68. Holm groups on `geom_kid`: ceiling
+c, temperature d, best-of-4 e, patchwork f, raw g, every pair separated; on `mv_dino_kid` the
+two post-training arms share a group and both are separated from raw and from patchwork.)
+
+**Temperature is the largest single lever the facade track has found.** The same
+checkpoint sampled at 0.7 instead of 1.0 goes from 1082 to 637, from the worst learned
+facade arm on the T68 card to the first learned arm of any kind below patchwork, below
+solidify (846) and below the shuffled-materials control (710), with `geom_kid` 17.8 against
+the ceiling's 13.8 and 30.3 for the raw decode. Every pillar moves the same way:
+appearance 487 to 280, components 60 to 30, palette the exception (25 to 44 spreads: a
+cooler decode commits harder to one material, the drift T68 saw with D4 made larger).
+Memorization stays at held-out real (0.51) and the diversity gate is untouched (0.928
+against 0.919 raw). The cost is four empty draws in 399 and the palette pillar. Notes.md §60
+predicted this from the face sheets: the depth speckle that fragmented the shells was
+sampling noise, and T66 and T68 scored every facade model on its noisiest decode.
+
+**Best-of-4 on face solidity is the second lever and moves different things.** It takes
+the raw decode from 1082 to 871, below patchwork, with `geom_kid` 24.4 and appearance 313,
+and it is the arm that moves the pillars temperature does not: enterable 0.35 to 0.49
+(patchwork 0.23, ceiling 0.73), `lcc_ratio` 0.81 to 0.93 (above the ceiling's 0.81, which
+is held down by the ceiling's own detached roof pieces), `wall_frac` 0.44 to 0.54. Its
+components (27.6) are the pre-registered transfer and are not claimed. It pays with novelty:
+nearest-train IoU 0.295 to 0.369 and memorization percentile 0.478 to 0.420, both still
+inside the gates, and the direction to watch when k grows. The two levers are orthogonal
+enough that the next card should carry their product: best-of-k at temperature 0.7.
+
+**Rejection-sampling fine-tuning did not run on this card.** The derived tier was written
+(399 kept builds, 0.76M tokens, `rft-houses32_facades_joint_d4_20m-face_solidity`), but the
+20M model would not train at the default micro-batch of 32,768 tokens beside an 11 GB tenant
+on the GPU; the retry at a quarter of the micro-batch with four accumulation steps is
+queued and gets its own entry. The card and the voxel first rung (M2b seed 1, `lcc26`)
+are in `scripts/posttrain_first_pass.sh`.
+
+## T71. Post-training, first rung, voxels: best-of-4 and rejection-sampling FT on the M2b model (2026-10-31)
+
+Run `run_20261031_105428_bench_voxel_post-training_best-of-4_and` (`--tier both --n 256
+--baselines`, self-validation 6/6). The parent is `m2b_sft_s1` (T60: 5M, pretrained on
+anneal then SFT, dropout 0, holdout NLL 0.420), scored here from its own 256 end-of-run
+samples at temperature 1.0. Two post-training arms from the same checkpoint: best-of-4
+under `lcc26` (the 26-connected largest-component fraction, `blockgen/posttrain/rewards.py`;
+1,024 draws, 256 kept), and rejection-sampling fine-tuning, `rft-voxel-5m.yaml` from the
+parent's `best.pt` on the 256 kept builds mixed 1:1 with `sft-houses32` for 4,000 steps at
+lr 5e-5, dropout 0, `select=best` on holdout NLL, 256 samples at temperature 1.0. The reward
+is not a pillar input; coherence movement is pre-registered transfer. An earlier card of the
+same name (`run_20261031_031101_...`) holds the raw arm alone after the best-of-N step ran out
+of GPU memory at the default sampling batch; it is superseded.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn IoU | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| m2b_sft_s1, best-of-4 lcc26 | 340 | 213 | 16.3 | 0.344 | 4.9 | 0.98 | 0.21 | 0.395 | 0.61 |
+| m2b_sft_s1, raw | 386 | 254 | 18.6 | 0.410 | 11.3 | 0.94 | 0.20 | 0.353 | 0.64 |
+| m2b_sft_s1, RFT lcc26 | 395 | 221 | 19.0 | 0.357 | 9.5 | 0.96 | 0.26 | 0.379 | 0.62 |
+| patchwork | 432 | 432 | 18.5 | 0.696 | 6.6 | 0.87 | 0.43 | 0.282 | 0.55 |
+| real@solidify | 482 | 0 | | | | | 0.18 | | |
+
+(`nn IoU` is the novelty gate `voxel_nn_iou_mean`, real 0.375; `nn pct` the memorization
+gate, 0.5 is held-out real. Holm groups on `geom_kid`: best-of-4 alone in c; patchwork, raw
+and RFT share d. On `mv_dino_kid`: best-of-4 c, RFT cd, raw de, patchwork f.)
+
+**Best-of-4 on connectivity is a real move on the voxel model too.** 386 to 340, with
+`geom_kid` 18.6 to 16.3 (separated from every other learned arm), appearance 254 to 213 and
+`mv_dino_kid` 0.410 to 0.344. The pre-registered transfer is large (components 11.3 to 4.9,
+`lcc_ratio` 0.94 to 0.98, now at real's 0.98) and is not claimed. The arm is the first voxel
+arm of the new pipeline to rank on the board, and under the current descriptor it sits
+below patchwork, solidify and shuffled materials. The novelty gates move toward the training
+set as they did for facades (nearest-train IoU 0.353 to 0.395, real 0.375; diversity 0.881
+to 0.847), inside the gates at k=4.
+
+**Rejection-sampling fine-tuning did not beat the inference-time rung at this budget.**
+395 against 386 raw and 340 best-of-4; `geom_kid` 19.0 is in the raw arm's group. It moved
+appearance (254 to 221, `mv_dino_kid` 0.357, between raw and best-of-4), components (11.3 to
+9.5) and traversal (enterable 0.20 to 0.26, headroom 0.47 to 0.57), but not the geometry
+pillar that decides BlockScore. The selector is the confound: `select=best` on holdout NLL
+chose step 500 of 4,000 (0.419, the parent's 0.420), because fine-tuning on the model's own
+filtered samples lowers holdout likelihood from the first eval on, so the card scores a
+500-step nudge. The `reward` selector (`blockgen/posttrain/select.py`) exists for exactly
+this and was not used here; the rerun under it, and a larger kept set (k=4 at n=1,024
+rather than 256), are the next voxel experiments. Rung 1 is the baseline rung 2 has to beat,
+and on both tracks it has set that bar higher than the raw model by 40 to 440 BlockScore.
+
+## T72. Post-training, second rung, facades: rejection-sampling FT on face solidity (2026-10-31)
+
+Run `run_20261031_121039_bench_facade_post-training_rejection-sampling` (`--tier both
+--n 399`, self-validation 6/6), the T70 arms plus the fine-tuned model:
+`rft-facades-joint-d4-20m.yaml` from the 20M D4 parent's `best.pt` on the 399 best-of-4
+builds of T70 mixed 1:1 with the plain joint SFT shard, 4,000 steps at lr 5e-5, dropout 0.1,
+`batch_tokens 8192 x grad_accum 4` (the default micro-batch ran out of memory beside another
+GPU tenant; the effective batch is unchanged), `select=best` on holdout NLL, sampled at
+temperature 1.0. Run `outputs/run_20261031_114825_rft_facades_joint_d4_20m_face_solidity`.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| 20M D4, temperature 0.7 (T70) | 637 | 280 | 17.8 | 0.268 | 29.8 | 0.84 | 0.31 | 0.51 |
+| 20M D4, best-of-4 (T70) | 871 | 313 | 24.4 | 0.300 | 27.6 | 0.93 | 0.49 | 0.42 |
+| facade_patchwork | 990 | 561 | 27.7 | 0.538 | 26.5 | 0.90 | 0.23 | 0.48 |
+| 20M D4, RFT face_solidity | 994 | 396 | 27.8 | 0.380 | 43.4 | 0.89 | 0.53 | 0.51 |
+| 20M D4, raw (T68) | 1082 | 487 | 30.3 | 0.468 | 60.0 | 0.81 | 0.35 | 0.48 |
+
+(Holm groups on `geom_kid`: RFT shares f with patchwork, separated from raw g and from
+best-of-4 e; on `mv_dino_kid` RFT is alone in d, between best-of-4 and raw.)
+
+**The fine-tune moves every pillar the right way and keeps less of the gain than best-of-4
+does.** 1082 to 994, `geom_kid` 30.3 to 27.8 (tied with patchwork), appearance 487 to 396,
+and it is now the most enterable facade arm on any card at 0.53 (raw 0.35, best-of-4 0.49,
+ceiling 0.73), with memorization back at held-out real (0.51) where best-of-4 drifted to
+0.42. The same selector confound as the voxel run (T71) caps it: holdout NLL picked step 500
+of 4,000 (0.460 on the periodic subset, 0.488 on all 862 fitting holdout sequences), so the
+card scores a short nudge of a model sampled at its noisiest temperature. A model trained to
+produce what best-of-4 selects should be judged where best-of-4 is strongest, and the reward
+selector (`select=reward`) plus a temperature-0.7 draw from the same checkpoint are the two
+cheap reruns that separate "the fine-tune did not learn it" from "we scored the wrong
+checkpoint at the wrong temperature".
+
+**Where the post-training ladder stands after three cards.** On both tracks the
+inference-time rung beat the raw model (facades 1082 to 637 by temperature and to 871 by
+best-of-4; voxels 386 to 340 by best-of-4), and the fine-tuning rung improved on the raw
+model at the raw temperature but not on best-of-N. That is the expected order for a first
+pass, and the two fixes are known: select by reward, and sample at the temperature the
+first rung found.
+
+## T73. Post-training, second pass: both fine-tunes selected by reward and sampled at temperature 0.7 (2026-11-01)
+
+Both rejection-sampling fine-tunes of T71 and T72 rerun with the same data, steps, lr and
+seed, changing only the checkpoint selector (`select=reward`: the final weights and the
+likelihood-best checkpoint each draw 64 builds at the config's temperature, and the set with
+the higher mean trained-on reward wins) and the decode (temperature 0.7 for the selector,
+the end-of-run samples and the card arm). Recipe `scripts/posttrain_rft_reward_t07.sh`; a raw
+voxel arm at 0.7 was added so temperature and fine-tune separate on both tracks.
+
+**Facades.** Card `run_20261101_160512_bench_facade_rung_2_rerun_rejection-sampling`
+(`--tier both --n 399`, self-validation 6/6). The selector kept `best.pt` (step 500, mean
+face_solidity 0.860 against 0.845 for step 4,000), which is the checkpoint T72 already
+scored, so the new arm differs from the T72 RFT only in temperature, and from the raw T=0.7
+arm only in the fine-tune. Run `outputs/run_20261101_154120_rft_facades_joint_d4_20m_face_solidity_rsel_t07`.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| real@facades6 (ceiling) | 493 | 1 | 13.8 | 0.001 | 13.5 | 0.81 | 0.73 | 0.51 |
+| **RFT face_solidity, reward-selected, T=0.7** | **553** | 190 | 15.4 | 0.182 | 17.6 | 0.94 | 0.35 | 0.58 |
+| 20M D4, T=0.7 (T70) | 637 | 280 | 17.8 | 0.268 | 29.8 | 0.84 | 0.31 | 0.51 |
+| 20M D4, best-of-4 (T70) | 871 | 313 | 24.4 | 0.300 | 27.6 | 0.93 | 0.49 | 0.42 |
+| facade_patchwork | 990 | 561 | 27.7 | 0.538 | 26.5 | 0.90 | 0.23 | 0.48 |
+| RFT face_solidity, NLL-selected, T=1.0 (T72) | 994 | 396 | 27.8 | 0.380 | 43.4 | 0.89 | 0.53 | 0.51 |
+| 20M D4, raw (T68) | 1082 | 487 | 30.3 | 0.468 | 60.0 | 0.81 | 0.35 | 0.48 |
+
+(Holm groups on `geom_kid`: the new arm is `cd`, sharing `c` with the real@facades6
+ceiling and `d` with raw T=0.7; the paired gap to raw T=0.7 is 2.4 [1.3, 3.2], p_adj 0.10.
+On `mv_dino_kid` the new arm is alone in `c`, separated from raw T=0.7, 0.086 [0.073, 0.101],
+p_adj 0.008.)
+
+**The fine-tune and the temperature compose on facades, and the result is the first
+learned facade arm the card cannot separate from the facade ceiling on geometry.** 1082 to
+553: temperature alone gives 637, the fine-tune at matched temperature takes it to 553, and
+the same weights at T=1.0 scored 994, so most of what T72 looked like it lacked was the
+decode. Components per build halve again (29.8 to 17.6, ceiling 13.5), the largest component
+holds 94% of blocks, appearance drops 280 to 190, and the enclosed-air ratio rises from
+0.004 to 0.048 (ceiling 0.069), so the fine-tuned faces start to close rooms. Two costs:
+enterable stays at the raw T=0.7 level (0.35; the same weights reach 0.53 at T=1.0), and
+the nearest-neighbour percentile moves away from training data (0.58), which is the
+direction of novelty, not memorization. The `geom_kid` win over raw T=0.7 is a trend after
+Holm; the appearance win is significant. face_solidity is the trained-on signal, so the
+claim rests on the untouched pillars: geometry, appearance and traversal.
+
+**Voxels.** Card `run_20261101_143155_bench_voxel_rung_2_rerun_rejection-sampling`
+(`--tier both --n 256 --baselines`, self-validation 6/6). The selector kept `last.pt`
+(step 4,000, mean lcc26 0.995 against 0.992 for step 500), but the card's arm was drawn by
+`python -m blockgen.train --sample`, which then defaulted to `best.pt` (step 500) whatever the
+selector chose; the default now follows `summary.json`'s `selected_ckpt`. **Correction
+(2026-11-02): the voxel arm below is step 500 at T=0.7, not step 4,000.** Step 4,000 at 1.0
+and 0.7 is on the follow-up card. Run `outputs/run_20261101_134001_rft_m2b_sft_s1_lcc26_rsel_t07`.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | thickness | enterable |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| M2b, best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 | 4.9 | 0.977 | 1.15 | 0.21 |
+| M2b, raw T=1.0 (T71) | 386 | 254 | 18.6 | 0.410 | 11.3 | 0.939 | 1.12 | 0.20 |
+| RFT lcc26, NLL-selected step 500, T=1.0 (T71) | 395 | 221 | 19.0 | 0.357 | 9.5 | 0.956 | 1.19 | 0.26 |
+| M2b, raw T=0.7 | 431 | 374 | 20.7 | 0.604 | 6.5 | 0.980 | 1.30 | 0.11 |
+| patchwork | 432 | 432 | 18.5 | 0.696 | 6.6 | 0.873 | 1.04 | 0.43 |
+| **RFT lcc26, step 500, T=0.7** | **549** | 327 | 26.4 | 0.527 | 4.7 | 0.983 | 1.45 | 0.12 |
+
+(Real held-out: thickness 1.05, components 2.7, lcc 0.983, enterable 0.95. Holm groups on
+`geom_kid`: the new arm is alone in `g` with real@solidify, worse than raw T=0.7 by 5.7
+[4.8, 6.8], p_adj 0.012.)
+
+**On voxels temperature 0.7 points the other way, with or without the fine-tune.**
+Temperature 0.7 hurts the raw voxel model (386 to 431: walls thicken from 1.12 to 1.30
+blocks, surface-to-volume falls 1.96 to 1.34, enterable halves), and it hurts the step-500
+fine-tune more (395 at 1.0 to 549 at 0.7): lcc26 at real's 0.983 and the fewest components
+on the card (4.7), with walls 1.45 blocks thick, surface-to-volume 1.08 against real's 2.06,
+and `geom_kid` next to real@solidify. Lower temperature fills, and a model fine-tuned on
+lcc26-selected builds fills further. The pre-registered transfer from connectivity to
+coherence holds (coherence pillar 0.79 raw to 0.69), and it is bought with geometry, which
+BlockScore, as the worst pillar, refuses to trade. Whether the selector's step 4,000 also
+fills is the follow-up card's question.
+
+**Where the ladder stands.** Facades: raw 1082, T=0.7 637, RFT plus T=0.7 553, ceiling 493;
+post-training closed 90% of the raw-to-ceiling gap, with the fine-tune's share significant on
+appearance and a trend on geometry. Voxels: best-of-4 340 is still the best arm, every
+fine-tune or temperature change scored so far has made geometry worse, and lcc26 rewards filling; the next
+voxel reward needs a counterweight to filling that is not itself a BlockScore input, or the
+selector should score a held-out signal rather than the trained-on reward.
+
+## T74. Post-training, voxels: the reward-selected step-4,000 fine-tune at temperature 1.0 and 0.7 (2026-11-02)
+
+Card `run_20261102_113421_bench_voxel_rung_2_step-4000_reward-selected` (`--tier both
+--n 256 --baselines`, self-validation 6/6). The cell T73 meant to measure and did not (see
+its correction): the `last.pt` weights (step 4,000) of
+`outputs/run_20261101_134001_rft_m2b_sft_s1_lcc26_rsel_t07`, the checkpoint `select=reward`
+chose, drawn with `--ckpt last.pt` at temperature 1.0 and 0.7. Recipe
+`scripts/posttrain_voxel_step4000.sh`. Every other voxel arm of T71 and T73 is on the card at
+the same n.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | thickness | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| M2b, best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 | 4.9 | 0.977 | 1.15 | 0.21 | 0.61 |
+| **RFT lcc26, step 4,000, T=1.0** | **359** | 225 | 17.2 | 0.363 | 6.9 | 0.973 | 1.16 | 0.27 | 0.58 |
+| M2b, raw (T71) | 386 | 254 | 18.6 | 0.410 | 11.3 | 0.939 | 1.12 | 0.20 | 0.64 |
+| RFT lcc26, step 500, T=1.0 (T71) | 395 | 221 | 19.0 | 0.357 | 9.5 | 0.956 | 1.19 | 0.26 | 0.62 |
+| M2b, raw T=0.7 (T73) | 431 | 374 | 20.7 | 0.604 | 6.5 | 0.980 | 1.30 | 0.11 | 0.86 |
+| RFT lcc26, step 4,000, T=0.7 | 478 | 263 | 23.0 | 0.425 | 6.0 | 0.984 | 1.35 | 0.14 | 0.81 |
+| RFT lcc26, step 500, T=0.7 (T73) | 549 | 327 | 26.4 | 0.527 | 4.7 | 0.983 | 1.45 | 0.12 | 0.84 |
+
+(Real held-out: thickness 1.05, components 2.7, lcc 0.983, enterable 0.95. Holm groups on
+`geom_kid`: best-of-4 `c`, step 4,000 `cd`, raw `cd`, step 500 `de`; no pair among the
+four T=1.0 arms survives Holm. On `mv_dino_kid` step 4,000 shares `cd` with best-of-4 and
+step 500, raw is `de`.)
+
+**The reward selector chose well, and the longer fine-tune is the best voxel fine-tune.** At
+temperature 1.0 step 4,000 scores 359 against 395 for step 500, the checkpoint holdout NLL
+preferred: components fall from 9.5 to 6.9 and the largest component from 0.956 to 0.973
+of blocks, with wall thickness and enterability unchanged (1.16, 0.27) and memorization at
+its least on the card (0.58). It closes 59% of the gap from raw (386) to best-of-4 (340)
+without the four-fold sampling cost, but the card cannot separate any of the four T=1.0 arms
+after Holm, so the ordering best-of-4, step 4,000, raw, step 500 is a trend. Temperature 0.7
+hurts every voxel model it touches, step 4,000 included (359 to 478, walls 1.16 to 1.35),
+so on voxels the fine-tune should be sampled at 1.0, and T73's reading that the
+reward-selected checkpoint fills was a temperature effect on the wrong checkpoint.
+
+**Where the ladder stands.** Facades: post-training plus temperature 0.7 is the best
+learned arm (553, ceiling 493, T73). Voxels: best-of-4 (340) and the reward-selected
+fine-tune at 1.0 (359) lead the raw model (386) by a trend, and temperature 0.7 hurts. The
+two tracks want opposite temperatures, so every post-training arm should be scored at its
+track's temperature, and a voxel arm at n=256 cannot resolve gaps of this size; the next
+voxel comparisons should be quoted at n=399.
+
+## T75. The pooled-face probe: a fixed coarse-to-fine hierarchy of real faces, by level (2026-11-02)
+
+Runs `run_20261102_163427_facade_pool_probe_roof` (`+y`) and
+`run_20261102_163441_facade_pool_probe_front` (`-z`), `scripts/facade_pool_probe.py`
+(notes.md §63), every test-split house of `houses_32` with a block on that face,
+n=399 each. A face is pooled by f under a rule (`facade.pool`), repeated back to its
+size, and compared with the original; the face statistics of §60 are then read on
+the pooled level. Means over faces. `depth exact` and `block agree` are on cells
+filled in both; `jumps` is the relief jump rate; `comps` 8-connected components of
+the mask; `empty` the share of faces with no cell left.
+
+Roof plan (`+y`):
+
+| rule | f | mask IoU | recall | precision | depth exact | depth MAE | block agree | jumps | comps | empty |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| real | 1 | 1.000 | 1.000 | 1.000 | 1.000 | 0.00 | 1.000 | 0.095 | 1.38 | 0.000 |
+| any | 2 | 0.922 | 1.000 | 0.922 | 0.711 | 0.63 | 0.779 | 0.107 | 1.13 | 0.000 |
+| any | 4 | 0.859 | 1.000 | 0.859 | 0.489 | 1.59 | 0.678 | 0.063 | 1.02 | 0.000 |
+| any | 8 | 0.826 | 1.000 | 0.826 | 0.357 | 2.68 | 0.587 | 0.032 | 1.00 | 0.000 |
+| any | 16 | 0.817 | 1.000 | 0.817 | 0.278 | 3.55 | 0.509 | 0.012 | 1.00 | 0.000 |
+| majority | 2 | 0.932 | 0.992 | 0.938 | 0.747 | 0.55 | 0.778 | 0.103 | 1.12 | 0.000 |
+| majority | 4 | 0.891 | 0.959 | 0.921 | 0.613 | 1.08 | 0.673 | 0.063 | 1.04 | 0.000 |
+| majority | 8 | 0.848 | 0.946 | 0.885 | 0.521 | 1.73 | 0.583 | 0.029 | 1.01 | 0.000 |
+| majority | 16 | 0.806 | 0.928 | 0.827 | 0.441 | 2.26 | 0.491 | 0.005 | 0.96 | 0.035 |
+| center | 2 | 0.921 | 0.959 | 0.955 | 0.723 | 0.59 | 0.749 | 0.104 | 1.13 | 0.000 |
+| center | 4 | 0.874 | 0.935 | 0.923 | 0.567 | 1.11 | 0.620 | 0.065 | 1.04 | 0.000 |
+| center | 8 | 0.821 | 0.907 | 0.885 | 0.458 | 1.79 | 0.506 | 0.035 | 1.01 | 0.000 |
+| center | 16 | 0.774 | 0.895 | 0.800 | 0.344 | 2.61 | 0.389 | 0.010 | 0.94 | 0.060 |
+
+Front face (`-z`):
+
+| rule | f | mask IoU | recall | precision | depth exact | depth MAE | block agree | jumps | comps | empty |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| real | 1 | 1.000 | 1.000 | 1.000 | 1.000 | 0.00 | 1.000 | 0.115 | 1.14 | 0.000 |
+| any | 2 | 0.858 | 1.000 | 0.858 | 0.737 | 0.62 | 0.696 | 0.090 | 1.04 | 0.000 |
+| any | 4 | 0.761 | 1.000 | 0.761 | 0.520 | 1.41 | 0.556 | 0.051 | 1.01 | 0.000 |
+| any | 8 | 0.710 | 1.000 | 0.710 | 0.354 | 2.28 | 0.466 | 0.026 | 1.00 | 0.000 |
+| any | 16 | 0.695 | 1.000 | 0.695 | 0.261 | 2.97 | 0.412 | 0.007 | 1.00 | 0.000 |
+| majority | 2 | 0.875 | 0.986 | 0.886 | 0.766 | 0.55 | 0.691 | 0.086 | 1.04 | 0.000 |
+| majority | 4 | 0.803 | 0.931 | 0.852 | 0.640 | 0.98 | 0.544 | 0.045 | 1.03 | 0.000 |
+| majority | 8 | 0.741 | 0.901 | 0.805 | 0.561 | 1.30 | 0.456 | 0.019 | 1.01 | 0.000 |
+| majority | 16 | 0.676 | 0.886 | 0.708 | 0.469 | 1.63 | 0.383 | 0.003 | 0.94 | 0.060 |
+| center | 2 | 0.851 | 0.922 | 0.915 | 0.731 | 0.62 | 0.644 | 0.089 | 1.08 | 0.000 |
+| center | 4 | 0.765 | 0.871 | 0.862 | 0.585 | 1.06 | 0.464 | 0.051 | 1.06 | 0.000 |
+| center | 8 | 0.696 | 0.831 | 0.806 | 0.498 | 1.41 | 0.360 | 0.022 | 1.01 | 0.000 |
+| center | 16 | 0.574 | 0.756 | 0.614 | 0.293 | 2.12 | 0.229 | 0.002 | 0.82 | 0.180 |
+
+Faces fill a median 86 percent (roof plan) and 71 percent (front) of their box and
+hold a median 6 to 7 distinct depths and 7 to 10 distinct blocks.
+
+**The hierarchy exists in the data, and its levels read as the sheets show**
+(`sheet_any.png`, `sheet_majority.png` in each run). On a 32-cell face: f = 16 is
+the box and its dominant material; f = 8 the wall, roof and ground bands; f = 4
+storeys, the roof line and the footprint shape (ridge, wings, courtyards on the
+roof plan); f = 2 openings and trim; f = 1 the relief. Windows and doors are one
+or two cells wide and survive only to f = 2, so the periodic structure of a facade
+is a fine-level feature, not the 8 x 8 feature research.md H.7 guessed.
+
+**Pooling does not create the failure modes the models have.** Every pooled level
+is smoother than the face (jump rate falls from 0.10 to 0.11 real to 0.05 at f = 4
+and 0.02 at f = 8) and one piece (components 1.00 to 1.04 from f = 4 up). The
+generated faces of T68 fragment and speckle; their coarse levels would not.
+
+**What a level loses first is depth, then block, then mask.** Depth exactness is
+0.71 to 0.77 at f = 2 and 0.49 to 0.64 at f = 4 with a mean error of one block,
+which is a pitched roof crossing four depths inside one 4 x 4 cell. Block
+agreement is 0.78 at f = 2 and 0.56 to 0.68 at f = 4: trims, frames and second
+wall materials sit under a different material than their cell's vote. The mask is
+the last to go, and on the roof plan it hardly goes at all, because the silhouette
+from above is the footprint plus the ground plate. For a residual hierarchy this
+says the finest two levels carry openings, trim and relief; the coarse levels carry
+the shape and the palette.
+
+**Rules.** `any` keeps every real cell at every level (recall 1.000) and pays in
+precision, 0.70 on the front at f = 8; `majority` and `center` delete thin
+features, losing a tenth to a fifth of the cells by f = 8 and emptying 6 to 18
+percent of front faces at f = 16. The three agree on depth and block within a few
+points. `any` is the rule for step 2, the cascade, with `majority` as the control.
+
+## T76. Mesh interior probe: Objaverse buildings with hidden interiors, n=64 (2026-11-02)
+
+Run `outputs/run_20261102_173929_mesh_probe` (`scripts/run_mesh_probe.py`, notes.md
+§64; smoke run `run_20261102_172754_mesh_probe_smoke`, n=4). 256 Objaverse
+building/room meshes with >= 25% of face area invisible from every exterior
+direction: 128 reference, 128 pool, 64 probed. Separation = (probe - real
+held-out) / noise-floor sd, [95% paired-subsample interval]. Strip and Fill keep
+the exterior renders identical to 0.03/255 mean pixel difference.
+
+| metric | Strip | Fill | noise 0.5% | missing wall | decim 5% |
+|---|--:|--:|--:|--:|--:|
+| MV-KID DINOv2, 4 views | +0.0 [-0.0, +0.1] | +0.0 [-0.0, +0.1] | +28.3 | +7.0 | +24.5 |
+| MV-KID CLIP-L, 4 views | +0.2 [+0.1, +0.3] | +0.2 [+0.1, +0.3] | +15.6 | +4.5 | +10.4 |
+| MV-KID DINOv2, 8 views | +0.0 [-0.0, +0.1] | +0.0 [-0.0, +0.1] | +42.1 | +7.9 | +29.4 |
+| MV-KID DINOv2, 16 views | +0.0 [-0.0, +0.1] | +0.0 [-0.0, +0.1] | +29.5 | +6.9 | +22.3 |
+| MV-FD DINOv2 / CLIP-L | +0.0 / +0.0 | +0.0 / +0.0 | +9.0 / +8.1 | +1.7 / +1.6 | +8.1 / +6.3 |
+| CLIP score (drop) | -0.0 [-0.1, +0.0] | -0.0 [-0.1, +0.1] | -0.3 | +0.3 | +1.7 |
+| cutaway KID DINOv2 | +9.0 [+6.1, +11.8] | +10.2 [+7.4, +13.4] | +32.9 | +5.9 | +22.5 |
+| cutaway KID CLIP-L | +5.5 [+3.8, +7.5] | +11.7 [+9.1, +14.4] | +24.7 | +4.9 | +12.1 |
+| CD all faces, MMD | +2.8 [+2.3, +3.7] | -0.1 [-1.0, +0.3] | +0.3 | +5.8 | +2.1 |
+| CD all faces, 1-NNA | +1.8 [+1.2, +2.9] | +1.1 [+0.2, +1.9] | +0.6 | +5.3 | +0.8 |
+| CD visible faces, MMD | -0.2 [-0.3, -0.0] | +0.0 [-0.2, +0.2] | -0.3 | +4.7 | +1.2 |
+| CD visible faces, 1-NNA | +0.0 [-0.3, +0.2] | +0.1 [-0.3, +0.5] | -0.1 | +4.0 | +0.7 |
+| CD render depth, MMD | +0.0 [-0.1, +0.1] | -0.0 [-0.1, +0.1] | +0.2 | +3.6 | +1.0 |
+| CD render depth, 1-NNA | -0.1 [-0.3, +0.2] | +0.0 [-0.3, +0.6] | -0.4 | +3.8 | +1.0 |
+| CD voxel volume, MMD | +1.9 [+1.5, +2.7] | -1.8 [-2.7, -1.4] | +0.2 | +1.0 | +0.3 |
+| 1-IoU voxel, MMD | +1.7 [+1.3, +1.9] | -1.8 [-2.6, -1.6] | +0.4 | +1.7 | +1.6 |
+| **V-KID (geom_kid)** | **+11.9 [+10.4, +13.3]** | **+50.8 [+46.4, +56.1]** | +12.1 | +8.6 | +14.0 |
+
+1-COV rows are within 3 floors everywhere and omitted (full 25-row table in the
+run's `table.md`). Voxel count vs real: Strip x0.86, Fill x1.37.
+
+**The blindness transfers off Minecraft.** Every exterior render metric, every
+backbone and view count, CLIP score, and chamfer on exterior or render-derived
+points sits within 0.3 floors of real under both probes, while the same metrics
+resolve the exterior controls at 4 to 42 floors. V-KID on the voxelised mesh
+separates Fill at 51 and Strip at 12; cutaway renders see both at 6 to 12. The one
+partial exception is chamfer on points from *all* faces, which sees Strip at 2 to
+3 floors and Fill at about 1: interior walls disappearing is visible to a sampler
+that reaches them, but nearest-neighbour set statistics at n = 64 resolve it
+weakly, and they are equally weak on the exterior controls (0.5% noise does not
+move them), so part of that is power rather than interior sensitivity.
+
+## T77. Post-training, facades: best-of-4 at temperature 0.7 reaches the facade ceiling on geometry (2026-11-02)
+
+Card `run_20261102_131429_bench_facade_rung_1_and_2_at_temperature_0_7` (`--tier both
+--n 399`, self-validation 6/6). Best-of-4 on face_solidity from the 20M D4 parent, drawn at
+temperature 0.7 (1,578 drawn, 395 kept, mean face_solidity 0.625 to 0.861; recipe
+`scripts/posttrain_facade_bon_t07.sh`), against every facade post-training arm.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| **best-of-4, T=0.7** | **483** | 155 | 13.5 | 0.149 | 15.9 | 0.95 | 0.37 | 0.49 |
+| real@facades6 (ceiling) | 493 | 1 | 13.8 | 0.001 | 13.5 | 0.81 | 0.73 | 0.51 |
+| RFT step 500, T=0.7 (T73) | 553 | 190 | 15.4 | 0.182 | 17.6 | 0.94 | 0.35 | 0.58 |
+| raw, T=0.7 (T70) | 637 | 280 | 17.8 | 0.268 | 29.8 | 0.84 | 0.31 | 0.51 |
+| best-of-4, T=1.0 (T70) | 871 | 313 | 24.4 | 0.300 | 27.6 | 0.93 | 0.49 | 0.42 |
+| raw, T=1.0 (T68) | 1082 | 487 | 30.3 | 0.468 | 60.0 | 0.81 | 0.35 | 0.48 |
+
+(Holm groups on `geom_kid`: best-of-4 at 0.7 and the ceiling share `c`, the fine-tune is `cd`,
+raw at 0.7 `d`; best-of-4 beats raw at 0.7 by 4.3 [3.5, 5.2], p_adj 0.009, and leads the
+fine-tune by 1.9, p_adj 0.20. On `mv_dino_kid` best-of-4 beats the fine-tune, 0.033
+[0.022, 0.042], p_adj 0.009.)
+
+**Best-of-4 and temperature 0.7 compose, and the result sits on the facade ceiling.** The
+geometry pillar is 483 against 493 for real faces lifted the same way, indistinguishable
+after Holm, so on `geom_kid` the facade generator has caught up with its own
+representation: what still separates it from real houses is the lift (empty interiors), not
+the faces. Appearance is where the gap remains (155 against 1), and it is the best
+appearance of any learned facade arm. Best-of-4 beats the fine-tune at matched temperature
+on appearance and by a trend on geometry, without memorization (0.49, at real), so on
+facades the inference-time rung is still ahead of the fine-tuning rung, as it is on voxels
+(T74). Enterable stays at the 0.7 level (0.37, ceiling 0.73). The further gains on this
+track have to come from the interior, since a facade arm can no longer move much on
+`geom_kid` relative to the ceiling.
+
+## T78. Voxels at 20M: the M2b recipe with only the model size changed (2026-11-02)
+
+Card `run_20261102_161948_bench_voxel_M2b_at_20M_against_5M_raw_and` (`--tier both --n 256
+--baselines`, self-validation 6/6). `anneal-pretrain-20m.yaml` (20,000 steps on `anneal`,
+547M tokens, 49 minutes) then `houses32-sft-20m.yaml` (16,000 steps, lr 1e-4, dropout 0,
+`select=best`), seed 1, the same shard, schedule and seed as `m2b_sft_s1`; runs
+`outputs/run_20261102_142710_m2_20m_pretrain_s1` and `outputs/run_20261102_151738_m2b_20m_sft_s1`.
+Recipe `scripts/m2_20m_voxel.sh`.
+
+Both runs finished training and then ran out of memory in the end-of-run draw (64 builds per
+batch at 20M), so neither wrote `summary.json` or a registry row and the in-run card is
+missing; the configs now set `sample_batch: 16`. The 256 samples were drawn afterwards from
+`best.pt` (step 1,500). The best-of-4 arm failed for the same missing `summary.json`; it was
+rerun on 2026-11-03 (1,024 draws in 7,424 s at `--batch 16`, kept 256 by `lcc26`) and the
+whole card rescored as `run_20261103_101858_bench_voxel_M2b_at_20M_against_5M_raw_and`
+(self-validation 6/6, the other arms unchanged).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | lcc | enterable | nn pct | holdout NLL |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 5M, best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 | 4.9 | 0.977 | 0.21 | 0.61 | |
+| **20M, best-of-4 lcc26** | **341** | 178 | 16.3 | 0.288 | 3.8\* | 0.988\* | 0.30 | 0.50 | |
+| **20M, raw** | **346** | 215 | 16.6 | 0.347 | 8.6 | 0.949 | 0.26 | 0.58 | 0.286 |
+| 5M, raw (T60, T71) | 386 | 254 | 18.6 | 0.410 | 11.3 | 0.939 | 0.20 | 0.64 | 0.420 |
+
+(Holm groups on `geom_kid`: 5M best-of-4 `c`, 20M `cd`, 5M raw `d`; 20M against 5M raw 1.9
+[1.1, 2.8], p_adj 0.09. On `mv_dino_kid` 20M and 5M best-of-4 share `c`, and 20M beats 5M raw
+by 0.063 [0.041, 0.083], p_adj 0.016.)
+
+**Four times the parameters buys what best-of-4 bought, at a quarter of the sampling cost.**
+Holdout NLL falls from 0.420 to 0.286 at the selected checkpoint, and on the board the 20M
+model ties 5M best-of-4 (346 against 340, same Holm groups on both realism metrics): it
+beats 5M raw on appearance after Holm and by a trend on geometry, with fewer pieces per
+build (8.6 against 11.3), more enterable builds (0.26) and less memorization (0.58). The SFT
+stage peaks early and then overfits hard: `select=best` kept step 1,500 of 16,000 (holdout
+0.286; 0.797 at the end), so a 20M SFT wants a far shorter schedule or the pretraining shard
+mixed in.
+
+\* Components and lcc are what `lcc26` selected on, so for the best-of-4 rows they are
+method-internal and carry no claim (honesty rule, `blockgen/posttrain/__init__.py`).
+
+**Best-of-4 on the 20M model moves appearance, not geometry.** On the rescored card it ranks
+341, level with 5M best-of-4 (340) and 20M raw (346). Its `geom_kid` (16.3) shares Holm group
+`c` with 5M best-of-4 and does not separate from 20M raw. On `mv_dino_kid` it is alone in
+the best group: 0.288 against 0.347 for 20M raw (0.059 [0.040, 0.077], p_adj 0.013) and
+0.344 for 5M best-of-4 (0.056 [0.034, 0.076], p_adj 0.012), so its appearance pillar falls
+from 215 to 178. Geometry is the worst pillar for every voxel arm here, and at about 340 it
+does not move with either model size or best-of-4 once one of them is in place. It is also
+the most enterable arm (0.30) and the least memorizing (nn percentile 0.50), but builds get
+smaller (max-dim W1 2.96 against 0.64 raw), the same shrinkage connectivity selection gave
+at 5M. The voxel geometry floor near 340 is the thing to attack next, not by stacking
+selection on size.
+
+## T79. Dream-Cubed, the first published generator on the bench: fast-tier smoke (2026-11-02)
+
+Generation run `outputs/run_20261102_220927_dreamcubed_village_md4p4` (notes.md §66). It
+used Dream-Cubed `MD4_p4_boosted` (Apache-2.0) with class `village`, CFG 4.0, 1000 steps and
+seed 0, and produced 288 chunks at 17.8 s per chunk on the shared GPU. Bench run
+`outputs/run_20261102_233900_bench_dreamcubed-smoke` used the fast tier, `--n 256` and CPU.
+The controls are at n=256. File-backed arms are not capped, so the external arms are at
+284 and 288.
+
+| arm | n | geom_kid | NN-IoU to train | dup rate | diversity | BlockScore (worst pillar) |
+|---|--:|--:|--:|--:|--:|--:|
+| real_test | 256 | -0.14 | 0.375 | 0.008 | 0.898 | 0.00 |
+| dreamcubed (extracted) | 284 | 8.63 [8.16, 9.19] | 0.420 [0.400, 0.440] | 0.004 | 0.867 | **181.3** (geometry) |
+| dreamcubed_raw (whole chunk) | 288 | 36.46 | 0.454 | 0.000 | 0.426 | DQ (mode collapse) |
+
+The other `dreamcubed` pillars are palette +87.9, coherence +0.47, geometry scalars +0.67 and
+traversal +1.68. Its exact-palette JSD is 0.645 against 0.072 for real, and 35.6% of its
+builds are enterable against 94.9% for real.
+
+**Dream-Cubed is not memorising our corpus.** Its mean NN-IoU to the houses_32 train split
+is 0.42, within 0.05 of held-out real. Its duplicate rate is 0.4%, one build of 284, below
+real_test's 0.8%. Its training data shares no source with GrabCraft, 3D-Craft or text2mc.
+Vanilla village houses do occur on GrabCraft, so a small overlap was possible; the
+duplicate rate rules out a large one.
+
+**Geometry is the worst pillar.** The builds are vanilla village pieces at about half the
+corpus's size, with a mean of 453 blocks and a mean max dimension of 14 against 904 and 19.
+They also have little enclosed space: the sealed-interior ratio is 0.016 against 0.114.
+Fragments of desert and savanna villages that are not houses add to this. The palette pillar
+partly reflects our conversion, because Dream-Cubed's material-free slab and stair tokens
+collapse to one material each. Scored whole, the chunks are disqualified for mode collapse,
+since every chunk is a 32-wide slab of terrain. This is why the extraction step exists.
+
+**Placement.** This is a fast-tier smoke run, not a leaderboard row: the controls are at
+n=256 while the arm is at 284. Read only as a rough guide, the geometry pillar sits in the
+same range as our own voxel arms. In the 2026-11-02 v1 re-score (a different run, n≈251),
+canon_oriented scored 136.7 and native_oriented 106.9. The ranked number has to come from
+the leaderboard run, where all arms share n.
+
+## T80. VLM judge (gpt-4o), 3D-Craft only, pre-registered (2026-11-02)
+
+Run `outputs/run_20261102_214026_vlm_judge`, 2,288 trials, $4.31. See notes.md §67.
+
+| condition | view | n | P(real) | CI | prediction met |
+|---|---|--:|--:|---|---|
+| Fill-Interior | exterior | 256 | 0.53 | [0.50, 0.56] | chance: yes |
+| Fill-Interior | roof off | 256 | 0.70 | [0.64, 0.75] | above: yes |
+| Fill-Interior | quadrant cut | 128 | 0.63 | [0.53, 0.72] | above: yes |
+| Hollow-Shell | exterior | 256 | 0.52 | [0.49, 0.54] | chance: yes |
+| Hollow-Shell | roof off | 128 | 0.73 | [0.66, 0.80] | above: yes |
+| vs uniform random | exterior | 128 | 1.00 | [1.00, 1.00] | yes |
+| Gabled vs Patch-Stitch | exterior | 256 | P(Gabled) 0.28 | [0.21, 0.35] | no (judge agrees with metrics) |
+
+System Bradley–Terry vs metrics (11 arms): Spearman MV-KID 0.76, BlockScore 0.57, V-KID 0.16.
+Real ranks 6th of 11.
+
+## T81. 3D-native rows (Uni3D, ULIP-2, chamfer, exact EMD) under three samplers: Objaverse strict multi-room and the Minecraft ladder, two seeds (2026-11-03)
+
+Method and reading in notes §68. Cells: z seed 0 / z seed 1, where z is the null-standardised separation (arm minus real held-out, over the sd of 48 real n-draws); the raw difference at seed 0 (MMD^2 for KID rows, raw MMD for MMD rows) in brackets. Samplers: all = every face, vis = exterior-ray-visible faces, cut = cutaway-visible faces. Chamfer uses 2,048 points; EMD is exact assignment on 512 points; the encoders use 10k xyz+rgb points.
+
+**Objaverse**: 290 strict multi-room objects (the 6 GB budget allowed 290, not 512); ref 130, pool 160, n = 96. Runs `outputs/run_20261103_004358_mesh_probe3d_s0`, `outputs/run_20261103_030030_mesh_probe3d_s1`. Seed agreement: Pearson 0.91 over 275 cells, blind-verdict agreement 96%. Licences: 213 BY, 3 BY-SA, 65 BY-NC-SA, 9 BY-NC.
+
+| metric | strip | fill | noise | wall | decim | sd (s0) |
+|---|---|---|---|---|---|---|
+| dino4_kid | +0.0 / +0.0 (+7.3e-05) | +0.0 / +0.0 (+0.00015) | +34.7 / +66.6 (+0.29) | +9.5 / +15.0 (+0.079) | +21.3 / +29.0 (+0.18) | 0.00833 |
+| clip4_kid | +0.0 / +0.1 (+5.5e-05) | +0.0 / +0.1 (+0.00013) | +18.8 / +21.2 (+0.097) | +8.4 / +8.4 (+0.044) | +13.6 / +13.3 (+0.07) | 0.00517 |
+| dino16_kid | -0.0 / +0.0 (-0.00041) | -0.0 / +0.0 (-0.00032) | +40.3 / +72.0 (+0.38) | +8.5 / +12.1 (+0.079) | +22.3 / +27.8 (+0.21) | 0.00931 |
+| dino_cut4_kid | +10.9 / +9.0 (+0.071) | +13.5 / +13.7 (+0.089) | +43.9 / +32.7 (+0.29) | +7.0 / +6.2 (+0.046) | +22.3 / +14.6 (+0.15) | 0.00655 |
+| clip_cut4_kid | +4.9 / +6.4 (+0.017) | +13.0 / +16.2 (+0.045) | +30.2 / +31.5 (+0.1) | +7.9 / +8.7 (+0.028) | +11.9 / +11.5 (+0.041) | 0.00347 |
+| clipscore_drop | +0.1 / -0.1 | +0.0 / -0.1 | +0.1 / -0.6 | +1.0 / +1.8 | +0.0 / -0.5 | 0.284 |
+| vkid_geom | +23.7 / +26.5 | +73.8 / +118.4 | +18.1 / +31.8 | +16.2 / +13.4 | +12.0 / +12.4 | 0.289 |
+| uni3d_all_kid | +4.6 / +11.5 (+0.051) | +8.5 / +14.1 (+0.094) | +13.7 / +34.0 (+0.15) | +9.8 / +15.4 (+0.11) | +4.3 / +6.7 (+0.047) | 0.011 |
+| uni3d_all_fd | +5.6 / +6.8 | +8.7 / +8.1 | +10.6 / +15.5 | +6.3 / +7.1 | +5.0 / +5.0 | 0.0101 |
+| uni3d_all_textscore_drop | -0.2 / -2.7 | +1.7 / +0.5 | +1.2 / +0.5 | -1.7 / -3.1 | -2.2 / -2.1 | 0.538 |
+| uni3d_vis_kid | +0.4 / -0.2 (+0.0035) | +0.3 / +0.0 (+0.0026) | +9.5 / +20.7 (+0.095) | +16.5 / +18.5 (+0.17) | +7.9 / +8.3 (+0.08) | 0.01 |
+| uni3d_vis_fd | +0.3 / -0.4 | +0.3 / +0.2 | +7.6 / +9.9 | +10.2 / +9.3 | +6.7 / +6.5 | 0.0103 |
+| uni3d_vis_textscore_drop | +0.6 / -0.3 | +0.5 / -0.9 | +0.2 / +0.6 | -2.1 / -1.9 | -2.9 / -0.6 | 0.457 |
+| uni3d_cut_kid | +4.3 / +8.4 (+0.053) | +6.3 / +12.4 (+0.078) | +3.7 / +13.2 (+0.045) | +5.6 / +10.0 (+0.069) | +1.9 / +2.9 (+0.023) | 0.0124 |
+| uni3d_cut_fd | +5.2 / +5.1 | +6.5 / +5.3 | +3.7 / +5.3 | +3.9 / +3.9 | +2.6 / +2.9 | 0.0111 |
+| uni3d_cut_textscore_drop | +1.6 / -0.3 | +2.5 / +0.9 | +1.4 / +0.7 | -0.1 / -1.3 | -0.4 / -0.1 | 0.544 |
+| ulip2_all_kid | +2.4 / +4.2 (+0.02) | +3.3 / +8.4 (+0.028) | +5.0 / +19.6 (+0.041) | +12.5 / +29.7 (+0.1) | +7.8 / +14.0 (+0.065) | 0.00836 |
+| ulip2_all_fd | +2.8 / +3.1 | +2.3 / +3.1 | +2.5 / +5.3 | +5.9 / +7.5 | +4.4 / +5.3 | 0.0145 |
+| ulip2_all_textscore_drop | +0.8 / +0.4 | -0.6 / -0.6 | -0.7 / -0.5 | +0.9 / +0.9 | -0.4 / -0.3 | 0.675 |
+| ulip2_vis_kid | -0.0 / -0.3 (-0.00013) | +0.1 / -0.1 (+0.00046) | +6.5 / +16.3 (+0.05) | +15.2 / +22.4 (+0.12) | +9.3 / +10.9 (+0.071) | 0.0077 |
+| ulip2_vis_fd | +0.0 / -0.1 | +0.3 / +0.2 | +2.7 / +7.4 | +6.4 / +8.2 | +4.3 / +6.4 | 0.0149 |
+| ulip2_vis_textscore_drop | +0.1 / -0.2 | +0.0 / +0.1 | -1.2 / -0.3 | -0.2 / +0.6 | -1.1 / -0.7 | 0.737 |
+| ulip2_cut_kid | +4.2 / +4.7 (+0.034) | +4.9 / +10.8 (+0.039) | +3.5 / +11.5 (+0.028) | +8.4 / +18.8 (+0.067) | +5.1 / +6.0 (+0.04) | 0.00796 |
+| ulip2_cut_fd | +4.0 / +2.3 | +2.8 / +3.0 | +2.7 / +3.9 | +5.4 / +4.5 | +4.0 / +3.7 | 0.0109 |
+| ulip2_cut_textscore_drop | +1.3 / +0.4 | -0.7 / -0.3 | +0.3 / +0.6 | +0.4 / +0.5 | -0.1 / +0.0 | 0.542 |
+| cd_all_mmd | +3.4 / +3.9 (+0.00094) | -0.6 / -0.4 (-0.00015) | -0.3 / +0.0 (-9.3e-05) | +9.9 / +10.9 (+0.0027) | +0.2 / +1.4 (+6.9e-05) | 0.000277 |
+| cd_all_one_minus_cov | +0.5 / +0.3 | +0.7 / +1.4 | +0.0 / +1.1 | +3.3 / +3.5 | -0.7 / -0.5 | 0.0326 |
+| cd_all_one_nna | +0.6 / +1.2 | +0.7 / +0.3 | -0.2 / -0.4 | +5.3 / +8.4 | -0.7 / +0.0 | 0.0473 |
+| cd_vis_mmd | -0.1 / +0.2 (-2.5e-05) | -0.0 / +0.1 (-1.6e-05) | -0.6 / -0.6 (-0.00021) | +7.9 / +10.5 (+0.0028) | -0.9 / +0.3 (-0.00031) | 0.000352 |
+| cd_vis_one_minus_cov | +0.0 / -0.2 | -0.2 / -0.2 | -1.6 / -0.5 | +1.2 / +1.2 | -0.4 / -1.0 | 0.0384 |
+| cd_vis_one_nna | +0.1 / -0.4 | -0.1 / -0.2 | +0.0 / +0.1 | +7.6 / +7.5 | -0.7 / +0.6 | 0.039 |
+| cd_cut_mmd | +2.8 / +2.9 (+0.00077) | -0.7 / -0.1 (-0.0002) | -0.2 / +0.1 (-5.5e-05) | +8.8 / +7.7 (+0.0024) | +0.2 / +0.9 (+6.5e-05) | 0.000273 |
+| cd_cut_one_minus_cov | +0.7 / +1.6 | +1.0 / +0.8 | +0.2 / +1.1 | +2.2 / +2.1 | -1.5 / +0.3 | 0.0317 |
+| cd_cut_one_nna | +1.3 / +1.8 | +0.7 / -0.1 | -0.2 / +0.2 | +5.8 / +6.2 | -0.9 / +0.3 | 0.0425 |
+| emd_all_mmd | +3.4 / +3.8 (+0.0059) | +0.7 / +0.2 (+0.0013) | +3.7 / +2.3 (+0.0064) | +19.6 / +20.5 (+0.034) | +0.9 / +1.7 (+0.0015) | 0.00171 |
+| emd_all_one_minus_cov | +1.2 / +1.0 | +0.9 / -0.4 | -1.2 / -0.6 | +7.9 / +5.2 | -1.5 / -0.8 | 0.0263 |
+| emd_all_one_nna | +2.5 / +3.6 | +1.4 / +1.2 | -0.1 / +0.2 | +7.6 / +9.0 | +0.0 / +0.8 | 0.0493 |
+| emd_vis_mmd | -0.0 / +0.2 (-3.1e-05) | -0.2 / +0.3 (-0.00042) | +0.5 / +0.9 (+0.0011) | +11.6 / +9.9 (+0.026) | +0.4 / +0.6 (+0.0008) | 0.00226 |
+| emd_vis_one_minus_cov | -0.4 / -0.8 | -0.2 / -1.0 | -0.2 / -1.0 | +4.0 / +2.8 | -0.7 / -1.6 | 0.035 |
+| emd_vis_one_nna | +0.6 / +0.0 | +0.9 / +0.8 | +0.1 / -0.9 | +6.8 / +8.3 | -0.3 / -0.8 | 0.0483 |
+| emd_cut_mmd | +2.2 / +3.3 (+0.0042) | -0.1 / -0.1 (-0.00027) | +0.6 / +0.8 (+0.0011) | +13.2 / +15.2 (+0.025) | +0.5 / +1.0 (+0.001) | 0.00189 |
+| emd_cut_one_minus_cov | +2.0 / +0.4 | +0.7 / -0.2 | +1.7 / +0.2 | +6.2 / +4.8 | -1.0 / -0.2 | 0.0312 |
+| emd_cut_one_nna | +2.4 / +1.6 | +1.1 / -0.7 | +0.2 / +0.0 | +7.4 / +6.3 | -0.2 / -0.5 | 0.042 |
+| cd_render_mmd | +0.1 / +0.0 (+2.6e-05) | +0.1 / +0.1 (+2.9e-05) | +0.0 / +0.0 (+1e-05) | +9.4 / +8.5 (+0.0039) | +0.1 / +1.0 (+4.3e-05) | 0.000418 |
+| cd_vol_mmd | +3.1 / +2.3 (+0.00079) | -1.5 / -0.4 (-0.00038) | +0.7 / +0.7 (+0.00019) | +5.0 / +4.0 (+0.0013) | +0.3 / +1.0 (+7.8e-05) | 0.000257 |
+| iou_vox_mmd | +3.0 / +2.4 (+0.042) | -1.7 / -1.4 (-0.023) | +1.0 / +1.0 (+0.015) | +2.7 / +2.0 (+0.038) | +1.0 / +1.2 (+0.014) | 0.0142 |
+
+**Minecraft** (houses_32 split 0, usable subset): ref 248 val, pool 245 test, n = 128. Runs `outputs/run_20261103_004358_mc_probe3d_s0`, `_s1`. Seed agreement: Pearson 0.98 over 336 cells, verdict 93%.
+
+| metric | solidify | hollow | canon16 | chunk_delete_40 | occ_noise_5 | jitter_columns | material_shuffle | rot90_1 | sd (s0) |
+|---|---|---|---|---|---|---|---|---|---|
+| uni3d_all_kid | +21.7 / +22.6 (+0.08) | +8.5 / +9.6 (+0.031) | +154.8 / +186.0 (+0.57) | +50.9 / +65.4 (+0.19) | +51.4 / +62.5 (+0.19) | +161.2 / +177.5 (+0.59) | +16.5 / +18.9 (+0.061) | +1.6 / +1.1 (+0.0058) | 0.00367 |
+| uni3d_all_fd | +9.9 / +11.1 | +5.0 / +5.9 | +52.4 / +63.1 | +25.5 / +29.8 | +17.2 / +19.4 | +54.3 / +59.1 | +6.5 / +6.9 | -0.0 / +0.2 | 0.00499 |
+| uni3d_all_textscore_drop | +2.7 / +1.7 | +0.1 / -0.0 | +3.4 / +2.7 | +4.4 / +3.0 | -0.0 / -1.6 | -3.5 / -4.8 | -1.9 / -2.0 | +0.2 / -0.2 | 0.308 |
+| uni3d_vis_kid | -0.1 / +0.4 (-0.00022) | +0.1 / +0.4 (+0.00028) | +128.2 / +117.1 (+0.45) | +46.0 / +43.1 (+0.16) | +88.4 / +74.4 (+0.31) | +187.6 / +150.0 (+0.67) | +19.0 / +16.0 (+0.068) | +1.6 / +0.8 (+0.0055) | 0.00355 |
+| uni3d_vis_fd | +0.3 / +0.5 | +0.1 / +0.3 | +50.1 / +45.6 | +29.0 / +24.0 | +37.0 / +30.5 | +75.7 / +60.9 | +8.6 / +6.6 | +0.6 / +0.3 | 0.0042 |
+| uni3d_vis_textscore_drop | -0.1 / +0.4 | +0.3 / +0.7 | -0.8 / +0.8 | +1.5 / +1.3 | -2.7 / -4.7 | -6.4 / -6.8 | +0.8 / +1.2 | +1.0 / +2.4 | 0.27 |
+| uni3d_cut_kid | +37.0 / +30.4 (+0.11) | +13.5 / +10.4 (+0.041) | +132.3 / +117.9 (+0.4) | +43.6 / +49.8 (+0.13) | +49.7 / +44.2 (+0.15) | +151.0 / +116.8 (+0.46) | +19.1 / +15.8 (+0.058) | +1.9 / +1.8 (+0.0059) | 0.00306 |
+| uni3d_cut_fd | +20.2 / +21.3 | +7.7 / +6.7 | +49.4 / +54.6 | +25.7 / +31.2 | +16.4 / +17.7 | +51.0 / +48.9 | +8.1 / +7.1 | -0.7 / -0.8 | 0.00396 |
+| uni3d_cut_textscore_drop | +0.5 / +1.6 | +1.7 / +2.2 | -2.0 / -0.7 | -2.0 / -2.3 | +4.8 / +3.8 | +3.3 / +2.8 | -0.1 / -0.6 | -1.1 / -0.2 | 0.242 |
+| ulip2_all_kid | +4.0 / +3.2 (+0.016) | +2.1 / +1.9 (+0.0081) | +70.2 / +63.0 (+0.28) | +49.1 / +48.1 (+0.19) | +40.7 / +38.4 (+0.16) | +96.2 / +84.3 (+0.38) | +33.6 / +27.0 (+0.13) | +0.1 / +0.1 (+0.00026) | 0.00392 |
+| ulip2_all_fd | +3.6 / +3.7 | +1.8 / +2.2 | +31.2 / +36.0 | +26.1 / +31.4 | +16.4 / +19.6 | +40.2 / +46.5 | +13.2 / +13.8 | +0.1 / -0.1 | 0.0057 |
+| ulip2_all_textscore_drop | +2.6 / +2.0 | +1.3 / +0.7 | +1.2 / +0.2 | +7.0 / +4.8 | +0.7 / +0.9 | +3.3 / +2.8 | -2.9 / -2.8 | +0.2 / -0.4 | 0.281 |
+| ulip2_vis_kid | -0.1 / +0.1 (-0.00047) | -0.1 / +0.0 (-0.00063) | +62.1 / +60.8 (+0.26) | +41.0 / +45.0 (+0.17) | +50.1 / +52.4 (+0.21) | +100.9 / +97.1 (+0.43) | +30.6 / +26.6 (+0.13) | -0.1 / +0.0 (-0.0005) | 0.00426 |
+| ulip2_vis_fd | -0.1 / +0.2 | -0.2 / +0.1 | +28.3 / +28.3 | +22.4 / +24.1 | +20.8 / +21.7 | +42.2 / +42.4 | +12.2 / +11.4 | -0.0 / -0.1 | 0.00594 |
+| ulip2_vis_textscore_drop | -0.1 / +0.1 | +0.0 / +0.3 | -1.0 / -1.0 | +3.3 / +2.2 | -2.4 / -1.6 | +0.3 / +0.0 | -1.6 / -1.6 | +0.2 / +0.3 | 0.379 |
+| ulip2_cut_kid | +9.8 / +6.4 (+0.041) | +2.2 / +1.3 (+0.0093) | +52.5 / +41.8 (+0.22) | +34.3 / +30.8 (+0.15) | +29.4 / +23.2 (+0.12) | +85.9 / +64.1 (+0.36) | +22.9 / +15.0 (+0.097) | +0.1 / -0.0 (+0.00061) | 0.00424 |
+| ulip2_cut_fd | +8.0 / +7.8 | +2.7 / +3.0 | +26.4 / +28.2 | +21.9 / +25.1 | +13.7 / +14.9 | +42.9 / +44.1 | +10.4 / +9.2 | +0.0 / +0.1 | 0.0053 |
+| ulip2_cut_textscore_drop | -0.1 / +0.2 | +1.6 / +1.3 | -2.1 / -3.3 | +2.7 / +2.4 | +2.8 / +4.1 | +9.4 / +10.0 | -0.4 / -0.5 | -0.3 / -0.7 | 0.264 |
+| cd_all_mmd | +6.3 / +8.0 (+0.00057) | +1.1 / +1.7 (+0.0001) | +55.0 / +66.2 (+0.005) | +13.1 / +15.9 (+0.0012) | -0.6 / -0.1 (-5.1e-05) | -2.7 / -2.7 (-0.00024) | -0.0 / +0.2 (-2.5e-06) | -0.1 / +0.9 (-9.3e-06) | 9.07e-05 |
+| cd_all_one_minus_cov | +0.0 / +0.6 | -0.6 / -0.2 | +12.1 / +12.7 | -1.2 / +1.0 | -0.6 / -0.4 | +0.6 / +0.6 | -0.2 / -0.2 | -1.0 / -0.2 | 0.0197 |
+| cd_all_one_nna | +3.3 / +1.6 | +1.2 / +0.6 | +11.8 / +12.3 | +4.6 / +5.1 | +1.4 / +1.2 | -0.4 / -0.8 | -0.8 / -0.7 | +1.1 / -0.8 | 0.0388 |
+| cd_vis_mmd | -0.1 / -0.1 (-9.8e-06) | -0.4 / -0.3 (-3.8e-05) | +64.3 / +75.2 (+0.0067) | +8.0 / +9.5 (+0.00084) | -2.5 / -2.9 (-0.00026) | -5.0 / -5.4 (-0.00052) | -0.2 / -0.1 (-2.3e-05) | -0.3 / +1.3 (-2.7e-05) | 0.000104 |
+| cd_vis_one_minus_cov | +0.0 / +0.2 | -0.4 / -0.2 | +14.0 / +15.6 | +0.6 / +1.0 | +0.6 / +1.2 | -1.0 / +2.0 | +0.0 / -0.6 | +0.0 / +0.6 | 0.0205 |
+| cd_vis_one_nna | +0.0 / -0.1 | +0.0 / -0.3 | +15.2 / +14.1 | +5.1 / +6.5 | +4.2 / +2.2 | +2.3 / +0.5 | -0.5 / -0.4 | +1.5 / +1.2 | 0.0305 |
+| cd_cut_mmd | +7.8 / +6.9 (+0.00059) | +1.8 / +1.4 (+0.00013) | +55.6 / +51.2 (+0.0042) | +14.9 / +14.0 (+0.0011) | -0.4 / -0.7 (-2.8e-05) | -2.6 / -2.0 (-0.0002) | +0.0 / -0.2 (+2e-06) | -0.6 / -0.3 (-4.6e-05) | 7.53e-05 |
+| cd_cut_one_minus_cov | +0.0 / -0.2 | -0.7 / -1.1 | +12.7 / +12.2 | -1.6 / +0.2 | -0.7 / +0.0 | -0.4 / +0.0 | -0.4 / -0.2 | +0.0 / -0.4 | 0.0182 |
+| cd_cut_one_nna | +5.4 / +4.2 | +2.3 / +0.6 | +14.6 / +12.3 | +6.4 / +6.1 | +1.6 / +1.3 | -0.2 / +0.3 | +0.6 / -0.1 | +0.9 / +0.8 | 0.0319 |
+| emd_all_mmd | +4.5 / +3.6 (+0.0035) | +1.0 / -0.0 (+0.00081) | +36.5 / +31.8 (+0.029) | +11.2 / +8.8 (+0.0087) | +0.8 / -0.4 (+0.00063) | +0.2 / -0.0 (+0.00016) | -0.3 / -0.7 (-0.00021) | +0.9 / +0.5 (+0.0007) | 0.000782 |
+| emd_all_one_minus_cov | +0.8 / +0.6 | +0.2 / -1.3 | +13.0 / +11.5 | -2.3 / -0.4 | -0.6 / -0.9 | -0.4 / -0.2 | -0.8 / -0.7 | -0.6 / -1.3 | 0.0192 |
+| emd_all_one_nna | +4.1 / +1.6 | +0.8 / +0.4 | +11.9 / +11.0 | +2.3 / +2.0 | +0.0 / +0.5 | +0.1 / +0.1 | +0.1 / -0.2 | +0.1 / -0.6 | 0.0359 |
+| emd_vis_mmd | +0.0 / +0.6 (+3.8e-05) | +0.0 / +0.1 (+1.4e-05) | +40.7 / +45.9 (+0.034) | +10.5 / +11.1 (+0.0088) | +1.3 / +0.9 (+0.0011) | +0.6 / +0.7 (+0.00053) | -0.0 / +0.1 (-1.4e-05) | +0.6 / +0.6 (+0.00047) | 0.000841 |
+| emd_vis_one_minus_cov | +0.0 / -0.2 | +0.0 / +0.7 | +12.4 / +16.6 | -1.1 / +0.7 | +0.2 / +0.5 | -1.7 / -0.5 | -0.8 / +0.9 | -0.2 / +0.5 | 0.0211 |
+| emd_vis_one_nna | +0.3 / +0.4 | -0.5 / +1.6 | +12.9 / +12.7 | +2.8 / +3.2 | +1.2 / +2.1 | +1.3 / +1.7 | +0.3 / -0.7 | +1.2 / +2.2 | 0.0357 |
+| emd_cut_mmd | +3.6 / +3.9 (+0.0032) | +0.4 / +0.4 (+0.00038) | +27.0 / +31.6 (+0.024) | +8.9 / +9.5 (+0.008) | +0.2 / +0.2 (+0.00019) | -0.3 / -0.0 (-0.00023) | +0.1 / -0.7 (+4.6e-05) | +0.6 / +0.8 (+0.00054) | 0.000891 |
+| emd_cut_one_minus_cov | -0.5 / +0.2 | -0.2 / -0.9 | +9.8 / +13.0 | -1.0 / -2.6 | -0.7 / -1.3 | -0.5 / -0.4 | -0.5 / -1.3 | +0.0 / +0.0 | 0.0238 |
+| emd_cut_one_nna | +4.5 / +4.0 | +0.2 / +1.7 | +11.3 / +12.8 | +2.8 / +4.3 | +0.2 / +0.5 | -0.7 / +1.7 | -0.5 / -0.4 | -0.1 / +3.2 | 0.0337 |
+| cd_vox_volume_mmd | -3.7 / -2.8 (-0.00035) | +3.3 / +2.8 (+0.00031) | +60.9 / +47.8 (+0.0057) | +16.4 / +13.5 (+0.0015) | -0.7 / -0.6 (-7e-05) | -2.2 / -1.1 (-0.00021) | -0.2 / +0.1 (-1.8e-05) | +0.2 / +0.7 (+2.1e-05) | 9.39e-05 |
+| cd_vox_volume_one_nna | +1.9 / +0.3 | +3.4 / +1.3 | +16.8 / +11.5 | +8.7 / +6.3 | +0.5 / +0.4 | +1.3 / +0.9 | +0.3 / +0.4 | +2.2 / +0.8 | 0.0302 |
+| cd_vox_surface_mmd | +2.2 / +2.9 (+0.00026) | +2.4 / +2.6 (+0.00028) | +49.0 / +49.2 (+0.0058) | +13.2 / +13.7 (+0.0016) | -0.6 / -0.2 (-7.3e-05) | -1.7 / -1.2 (-0.0002) | -0.2 / -0.1 (-2e-05) | +0.1 / +0.4 (+1.7e-05) | 0.000118 |
+| cd_vox_surface_one_nna | +2.0 / +1.7 | +1.8 / +1.0 | +13.8 / +12.6 | +6.6 / +7.1 | +0.4 / +0.6 | +0.5 / +1.3 | +0.4 / +0.6 | +1.6 / +1.3 | 0.0362 |
+
+Under vis, every 3D-native row is blind to the interior arms at both seeds (|z| <= 1.0 on Objaverse, <= 1.6 on Minecraft). Under all and cut, Uni3D sees them (Objaverse 4 to 14, Minecraft Fill-Interior 22 to 37) and ULIP-2 sees them more weakly. Chamfer and EMD set statistics stay at or below about 8 even when their points include the interior.
+
+## T82. The n=256 leaderboard of record, 0925 protocol, 77-d V-KID, no LLM arms (2026-11-03)
+
+Run `outputs/run_20261103_090315_bench_n_256_leaderboard_of_record` (`--tier both --n 256
+--baselines --descriptor v1 --save-features`; notes.md §69). Protocol pin validated first by
+`run_20261102_214725_bench_validation_0925_re-score_under_the_v1`, which reproduces
+`run_20260925_002631` exactly (bit-identical geom_kid, fast tier, ladder, self-checks and
+head-to-head groups; mv_dino_kid within 7e-7, BlockScore within 3e-4). AR arms regenerated to
+256 from the same checkpoints and seed; rows 0-127 are byte-identical to the 0925 files.
+Self-validation 6/6. Rank interval = 95% over 1,000 m-out-of-n replicates (m=0.8n, reference
+subsample shared per replicate; `rank_intervals.md`).
+
+| arm | geom_kid n128 → n256 | mv_dino_kid n128 → n256 | BlockScore n128 → n256 | rank n128 → n256 | rank interval |
+|---|--:|--:|--:|--:|--:|
+| real_test | -0.095 → -0.143 | -0.002 → 0.001 | 0.00 → 0.00 | 1 → 1 | 1-1 |
+| dreamcubed (ext, new) | — → 7.67 | — → 0.268 | — → **165.71** (appearance) | — → 2 | 2-2 |
+| native_oriented (contaminated) | 11.62 → 12.08 | 0.200 → 0.208 | 106.87 → 229.29 | 2 → 3 | 3-3 |
+| canon_oriented | 14.90 → 15.06 | 0.245 → 0.254 | 136.73 → 285.22 | 3 → 4 | 4-4 |
+| canon_unoriented | 19.57 → 18.25 | 0.317 → 0.295 | DQ (+3.0) → 345.10 | DQ → 5 | 5-5 |
+| real_shuffled_materials | -0.095 → -0.143 | 0.667 → 0.681 | 231.52 → 422.43 | 7 → 6 | 6-7 (tie) |
+| patchwork | 19.98 → 19.48 | 0.709 → 0.696 | 246.15 → 431.70 | 8 → 7 | 6-8 (tie) |
+| real@solidify | 22.03 → 23.54 | -0.001 → 0.002 | 201.80 → 444.36 | 6 → 8 | 6-8 (tie) |
+| real@monochrome | -0.095 → -0.143 | 0.859 → 0.863 | 297.95 → 535.36 | 9 → 9 | 9-9 |
+| train_copy_noise | 33.10 → 32.86 | 0.442 → 0.439 | 302.73 → 619.13 | 11 → 10 | 10-11 (tie) |
+| gabled_house | 32.82 → 32.96 | 0.830 → 0.864 | 300.15 → 620.98 | 10 → 11 | 10-11 (tie) |
+| shell_box | 34.16 → 34.28 | 1.373 → 1.392 | 476.22 → 864.00 | 12 → 12 | 12-12 |
+| uniform_random | 37.73 → 38.63 | 1.740 → 1.752 | 603.09 → 1087.06 | 13 → 13 | 13-13 |
+| real@single_mode, train_verbatim | | | DQ → DQ | | |
+| dreamcubed_raw (ext, new) | — → 38.68 | — → 0.641 | — → DQ (mode collapse +24.0) | | |
+| llm_control, llm_bias | 15.01, 15.87 → dropped | 0.429, 0.552 → dropped | 149.19, 191.88 → dropped | 4, 5 → — | |
+
+**Units double, ranks mostly hold.** The noise sd halves at n=256 (geom_kid 0.110 → 0.053,
+mv_dino_kid 0.00289 → 0.00161), so every BlockScore roughly doubles while the raw KIDs barely
+move. canon_unoriented's marginal memorization DQ does not survive n=256 (+2.1 spreads).
+Dream-Cubed is the best generator on the board; dropping its size term moves its geom_kid
+only 7.67 → 7.17, so its geometric gap is shape, not size. Solidify: appearance +0.35,
+geometry +444.36 (ratio 1256), still in real's mv_dino_kid group. Patch-Stitch
+appearance/geometry 1.17. The lab marks the run `official: false` because `houses32-v1` pins
+the 80-d (v2) descriptor.
+
+## T83. BrickGPT (published, ICCV 2025) on the LEGO suite, held-out ST2B test split, n=253 (2026-11-03)
+
+**Run:** `outputs/run_20261102_220228_brickgpt_lego/` (generation, `validity_summary.json`,
+`gen_summary.json`, `samples.png`), bench cards in `bench/` (v2, 80-d) and `bench_v1/` (v1,
+77-d). Corpus `lego_st2b_test_20` (ST2B test split only, 4,785, no void filter), split
+3,349/718/718, reference 512 val, dinov2b 4 ortho views @224. 256 prompts from the bench test
+partition; 253 produced a structure (3 hit the 1,800 s cap). Details and deviations in
+notes §70.
+
+**Suite (v2 card; separations in in-run noise floors: geom_kid 0.0986, mv_dino_kid 0.00156).**
+
+| arm | geom_kid | sep | mv_dino_kid | sep | BlockScore (worst) |
+|---|--:|--:|--:|--:|---|
+| real_test (floor) | 0.110 | 0 | 0.001 | 0 | 0.00 |
+| real_prompt_matched | −0.049 | −1.6 | −0.002 | −1.6 | 0.40 (palette) |
+| real@solidify | 4.106 | **+40.5** | 0.000 | **−0.09** | 40.53 (geometry) |
+| **brickgpt** | **5.251** | **+52.1** | **0.019** | **+11.8** | **52.14 (geometry)** |
+| real_shuffled_materials | 0.110 | 0 | 0.314 | +201.4 | 201.36 (appearance) |
+| real@monochrome | 0.110 | 0 | 1.280 | +821.6 | 4449.55 (palette) |
+
+v1 descriptor: brickgpt +51.5, solidify +36.4 (BlockScore 51.48 / 36.41). BrickGPT coherence:
+lcc_ratio 0.980 (real 0.999), sealed interior 0.011 (real 0.034), brick-type JSD 0.009
+(palette pillar +40.8). Novelty: NN-IoU 0.589 (real 0.630), not DQ.
+
+**BrickGPT's own metrics, reproduction check.**
+
+| | valid | stable | mean stab. | min stab. | median time |
+|---|--:|--:|--:|--:|--:|
+| paper, BrickGPT (Gurobi rollback) | 100% | 98.8% | 0.996 | 0.915 | 40.8 s |
+| paper, w/o rollback | 100% | 24.0% | 0.947 | 0.228 | n/a |
+| **ours (connectivity rollback, bf16)** | **98.8%** | **95.8%** of solved (230/240) | **0.995** | **0.896** | 11.1 s |
+| held-out real (same 256) | 100% | 100% (SCIP and shipped Gurobi agree 240/240) | 0.997 | 0.953 | |
+
+Stability solved with SCIP on BrickGPT's own formulation (`scripts/brickgpt_scip_stability.py`,
+validated against the dataset's Gurobi scores to 4.6e-7). Ground-connected: 98.8% of valid.
+Rollbacks median 1, 1.2% at the 100 cap; 2.02 rejections per accepted brick.
+
+## T84. Nearest-neighbour double dissociation, V-KID vs MV-KID feature spaces (2026-11-03)
+
+Run `outputs/run_20261103_185719_nn_geom_vs_dino` (notes.md §71). Source retrieval among the 256 real builds:
+
+| probe | DINO: NN is own source | V-KID: NN is own source |
+|---|--:|--:|
+| Fill-Interior | 1.00 | 0.26 (median rank 17.5) |
+| Material-Shuffle | 0.26 (rank 7) | 1.00 |
+| Monochrome | 0.24 (rank 9) | 1.00 |
+
+Same nearest real house in both spaces: 3.9% for real builds (chance 0.25%).
+
+## T88. The fixed-pooling face cascade on front faces: silhouettes learned, windows not (2026-11-03)
+
+Step 2 of research.md H.7 (notes §65 for the design, §74 for the reading). One bidirectional
+transformer draws level f of a face from its pooled level 2f, f = 16, 8, 4, 2, 1 on a 32 x 32
+canvas, every cell of a level in parallel (`scripts/facade_cascade.py`,
+`blockgen/models/face_cascade.py`, `blockgen/corpus/facade_levels.py`). Trained on the
+side faces of the houses_32 train split mirrored along u (14,904 faces), checkpoint
+selected on validation NLL of the front faces, scored on the 399 test front faces. Six
+runs, 9 to 15 minutes each on the 5070 Ti.
+
+**Teacher-forced NLL, bits per in-box cell on the test front faces** (the block term over
+filled cells spread onto all cells; `total` weights levels by cell count, so f=1 dominates):
+
+| run | select step | f16 | f8 | f4 | f2 | f1 | total |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| 5M, `any` | 6,000 | 11.12 | 6.14 | 4.78 | 3.84 | 2.97 | 3.346 |
+| 5M, `majority` (control) | 5,000 | 10.14 | 5.05 | 4.34 | 4.03 | 3.05 | 3.391 |
+| 5M, `any`, no parent corruption | 4,000 | 10.15 | 5.49 | 4.48 | 3.76 | 2.95 | 3.275 |
+| 5M, `any`, dropout 0.1 | 6,000 | 10.56 | 5.53 | 4.36 | 3.67 | 2.87 | 3.197 |
+| 5M, `any`, dropout 0.3 | 10,000 | 10.79 | 5.40 | 4.38 | 3.58 | 2.76 | 3.104 |
+| 20M, `any` (batch 48) | 6,000 | 10.08 | 5.38 | 4.36 | 3.63 | 2.85 | 3.170 |
+| 5M, dropout 0.3, each level at its own best step | 1k/4k/6k/6k/15k | 8.69 | 5.05 | 4.20 | 3.58 | 2.76 | |
+
+Every run overfits from the coarse end: the f=16 validation NLL is lowest at step 1,000 and
+climbs by 4 to 5 bits while the total is still improving (train f=16 reaches 2.2 bits
+against 13.6 on validation in the first run). Dropout 0.3 moves the total's best step
+from 6,000 to 10,000 and buys 0.24 bits; 20M buys 0.18 at twice the time; the NCM parent
+corruption costs 0.07 bits of teacher-forced NLL and does not change the samples below.
+`majority` pooling is not comparable level by level (different targets) and completes
+worse (components 1.83 from f=4 against 1.29).
+
+**Front faces drawn from the real test boxes, face statistics (n = 399; T75 columns, W1 =
+Wasserstein distance of the per-face distribution to real).** The AR rows are the front
+faces of those arms' builds, projected.
+
+| arm | jumps | comps | holes | fill | distinct depths | distinct blocks | W1 jumps | W1 comps |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| real test faces | 0.115 | 1.14 | 0.007 | 0.69 | 7.6 | 12.6 | | |
+| cascade 5M, 1 pass per level, T=1.0 | 0.211 | 1.27 | 0.015 | 0.81 | 10.2 | 38.4 | 0.096 | 0.130 |
+| cascade 5M, 4 passes per level, T=1.0 | 0.114 | 1.15 | 0.004 | 0.81 | 7.7 | 16.4 | 0.011 | 0.025 |
+| cascade 5M, 1 pass, T=0.7 | 0.105 | 1.13 | 0.004 | 0.84 | 7.1 | 13.2 | 0.011 | 0.005 |
+| cascade 5M d0.3, 4 passes, T=1.0 | 0.068 | 1.14 | 0.004 | 0.77 | 5.6 | 10.5 | 0.047 | 0.015 |
+| cascade 20M, 4 passes, T=1.0 | 0.090 | 1.07 | 0.003 | 0.86 | 6.5 | 12.2 | 0.025 | 0.063 |
+| per-face 5M AR (T66) | 0.341 | 1.03 | 0.020 | 0.96 | 12.2 | 21.8 | 0.227 | 0.110 |
+| joint 20M D4 AR (T68) | 0.308 | 1.34 | 0.023 | 0.89 | 11.7 | 10.7 | 0.193 | 0.206 |
+| joint 20M D4 RFT, T=0.7 (T73) | 0.143 | 1.14 | 0.005 | 0.93 | 6.4 | 5.6 | 0.041 | 0.103 |
+| patchwork | 0.275 | 1.04 | 0.007 | 0.96 | 11.1 | 31.5 | 0.160 | 0.100 |
+
+No cascade arm empties a face at any setting. Four passes per level (MaskGIT-style
+refinement) take the jump rate from 0.21 to 0.11 at the same fill, which is what
+temperature 0.7 did for the AR arm at the price of 13/64 empty builds (§60); here fill
+does not move. By these statistics the cascade is the closest arm to real. By eye
+(`samples.png`, `samples_s4.png` in each run dir) it is not: the faces are one or two
+materials in blobs with a ground strip, no storeys, no window rhythm, no door. The face
+statistics measure smoothness and connectedness, and a blob has both; this is the first
+arm that matches them without looking like a house, so they are necessary, not sufficient.
+
+**Oracle-coarse completion** (the real level given, the finer levels drawn; `mode` is the
+cell-wise argmax, `sample` is temperature 1.0; `upsample` is the T75 copy). 5M dropout 0.3:
+
+| from | mask IoU | depth exact | depth MAE | block agree | jumps |
+|---|--:|--:|--:|--:|--:|
+| f=4, upsample (copy) | 0.761 | 0.520 | 1.41 | 0.556 | 0.051 |
+| f=4, mode | 0.754 | 0.581 | 1.05 | 0.515 | 0.052 |
+| f=4, sample | 0.732 | 0.488 | 1.22 | 0.367 | 0.154 |
+| f=2, upsample (copy) | 0.858 | 0.737 | 0.62 | 0.696 | 0.090 |
+| f=2, mode | 0.853 | 0.783 | 0.47 | 0.659 | 0.083 |
+| f=2, sample | 0.837 | 0.693 | 0.67 | 0.523 | 0.147 |
+
+The mode beats the copy on depth (exactness 0.58 against 0.52 from f=4, mean error 1.05
+against 1.41 blocks) and `completion.png` shows why: gables, ridges and the staircase of a
+pitched roof come back sharp from the 4 x 4 blocks. It loses to the copy on blocks (0.515
+against 0.556): the model's best guess for a cell's material is its parent's, and when it
+departs from that it is more often wrong than right. Windows and doors, which T75 placed
+at f <= 2, never appear in any completion or sample. Sampling at temperature 1.0 is worse
+than the copy on every column: the fine levels' spread is speckle, not trim.
+
+**Reading.** The depth residual of the hierarchy is learnable with 7.5k faces and the
+block residual is not, which is the within-level-independence prediction of H.3 and §65
+with the split made explicit: a roof line is a per-cell function of the parent's
+silhouette; a window is a joint pattern over a neighbourhood that independent cells
+cannot agree on, so the sampler either copies the parent (mode) or speckles (sample). The
+coarse levels memorise the train boxes within a thousand steps, so what the cascade
+offers from the box is a material and a blob. The pre-registered gate (beat the copy on
+depth and block from f=4) is half met, and the learned residual tokenizer (step 3) would
+not change what fails: a VQ code at f=2 is still drawn independently of its neighbours.
+Next in notes §74.
+
+Run dirs: `outputs/run_20261103_150008_facade_cascade_5m`, `_150944_..._5m_majority`,
+`_151845_..._5m_nocorrupt`, `_185205_facade_cascade_20m`, `_190741_..._5m_d01`,
+`_191823_..._5m_d03`; chain log `outputs/logs/facade_cascade_morning.log` (the 20M at
+batch 96 ran out of memory there and was rerun at batch 48).
+
+## T85. Paper regeneration checks on the n=256 board (2026-11-04)
+
+notes.md §72. Derived numbers produced while porting the CVPR paper to the n=256 leaderboard.
+
+| quantity | value | source |
+|---|--:|---|
+| Dream-Cubed raw V-KID, full / no size column / size-matched reference | 7.67 / 7.17 / 8.57 | `outputs/figstage/dreamcubed_size.json` |
+| size share of Dream-Cubed's V-KID, upper bound | 6.5% | same |
+| canon_oriented, native_oriented without size column | 15.06 -> 15.31, 12.08 -> 12.35 | same |
+| VLM BT Spearman vs n=256 MV-KID / BlockScore / V-KID | 0.74 / 0.54 / 0.20 | `outputs/figstage/vlm_vs_leaderboard.json` |
+| contiguous-draw floor inflation (re-derived) | 10.88x (sd 0.0320 vs 0.00294) | `outputs/figstage/contiguous_draw_check.json` |
+| 25%-bad arm, fraction of fully bad (render) | 0.060 | 0925 dose run |
+| V-KID NN hubs for Fill-Interior | 68 distinct NNs / 256; top 4 take 69.9% | `outputs/figstage/nn_dissociation.json` |
+
+Audit: 679 registered claims, all match; 0 stale; main text 8 pages.
+
+## T86. Dream-Cubed audit: repeated vanilla village pieces, and a template-only control that ranks 3rd (2026-11-04)
+
+`outputs/analysis/dreamcubed_audit/` (README.md, CPU only, bench files unchanged). Arms: the
+284 extracted Dream-Cubed builds of T79/T82, 399 real test builds, and the 1.21.1 jar village
+templates of T56 (299 after removing terrain the same way the extraction does). Dream-Cubed
+trained on 1.12.2 worlds, whose villages come from code and not from these template files,
+so the template IoU is a stand-in reference and a lower bound on copying. The within-set
+test needs no reference.
+
+| measure | Dream-Cubed (284) | real test |
+|---|--:|--:|
+| median best IoU to a village template (8 symmetries, all translations) | 0.52 | 0.32 |
+| builds with template IoU >= 0.5 / >= 0.8 | 53% / 4.2% | 5% / 0% |
+| median IoU to the nearest other build in the same set | 0.848 | 0.426 |
+| builds with a near-twin, IoU >= 0.8 / >= 0.9 | 59% / 34.5% | 0.8% / 0% |
+| clusters at IoU 0.8 (largest) | 160 (28) | 255 of 256 (2) |
+| houses with a room / roofless enclosures / fragments | 45.4% / 35.9% / 18.7% | 99.2% houses |
+
+At matched block count (98 builds each) the near-twin rate is 73% against 0%, so the
+repetition is not a size effect. The largest cluster is 28 copies of one 117-block hut.
+
+The template-control arm passes the vanilla village templates through Dream-Cubed's own
+extraction and the fast tier of the T82 protocol, which reproduces Dream-Cubed's T82 values
+exactly (geom_kid 7.672, geometry pillar 146.64):
+
+| arm | n | geom_kid | geometry pillar | mv_dino_kid (CPU render) |
+|---|--:|--:|--:|--:|
+| Dream-Cubed | 256 | 7.67 | 146.6 | 0.260 |
+| vanilla village templates, all | 183 | 10.25 | 195.0 | 0.165 |
+| vanilla village templates, houses only | 174 | 10.67 | 203 | 0.168 |
+| native_oriented / canon_oriented (T82) | 256 | 12.08 / 15.06 | 229 / 287 | 0.208 / 0.254 |
+
+Pillars at n=174 and 183 use the n=256 noise floor and are approximate.
+
+**Dream-Cubed's rank 2 measures how close vanilla village geometry sits to houses_32, not house
+generation.** An unlearned set of vanilla templates scores about 195 to 203, ranks 3rd of 13 and
+beats every BlockGen model. Both template arms and Dream-Cubed pass the duplicate gate, which
+only compares against the houses_32 train split (0.004), and the diversity gate, which is a
+within-set mean (0.866 against 0.898). A within-set near-duplicate gate would catch the 59%
+near-twin rate. Proposing it is a change to the frozen bench and waits on authorisation. The
+CVPR session (blockgen-03) has the numbers and holds the Dream-Cubed ranking claims until it
+decides how to frame them.
+
+## T87. 20M voxel SFT, decayed short schedule and pretraining mix: the mix is the first arm still improving at the end (2026-11-04)
+
+Card `run_20261104_033716_bench_voxel_20M_SFT_short_and_mixed_against` (`--tier both --n 256
+--baselines`, self-validation 6/6). Both runs start from the T78 pretrain checkpoint
+(`outputs/run_20261102_142710_m2_20m_pretrain_s1/last.pt`), seed 1, dropout 0, select=best,
+`houses32-sft-20m.yaml` with overrides:
+
+- `outputs/run_20261104_004730_m2b_20m_sft3k_s1`: `steps=3000`, so the cosine schedule decays
+  inside the window where T78 was still improving.
+- `outputs/run_20261104_020102_m2b_20m_sftmix_s1`: `steps=6000 train=sft-houses32:1,anneal:1`,
+  which gives the same SFT tokens as the 3k run with the pretraining tier mixed in.
+
+Recipe: the scratchpad copy `sft20m_short.sh` (log `outputs/logs/sft20m_short.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | holdout NLL, best (step) | all-holdout NLL | components | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| **20M SFT + anneal mix, 6k** | **332** | 238 | **15.9** | 0.384 | **0.263 (6,000, last)** | **0.280** | 10.4 | 0.28 | 0.66 |
+| 20M SFT, 3k decayed | 338 | 251 | 16.2 | 0.405 | 0.286 (1,750) | 0.304 | 8.4 | 0.29 | 0.62 |
+| 5M best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 | | | 4.9 | 0.21 | 0.61 |
+| 20M SFT, 16k (T78) | 346 | 215 | 16.6 | 0.347 | 0.286 (1,500) | 0.305 | 8.6 | 0.26 | 0.58 |
+| 5M raw (T60) | 386 | 254 | 18.6 | 0.410 | | | 11.3 | 0.20 | 0.64 |
+
+Holm groups on `geom_kid`: mix `c`, 3k `cd`, 5M best-of-4 `cd`, 20M 16k `cde`, 5M raw `de`.
+Only mix against 5M raw separates (2.61 [1.88, 3.40], p_adj 0.043). On `mv_dino_kid` the order
+reverses: 5M best-of-4 `c`, 20M 16k `cd`, mix `cde`, 3k `de`, and 3k is worse than 5M
+best-of-4 (0.061 [0.040, 0.082], p_adj 0.036).
+
+**Shortening the schedule does not help; mixing the pretraining tier back in does.** The
+decayed 3k run reaches the same best holdout NLL as the 16k run (0.286 at step 1,750 against
+step 1,500), so T78's early peak was not caused by the learning rate still being near its peak. The
+mix run holds the holdout curve down instead: it is at its lowest at the last step (0.263,
+still falling 0.002 per 250 steps), its all-holdout NLL is 0.280 against 0.305, and it is the
+first voxel arm whose `geom_kid` separates from 5M raw after Holm. It also memorizes the least
+(nn pct 0.66, diversity 0.908). The cost is appearance: both new arms lose `mv_dino_kid`
+against the 16k 20M model, so the board gain (332 against 346) is inside the `geom_kid` ties
+among 20M arms, and geometry stays the worst pillar. Two caveats carry over: one seed, and the
+`anneal` tier contains 1,834 of the 1,863 SFT houses (deliverables/reports/worldcrop-pretraining.md),
+so the mix is partly more passes over the SFT set. Next: run the mix longer, since it had not
+converged, and run a world-crop-only mix to separate the two effects.
+
+## T89. LEGO in-domain ladder, post-fix renderer rerun (2026-11-04)
+
+`outputs/run_20261104_212706_bench_lego_ladder_postfix` reproduces the 09-18 LEGO ladder (fig:seven, tab:seven)
+to a maximum relative difference of 5e-6 on every render statistic and rung. The geometry ladder is identical
+and the gate verdicts are unchanged. All seven render statistics stay at or below 2.1 noise floors on
+Fill-Interior. Wool is opaque, so the 09-25 transparency cull cannot affect LEGO renders. Details are in notes §75.
+
+## T90. MV-KID with facade and cross-section views (2026-11-04)
+
+`outputs/run_20261104_213620_view_facade_section`, n=256, leaderboard-of-record builds and
+reference. Units: noise floors above real_test. Details are in notes §76.
+
+| protocol | Fill-Interior | Hollow-Shell | Shuffle | Monochrome | rot90 | Spearman vs corner / V-KID |
+|---|--:|--:|--:|--:|--:|--:|
+| corner (paper) | +0.29 | +0.03 | +346 | +439 | -0.24 | 1 / 0.27 |
+| A-sides (4 elevations) | +4.45 | +0.82 | +548 | +1146 | +0.04 | 0.97 / 0.10 |
+| A-render (+ roof plan) | +3.62 | +0.60 | +610 | +1309 | +0.08 | 0.97 / 0.10 |
+| A-2.5D facade images | 0 (bit-identical) | 0 (bit-identical) | +355 | +314 | +0.10 | 0.96 / 0.28 |
+| B-mid (3 mid sections) | +71.1 | +39.7 | +226 | +1080 | +0.41 | 0.93 / 0.07 |
+| B-9 (9 sections) | +67.5 | +42.8 | +292 | +1314 | +0.49 | 0.93 / 0.07 |
+| B-cut (half removed) | +14.3 | +5.3 | +415 | +925 | -0.25 | 0.95 / 0.05 |
+| V-KID (77-d) | +444.4 | +265.4 | 0 | 0 | 0 | 0.27 / 1 |
+
+## T91. Within-set near-twin gate; Dream-Cubed and the vanilla templates are disqualified (2026-11-04)
+
+The gate (notes §78) counts the share of builds with a near-copy in the same set: D4 and
+translation occupancy IoU >= 0.8. It uses the duplicate gate's rule: more than 3 spreads
+above real, with the spread floored at 0.02. At n=256 the bar is 0.068.
+
+| arm (n=256 unless noted) | twin rate | gate |
+|---|--:|---|
+| held-out real | 0.008 | pass |
+| real@solidify | 0.066 | pass (z 2.9) |
+| AR models (3 arms) | 0.000 | pass |
+| gabled_house / shell_box | 0.207 / 0.246 | DQ +10.0 / +11.9 |
+| Dream-Cubed | 0.598 | DQ +29.5 |
+| vanilla village templates (n=174 / 183) | 0.672 / 0.683 | DQ +33.2 / +33.8 |
+
+The real null over fresh draws has means of 0.006 to 0.019 and a maximum of 0.031.
+Ungated, the templates score BlockScore 202.95 / 194.98 on the GPU path, ahead of every
+BlockGen model. Runs:
+- `outputs/run_20261104_214146_bench_twin_gate_rescore` (re-scored leaderboard, rank
+  intervals);
+- `outputs/run_20261104_213125_bench_vanilla_template_control`.
+
+
+## T92. V-KID against structural alternatives: probes, gates, ordering (2026-11-05)
+
+Run `outputs/run_20261104_235615_bench_headtohead`; notes §80. Values are noise floors above
+held-out real. The ladder uses n=128 (houses_32 ladder subset, `ladder.score_rungs`); the board
+uses the n=256 leaderboard-of-record arms, with build hashes checked.
+
+| row | Fill | Hollow | Shuffle | Mono | gates | Fill @256 | rho V-KID | rho MV-KID |
+|---|--:|--:|--:|--:|---|--:|--:|--:|
+| V-KID | +111.4 | +71.0 | 0 | 0 | PASS | +444.4 | 1.00 | 0.27 |
+| occupancy KID | +48.4 | +13.1 | 0 | 0 | G2, G6 | +121.2 | 0.83 | 0.23 |
+| Uni3D KID all-face | +26.6 | +10.4 | +22.4 | +99.7 | G6 | +31.8 | 0.51 | 0.85 |
+| Uni3D KID volume | +37.2 | +10.6 | +6.7 | +105.5 | G6 | +108.4 | 0.59 | 0.78 |
+| ULIP-2 KID all-face | +4.6 | +1.8 | +29.1 | +101.8 | G6/G2 | +12.0 | 0.42 | 0.87 |
+| ULIP-2 KID volume | +11.9 | +9.0 | +9.7 | +62.8 | G6/G2 | +43.2 | 0.51 | 0.85 |
+| chamfer MMD all-face | +7.6 | +1.4 | -0.1 | -0.1 | G2, G8 | +8.9 | 0.64 | 0.27 |
+| EMD MMD all-face | +3.2 | +0.3 | -0.2 | -0.3 | G2, G8 | n/a | | |
+| chamfer MMD voxel centres | -3.4 | +2.8 | +0.1 | +0.1 | G2, G8 | -3.5 | 0.53 | 0.54 |
+| IoU MMD D4-aligned | -9.0 | +7.7 | 0 | 0 | G8 | -5.3 | 0.36 | 0.35 |
+| IoU 1-NNA D4-aligned | +2.7 | +2.4 | 0 | 0 | G2 | +5.9 | 0.75 | 0.28 |
+
+V-KID is the only row that passes every gate. The voxel-set metrics rate Fill-Interior closer to real
+than real is.
+
+## T93. canon_oriented on the current card: the legacy 3D-BPE model still beats every new-pipeline voxel arm (2026-11-05)
+
+Card `run_20261104_235313_bench_canon_oriented_against_the_new_pipeline` (`--tier both --n 256
+--baselines`). canon_oriented is the legacy native_bpe model (3D-BPE, 256 merges, oriented,
+5.7M params, 60 epochs on houses only), scored from its T32/T82 samples
+`outputs/bench_arms/canon_oriented_n256_32.npz`; the other arms are the T60, T71, T78 and T87
+caches. Recipe: scratchpad copy `card_canon.sh` (log `outputs/logs/card_canon.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | components | enterable | nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| **canon_oriented (legacy 3D-BPE)** | **297** | **157** | **14.2** | **0.254** | **7.9** | **0.61** | 0.43 |
+| 20M SFT + anneal mix (T87) | 332 | 238 | 15.9 | 0.384 | 10.4 | 0.28 | 0.66 |
+| 5M best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 | | | |
+| 20M best-of-4 lcc26 (T78) | 341 | 178 | 16.3 | 0.288 | | | |
+| 20M SFT, 16k (T78) | 346 | 215 | 16.6 | 0.347 | | | |
+| 5M raw (T60) | 386 | 254 | 18.6 | 0.410 | | | |
+
+Holm groups on `geom_kid`: canon_oriented `c`, mix `c`, both best-of-4 arms `cd`, 20M 16k `cde`,
+5M raw `de`; canon_oriented separates only from 5M raw (-4.31 [-5.21, -3.20], p_adj 0.014). On
+`mv_dino_kid` canon_oriented `c` shares a group only with the 20M best-of-4 and separates from
+every other model arm (against the mix -0.130, p_adj 0.014).
+
+**The best model is still the oldest one, and the pipeline has not yet closed the gap.** The
+lead is largest where nothing was tuned: appearance (157 against 178 or worse), enterable 0.61
+against 0.28, and floating components. Geometry ties the mix. Two caveats: canon_oriented has
+the lowest nn percentile of the model arms (0.43, under the real 0.51, so it sits a little
+closer to training data than held-out real does; no gate fires), and it differs from the
+pipeline arms in three ways at once (tokenizer, orientation, training data and schedule). The
+5M oriented against unoriented world-crop chain (`oriented_5m.sh`, started 01:30 UTC) isolates
+orientation; tokenizer hashes unoriented 60684456e598, oriented 0e6ace66bcdf.
+
+## T94. 5M world-crop-only pretraining, oriented against unoriented: orientation is not the lever (2026-11-05)
+
+Card `run_20261105_050900_bench_5M_world-crop_pretraining_oriented` (`--tier both --n 256
+--baselines`). Both arms are 5M ar2, seed 1, pretrained 20k steps on the new `anneal-worldcrop`
+tier (270,166 world crops, SFT houses and holdout excluded), then SFT 12k steps on
+`sft-houses32:1,anneal-worldcrop:1` from `last.pt`, then best-of-4 lcc26. They differ only in
+the tokenizer: unoriented 60684456e598 (vocab 507), oriented 0e6ace66bcdf (vocab 926; its anneal-worldcrop shard was deleted 2026-11-05 for disk space, rebuild with `shards build anneal-worldcrop --oriented`; same 1,863
+SFT houses, split into 2,114 rows because oriented sequences are longer). Holdout NLL is per
+token, so it does not compare across the two tokenizers. Recipe: scratchpad `oriented_5m.sh`
+(log `outputs/logs/oriented_5m.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid |
+|---|--:|--:|--:|--:|
+| canon_oriented (T93) | 297 | 157 | 14.2 | 0.254 |
+| 20M SFT + anneal mix (T87) | 332 | 238 | 15.9 | 0.384 |
+| 5M best-of-4 lcc26 (T71) | 340 | 213 | 16.3 | 0.344 |
+| world-crop 5M oriented, best-of-4 | 351 | 228 | 16.8 | 0.368 |
+| world-crop 5M unoriented, best-of-4 | 358 | 192 | 17.2 | 0.310 |
+| world-crop 5M unoriented | 361 | 238 | 17.3 | 0.384 |
+| world-crop 5M oriented | 373 | 277 | 17.9 | 0.447 |
+| 5M raw (T60, `anneal` pretraining) | 386 | 254 | 18.6 | 0.410 |
+
+Holm groups on `geom_kid`: all four world-crop arms share `de` (oriented best-of-4 `cde`), so
+orientation does not move geometry. On `mv_dino_kid` the unoriented arms are better and
+separated: best-of-4 0.310 against 0.368 (p_adj 0.030), and unoriented best-of-4 against oriented raw
+(p_adj 0.017). Oriented arms also raise the within-set twin rate a little (0.023 and 0.035
+against real 0.008, no gate fires).
+
+**Orientation does not explain canon_oriented's lead.** Inside the pipeline it costs appearance
+and leaves geometry tied, so the 297 against roughly 350 gap must come from the rest of the
+legacy recipe: 3D-BPE tokens and 60 epochs on houses only. World-crop-only pretraining
+does help a little over the old `anneal` pretraining at 5M (raw 361 against 386, same Holm group on
+`geom_kid`), and best-of-4 again buys appearance, not geometry. One seed. Next: put 3D-BPE through the pipeline
+(a native_bpe tokenizer on the world-crop tier), and the long 20M world-crop mix.
+
+## T95. Inspection checks on the T51 agentic arms and real houses (2026-11-05)
+
+`blockgen/agentic/inspection.py` run on the n=133 builds of the T51 bench arms and on 400
+real `houses_32` builds (seed 1). Failure rate per check at warning severity or worse;
+`openings`, `grounded`, `built` and `size` are 0% everywhere and omitted. Notes §81.
+
+| arm | n | mean score | clean at warning | connected | supported | interior | roofed | enterable | headroom |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| classic-matched | 133 | 0.952 | 68% | 0% | 0% | 0% | 6% | 33% | 1% |
+| dream | 133 | 0.942 | 53% | 0% | 0% | 0% | 2% | 54% | 7% |
+| dream-caption | 133 | 0.933 | 48% | 0% | 0% | 2% | 0% | 57% | 13% |
+| real houses | 400 | 0.934 | 55% | 6% | 14% | 0% | 10% | 17% | 9% |
+
+Reading: the agentic arms are structurally sound and not enterable; real houses are the
+reverse (their failures are crop artefacts: missing floors and detached yard pieces). The
+`inspect` method's job is the enterable column. Measurement only; no new builds.
+
+## T96. 5M world-crop pretraining with 3D-BPE pieces against voxels: pieces lose geometry (2026-11-05)
+
+Card `run_20261105_132412_bench_5M_world-crop_pretraining_3D-BPE_pieces` (`--tier both --n 256
+--baselines`). Arm p repeats the T94 unoriented recipe exactly (5M ar2, seed 1, pretrain 20k
+steps on `anneal-worldcrop`, SFT 12k steps on `sft-houses32:1,anneal-worldcrop:1` from
+`last.pt`, best-of-4 lcc26) with the pipeline 3D-BPE tokenizer `pieces` cdce56584ebf (256 merges
+learned on sft-houses32, unoriented, vocab 811) in place of voxels 60684456e598. Runs
+`run_20261105_101818_wc5m_pretrain_p_s1` and `run_20261105_112220_wc5m_sftmix_p_s1`
+(select=best chose the last step, holdout 0.637 per token, still falling; per-token NLL does not
+compare across tokenizers). Recipe: scratchpad `pieces_5m.sh` (log `outputs/logs/pieces_5m.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|
+| canon_oriented (T93) | 297 | 157 | 14.2 | 0.254 | 0.61 | 0.43 |
+| 20M SFT + anneal mix (T87) | 332 | 238 | 15.9 | 0.384 | 0.28 | 0.66 |
+| world-crop 5M voxels, best-of-4 (T94) | 358 | 192 | 17.2 | 0.310 | 0.15 | 0.62 |
+| world-crop 5M voxels (T94) | 361 | 238 | 17.3 | 0.384 | 0.15 | 0.68 |
+| world-crop 5M pieces, best-of-4 | 491 | 244 | 23.6 | 0.394 | 0.37 | 0.47 |
+| world-crop 5M pieces | 501 | 260 | 24.1 | 0.419 | 0.31 | 0.53 |
+
+Paired Holm tests: voxels beat pieces on `geom_kid` by 6.3 to 6.9 in every raw/best-of-4 pairing,
+and on `mv_dino_kid` for both best-of-4 comparisons (all p_adj 0.014, the floor of the
+permutation test). Pieces are better on traversal (enterable 0.31 against 0.15) and further from
+the training set (nn percentile 0.53 against 0.68), the two places canon_oriented also leads.
+
+**3D-BPE alone does not reproduce canon_oriented.** Under the pipeline schedule (world-crop
+pretraining, a 1:1 mix, 12k SFT steps) pieces lose geometry by a wide margin, so the 297 must
+come from the legacy schedule (60 epochs on houses only, D4 augmentation, dropout 0.1) or from
+that schedule interacting with pieces. Two caveats: the pipeline tokenizer is not byte-identical
+to the legacy one (unoriented, first-wins id fix, merges learned on sft-houses32), and the
+pieces SFT was still improving at its last step. The D4 pair (`pieces_d4.sh`: pieces from
+scratch with D4 at 60k steps, and the same from the pieces pretrain) is the direct test. One seed.
+
+## T97. 20M SFT + world-crop mix run to 16k steps: no gain over 6k (2026-11-05)
+
+Card `run_20261105_154732_bench_20M_SFT_world-crop_mix_16k` (`--tier both --n 256 --baselines`).
+`run_20261105_091034_m2b_20m_sftwc16k_s1` continues the T87 question (holdout still falling at
+6k): 20M ar2, seed 1, from the 20M pretrain, `train=sft-houses32:1,anneal-worldcrop:1`, 16k steps,
+voxels 60684456e598. select=best chose step 8000 (holdout 0.2667 against 0.2832 at 16k; the T87
+6k mix reached 0.263 on the older `anneal` tier). Its end-of-run draw OOMed beside another
+session's job, so the 256 samples were redrawn from `best.pt` (scratchpad
+`sft20m_long_resample.sh`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|
+| canon_oriented (T93) | 297 | 157 | 14.2 | 0.254 | 0.61 | 0.43 |
+| 20M SFT + anneal mix, 6k (T87) | 332 | 238 | 15.9 | 0.384 | 0.28 | 0.66 |
+| 20M SFT + world-crop mix, 16k (best step 8000) | 333 | 239 | 15.9 | 0.386 | 0.15 | 0.66 |
+| world-crop 5M voxels, best-of-4 (T94) | 358 | 192 | 17.2 | 0.310 | 0.15 | 0.62 |
+
+Holm groups on `geom_kid`: canon_oriented `c`, both 20M mixes `cd`, the 5M world-crop arms `de`.
+The 16k arm is not separated from the 6k mix on either primary.
+
+**Longer SFT saturates.** The holdout NLL kept falling only to step 8000 and the bench does not
+move at all (333 against 332), so the 20M voxel recipe sits at about 332 however long it trains.
+Enterable drops (0.15 against 0.28), which matches the world-crop tier, not the step count (the 5M
+world-crop arms also read 0.15). The remaining gap to canon_oriented is in the schedule, which
+the D4 pieces pair tests. One seed.
+
+## T98. 3D-BPE with D4 at 60k steps, scratch against world-crop pretraining: traversal and novelty reproduce, geometry does not (2026-11-05)
+
+Card `run_20261105_181623_bench_3D-BPE_with_D4_scratch_against` (`--tier both --n 256 --baselines`).
+Both arms use the pipeline pieces tokenizer cdce56584ebf on the D4 shard `sft-houses32/cdce56584ebf-d4`
+(14,868 sequences), 5M ar2 (d_model 256, 6 layers), seed 1, 60k steps of 32,768 tokens:
+- `run_20261105_154811_p5m_d4scratch_s1`: from scratch, dropout 0.1 (`houses32-scratch-matched.yaml`),
+  the legacy canon_oriented schedule. select=best step 51,000 (holdout 0.544).
+- `run_20261105_172651_p5m_d4pre_s1`: from the T96 pieces pretrain `last.pt`, dropout 0
+  (`houses32-sft-5m.yaml`). select=best step 22,000 (holdout 0.585), so it overfits early.
+
+Sampling matches canon_oriented (T=1.0, top_k 40). Recipe: scratchpad `pieces_d4.sh` (log
+`outputs/logs/pieces_d4.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|
+| canon_oriented (T93) | 297 | 157 | 14.2 | 0.254 | 0.61 | 0.43 |
+| world-crop 5M voxels (T94) | 361 | 238 | 17.3 | 0.384 | 0.15 | 0.68 |
+| pieces D4 scratch, 60k | 425 | 209 | 20.4 | 0.338 | 0.60 | 0.48 |
+| pieces D4 from pieces pretrain | 476 | 208 | 22.9 | 0.336 | 0.27 | 0.47 |
+| world-crop 5M pieces (T96) | 501 | 260 | 24.1 | 0.419 | 0.31 | 0.53 |
+
+Holm groups on `geom_kid`: canon_oriented `c`, voxels `d`, D4 scratch `ef`, D4 pretrain `fg`,
+world-crop pieces `g`. On `mv_dino_kid`: canon_oriented `c`, both D4 arms `d`, voxels `de`.
+
+**The legacy schedule reproduces canon_oriented's traversal and novelty but not its geometry.**
+D4 scratch matches enterable (0.60 against 0.61) and nearly matches novelty, and it is the best
+pieces arm (425 against 501), but its `geom_kid` (20.4) is still worse than plain world-crop voxels
+(17.3) and far from canon_oriented (14.2). Pretraining on world crops hurts pieces here (476, and
+enterable falls back to 0.27), the opposite of voxels. What still differs from canon_oriented:
+its tokenizer is oriented (627 block states, 1,079 pieces after 256 merges against 811 here), it
+was trained with batches of 8 sequences (about 104k smaller steps against 60k steps of 32k tokens),
+and its merges were learned on its own D4 training set. One seed.
+
+## T99. First category-conditioned models: scratch follows the class token, world-crop pretraining weakens it (2026-11-05)
+
+Two 5M ar2 voxel models on the category tokenizer voxels-cat 116e68927d45 (the class token takes
+BOS's slot), trained on `sft-cat` (11 classes plus `none`, notes on the data in
+`deliverables/reports/category-conditioning.md`), seed 1:
+- `run_20261105_181801_cat5m_scratch_s1` (`cat-sft-5m-scratch.yaml`, 36k steps): select=best step 17,000
+  (holdout 0.551).
+- `run_20261105_185826_cat5m_pt_s1` (`cat-sft-5m-pt.yaml`, 16k steps) from the T94 unoriented
+  world-crop pretrain `last.pt`, vocab extended by copying BOS: select=best step 16,000 (holdout 0.527).
+
+Conditioned eval (`python -m blockgen.eval.conditioned`, 128 samples per class, sizes drawn from the
+class, against `eval-cat`). Probe ceiling is the probe's accuracy on the real eval builds of the class.
+The mean leaves out church, which folded into `none` but keeps its vocab token and has no eval builds
+(fixed in `conditioned.py` 2026-11-05; the chain's first printout averaged it in as 0).
+
+| class | eval builds | ceiling | scratch probe | pretrain probe | scratch geom_kid | pretrain geom_kid |
+|---|--:|--:|--:|--:|--:|--:|
+| tree | 41 | 0.95 | 0.78 | 0.14 | 4.2 | 10.7 |
+| vehicle | 112 | 0.74 | 0.58 | 0.52 | 4.3 | 5.0 |
+| pixelart | 35 | 1.00 | 0.56 | 0.27 | 8.0 | 17.6 |
+| aircraft | 41 | 0.63 | 0.39 | 0.12 | 5.1 | 5.3 |
+| house | 128 | 0.77 | 0.34 | 0.10 | 18.7 | 19.3 |
+| statue | 47 | 0.75 | 0.27 | 0.06 | 15.0 | 17.3 |
+| farm | 36 | 0.56 | 0.20 | 0.24 | 14.5 | 13.8 |
+| ship | 32 | 0.63 | 0.20 | 0.10 | 7.1 | 5.6 |
+| shop | 69 | 0.45 | 0.20 | 0.09 | 21.3 | 21.2 |
+| castle | 32 | 0.53 | 0.10 | 0.07 | 16.7 | 13.9 |
+| tower | 35 | 0.51 | 0.05 | 0.02 | 20.5 | 19.7 |
+| **mean (11)** | | **0.69** | **0.33** | **0.16** | 12.3 | 13.6 |
+
+Mean margin (KID to the other classes minus KID to its own class): scratch 8.0, pretrain 3.1. The
+shuffled-label control reads 0.09 (chance 0.09).
+
+Houses card `run_20261105_212258_bench_category-conditioned_5M_cat_house` (`--tier both --n 256
+--baselines`, the end-of-run draws with the house token):
+
+| arm | n | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| canon_oriented (T93) | 256 | 297 | 157 | 14.2 | 0.254 | 0.61 | 0.43 |
+| cat 5M from world-crop pretrain | 256 | 349 | 220 | 16.8 | 0.355 | 0.23 | 0.69 |
+| cat 5M scratch | 255 | 355 | 201 | 17.0 | 0.324 | 0.20 | 0.61 |
+| world-crop 5M voxels, houses only (T94) | 256 | 361 | 238 | 17.3 | 0.384 | 0.15 | 0.68 |
+
+The scratch arm dropped one empty build, so its BlockScore is at n=255 and not strictly comparable
+(KIDs are n-stable). Holm groups on `geom_kid`: canon_oriented `c`, cat pretrain `cd`, cat scratch and
+voxels `d`; on `mv_dino_kid`: cat scratch `d`, cat pretrain `de`, voxels `e`.
+
+**Conditioning works from scratch and is cheap for houses.** The scratch model reaches about half the
+real-build probe ceiling, and the shape classes the probe can tell apart (tree, vehicle, pixel art,
+aircraft) come out close to their real class on geometry. Training on 11 other classes costs houses
+nothing: both cat models tie or beat the houses-only voxel arm, and the scratch model's house
+appearance is better (0.324 against 0.384). World-crop pretraining lowers holdout NLL but halves
+conditioning (probe 0.16, margin 3.1): the pretrained prior ignores the new class token, the same
+direction as pieces in T98. Tower, castle and shop barely separate from houses, which matches their
+low ceilings. One seed. Next candidates: class-balanced sampling, a longer warm start or higher
+learning rate for the class rows when starting from a pretrain, and the world-crop labels.
+
+## T100. BrickNet stage 0: the corrected readout of mc_sft_base on the house card (2026-11-05)
+
+Card `run_20261105_225739_bench_BrickNet_stage_0_readout` (`--tier both --n 256 --baselines`).
+Sample run `run_20261105_212201_bricknet_sample_mc_sft_base` (`scripts/bricknet_pipeline.py sample
+--model mc_sft_base --n 256 --seed 0 --max_new_tokens 20480 --batch_size 4`): Qwen3-0.6B with the
+mc_pt_base then mc_sft_base LoRA stack (blockgen-21's runs, libs/BrickNet/repro), prompted with
+training-house captions, T=1.0, top_k 20, top_p 0.95. 260 draws for 256 valid (4 unparsable, 0
+empty), 93 min. 255 of 256 builds had node collisions, kept first node wins; 22 needed the 32^3
+crop (x/z centred, y from the bottom). `train_split` canonical, `base_model` Qwen3-0.6B (external
+pretraining). The first launch failed on a relative-path bug in the driver (fixed 2026-11-05).
+Recipe: scratchpad `bricknet_stage0b.sh`.
+
+| arm | BlockScore | worst pillar | appearance | geom_kid | mv_dino_kid | enterable | lcc | dino nn pct |
+|---|--:|---|--:|--:|--:|--:|--:|--:|
+| canon_oriented (T93) | 297 | geometry | 157 | 14.2 | 0.254 | 0.61 | 0.98 | 0.43 |
+| 20M SFT + anneal mix (T87) | 332 | geometry | 238 | 15.9 | 0.384 | 0.28 | 0.94 | 0.66 |
+| real_shuffled_materials (control) | 422 | appearance | 422 | 0 | 0.681 | | | |
+| **BrickNet mc_sft_base** | **640** | appearance | 640 | 25.2 | 1.032 | 0.01 | 1.00 | 0.78 |
+| train_copy_noise (baseline) | 647 | geometry | 272 | 31.2 | 0.439 | | | |
+
+**BrickNet's Minecraft readout is far from houses.** It ranks below every real-build control and
+just above train_copy_noise: a single connected clump per build (lcc 1.00, one component), no
+interior (enterable 0.008, real 0.95) and appearance worse than shuffled materials (mv_dino_kid
+1.03). The samples sheet shows irregular solid blobs and branching limbs in house palettes, never
+walls, floors or roofs. This matches blockgen-21's eval-loss verdict (T69: no LEGO-to-Minecraft
+transfer, and the merged model learns the node format but not the shapes). One seed, one model; the
+LEGO-init arm ties mc_sft_base on eval loss and was not drawn at n=256.
+
+## T101. Legacy 3D-BPE arms at n=256 under the current descriptor: orientation separates on geometry (2026-11-06)
+
+Card `run_20261105_225412_bench_legacy_3D-BPE_arms_at_n_256` (`--tier both --n 256 --baselines`),
+on the n=256 caches of T82 (`outputs/bench_arms/{canon_oriented,canon_unoriented,native_oriented}_n256_32.npz`),
+so the houses32-v1 board has these arms at n=256 instead of the T64 n=128 rows. Recipe: scratchpad
+`card_legacy256.sh`.
+
+| arm | BlockScore | worst pillar | appearance | geom_kid | Holm (geom) | mv_dino_kid | enterable | dino nn pct |
+|---|--:|---|--:|--:|---|--:|--:|--:|
+| native_oriented (contaminated, T31) | 247 | geometry | 129 | 11.8 | c | 0.208 | 0.59 | 0.49 |
+| canon_oriented | 297 | geometry | 157 | 14.2 | c | 0.254 | 0.61 | 0.43 |
+| canon_unoriented | 362 | geometry | 183 | 17.3 | d | 0.295 | 0.63 | 0.40 |
+
+**Orientation helps the legacy 3D-BPE recipe.** canon_oriented against canon_unoriented: geom_kid
+-3.10 [-4.07, -2.01], p (Holm) 0.023; mv_dino_kid groups overlap (cd and d). Traversal is the
+same for both (enterable 0.61 and 0.63). T82 showed the same gap under the v1 descriptor (15.06
+against 18.25); the v2 descriptor keeps it and the paired test now separates it. Inside the
+pipeline's voxel tokens orientation does not move geometry (T94), so the effect needs the
+oriented piece vocabulary, not orientation alone. canon_oriented's 297 matches T93. native_oriented
+stays unranked (its training split overlaps the test houses).
+
+## T102. Category-conditioned 5M house card at n=256: the scratch arm redrawn with the top-up sampler (2026-11-06)
+
+Card `run_20261106_000559_bench_category-conditioned_5M_cat_house_n_256` (`--tier both --n 256
+--baselines`). The scratch arm of T99 was redrawn with the new top-up sampler (`--sample --n 256`,
+step 17000, cat house, seed 1, T=1.0, top_k 40; one empty draw replaced in round 1, 256 builds),
+written to `outputs/run_20261105_181801_cat5m_scratch_s1/samples256`. The other arms reuse their
+T99 caches. Recipe: scratchpad `cat_scratch256.sh`.
+
+| arm | n | BlockScore | worst pillar | appearance | geom_kid | Holm (geom) | mv_dino_kid | Holm (app) | enterable |
+|---|--:|--:|---|--:|--:|---|--:|---|--:|
+| canon_oriented | 256 | 297 | geometry | 157 | 14.2 | c | 0.254 | c | 0.61 |
+| cat pretrain (cat5m_pt_s1) | 256 | 349 | geometry | 220 | 16.8 | cd | 0.355 | de | 0.23 |
+| cat scratch (cat5m_scratch_s1) | 256 | 355 | geometry | 200 | 17.1 | d | 0.324 | d | 0.20 |
+| voxels, world-crop mix (wc5m_sftmix_u_s1) | 256 | 361 | geometry | 238 | 17.3 | d | 0.384 | e | 0.15 |
+
+**The n=255 reading holds.** The scratch arm scores 355 at n=256, the same as at n=255, and every
+Holm group of T99 is unchanged. Both cat models tie the houses-only voxel arm on geometry; the
+scratch model beats it on appearance (mv_dino_kid -0.061, p (Holm) 0.011). canon_oriented still
+separates from both (geom_kid -2.81 against scratch, p (Holm) 0.014). All four arms now sit at the
+board's n.
+
+## T103. Facade arms at n=256: best-of-4 at T=0.7 reaches canon_oriented (2026-11-06)
+
+Card `run_20261105_225345_bench_facade_arms_at_n_256` (`--tier both --n 256 --baselines`). Every
+facade arm of T68, T70 to T73 and T77 re-scored on the first 256 builds of its n=399 cache
+(`outputs/bench_arms/n256`, reports carry `prefix_of` and `n_source`); draws are i.i.d., so the
+prefix is a fair sample. Recipe: scratchpad `card_facade256.sh`. The paired step over 25 arms took
+about 3 h beside another session's CPU load.
+
+| arm | BlockScore | worst pillar | appearance | geom_kid | Holm (geom) | mv_dino_kid | enterable | dino nn pct |
+|---|--:|---|--:|--:|---|--:|--:|--:|
+| BoN face_solidity k4, T=0.7 (T77) | 290 | geometry | 99 | 13.9 | c | 0.160 | 0.35 | 0.48 |
+| RFT face_solidity, T=0.7 (T73) | 320 | geometry | 109 | 15.3 | cde | 0.177 | 0.36 | 0.58 |
+| real@facades6 (ceiling) | 328 | geometry | 8 | 15.7 | cd | 0.014 | 0.70 | 0.46 |
+| joint D4 20M, T=0.7 (T70) | 387 | geometry | 175 | 18.6 | de | 0.283 | 0.29 | 0.51 |
+| BoN face_solidity k4, T=1.0 (T70) | 513 | geometry | 183 | 24.7 | fg | | | |
+| facade_patchwork (baseline) | 570 | geometry | 327 | 27.4 | gh | | | |
+| RFT face_solidity, T=1.0 (T72) | 599 | geometry | 241 | 28.8 | hi | | | |
+| joint 20M, T=1.0 | 620 | geometry | 343 | 29.9 | hi | | | |
+| joint D4 20M, T=1.0 (T68) | 631 | geometry | 291 | 30.4 | i | | | |
+| joint D4 5M | 650 | geometry | 356 | 31.3 | ij | | | |
+| joint 5M | 657 | geometry | 395 | 31.6 | ij | | | |
+| independent faces 5M | 714 | geometry | 442 | 34.4 | l | | | |
+
+**The order of record holds at n=256, and the best facade arm now meets the voxel best.** Every
+pairwise order of the n=399 cards is kept. Best-of-4 at T=0.7 scores 290 against canon_oriented's
+297 (T101): geom_kid 13.9 against 14.2, appearance much better (0.160 against 0.254), traversal
+worse (enterable 0.35 against 0.61). The two were scored on different cards, so the geometry gap
+has no paired test. It ties the facade ceiling on geometry (Holm c against cd), as at n=399 (T77).
+Its reward, face_solidity, is not a pillar signal, but best-of-4 costs four draws per build.
+
+## T104. Facade best-of-4 at T=0.7 against canon_oriented on one card, and the single-material boxes (2026-11-06)
+
+Card `run_20261106_141254_bench_facade_best-of-4_T0_7_against_canon` (`--tier both --n 256
+--baselines`), the T103 and T101 caches of the two arms plus real@facades6. Recipe: scratchpad
+`card_pair256.sh`. Box count: scratchpad `grey_boxes.py`, output `grey_boxes.json`.
+
+| arm | BlockScore | appearance | geometry | palette | coherence | traversal | geom_kid | mv_dino_kid | palette_jsd_exact | bbox_fill_w1 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| facade BoN face_solidity k4, T=0.7 | 290 | 99 | 290 | 30.6 | 1.01 | 1.70 | 13.9 (c) | 0.160 (c) | 0.271 | 0.072 |
+| canon_oriented | 297 | 157 | 297 | 6.1 | 0.48 | 0.99 | 14.2 (c) | 0.254 (d) | 0.112 | 0.022 |
+| real@facades6 (ceiling) | 328 | 8 | 328 | 3.1 | 2.02 | 0.77 | 15.7 (c) | 0.014 (b) | | |
+
+**Geometry ties, appearance goes to the facade arm, every other pillar to canon_oriented.** On
+`geom_kid` the two arms and the facade ceiling share Holm group c (no pair separates). On
+`mv_dino_kid` the facade arm is better by 0.095 (p (Holm) 0.009). canon_oriented is better on
+palette (6.1 against 30.6), coherence and traversal; BlockScore takes only the worst pillar, which
+is geometry for both, so the 290 against 297 ordering is a tie.
+
+**One facade build in eight is a single-material box.** Share of builds with at least 90% of their
+blocks one material (n=256; real test n=399):
+
+| arm | at least 90% | at least 70% |
+|---|--:|--:|
+| real test | 1.0% | 9.8% |
+| real@facades6 | 2.3% | 6.2% |
+| canon_oriented | 0.8% | 9.4% |
+| facade raw, T=1.0 | 5.5% | 15.2% |
+| facade raw, T=0.7 | 17.6% | 24.2% |
+| facade RFT, T=0.7 | 17.2% | 23.0% |
+| facade BoN k4, T=0.7 | 11.7% | 19.1% |
+
+The boxes come from the lower temperature (raw 5.5% to 17.6%); best-of-4 lowers them, so
+face_solidity does not select for them. On the sheet's first 32 builds the 90% rule found 5 of the 7
+boxes picked by eye (the two missed are stone or brick with glass). The palette pillar and
+bbox_fill_w1 register them; geometry and appearance barely do, which is a blind spot to state
+with the metric.
+
+## T105. V-KID robustness: leave-family-out, random subsets, generic descriptors, global terms (2026-11-06)
+
+Run `outputs/run_20261106_193358_vkid_robustness` (`scripts/vkid_robustness.py`). Protocols are those of §80: ladder n=128 gates, and the
+n=256 leaderboard of record with build hashes matched. Details are in notes §82.
+
+| descriptor | dims | gates (ladder) | Fill (board) | Hollow (board) | Patch-Stitch | rho vs V-KID |
+|---|--:|---|--:|--:|--:|--:|
+| full V-KID | 77 | PASS | 444.4 | 265.4 | 368.2 | 1.00 |
+| leave-one-family-out, 7 rows | 22-76 | 7/7 PASS | 310-457 | 146-270 | 327-375 | 0.95-1.00 |
+| random 50%, 20 draws, median [min] | 38 | 20/20 | 351 [283] | 221 [133] | 317 [230] | 0.97 [0.88] |
+| random 25%, 20 draws, median [min] | 19 | 17/20 | 298 [179] | 153 [56] | 246 [178] | 0.95 [0.85] |
+| generic (3 random CNNs, hashed 3^3, neighbour counts, CNN+counts) | 168-392 | 6/6 PASS | 257-437 | 166-297 | 278-515 | 0.73-0.80 |
+| V-KID + global terms (LCC / pooled orbits) | 79-189 | 4/4 PASS | 455-549 | 253-302 | 354-432 (rank 4/9) | 1.00 |
+
+**V-KID's result does not depend on its features.** Every family can be removed, and every random half
+of the dimensions passes the gates. Hand-design-free D4-orbit-averaged descriptors also pass every
+gate and separate both interior probes. They agree with V-KID on the probes and baselines, and
+disagree on the order of the four learned arms. Global terms leave Patch-Stitch 4th of 9.
+
+## T106. The blindness on real generators: MV-KID and V-KID rankings of 40 generators (2026-11-06)
+
+Run `outputs/run_20261106_193513_render_blind_rank_flips` (notes §83). The generators are every house
+arm on the 399-val reference under the post-fix renderer. V-KID was recomputed exactly; MV-KID is the
+card values. 2000 subsampling replicates, Holm over all pairs.
+
+| set | k | Spearman MV vs V-KID v1 | v2 | self MV / V | pairs both sig. | opposite |
+|---|--:|---|---|---|--:|--:|
+| all generators | 40 | 0.50 [0.42, 0.54] | 0.65 [0.58, 0.68] | 0.99 / 0.98 | 388 | **76** |
+| n=256 only | 35 | 0.60 [0.51, 0.63] | 0.68 [0.62, 0.71] | 0.99 / 0.99 | 326 | 55 |
+| autoregressive voxel | 24 | 0.37 [0.21, 0.45] | 0.47 [0.36, 0.55] | 0.98 / 0.97 | 100 | 24 |
+| facade | 10 | 0.99 | 0.99 | 1.00 / 0.99 | 36 | 0 |
+
+| arm | MV z (rank /41) | V-KID v1 z (rank /41) | hidden blocks |
+|---|--:|--:|--:|
+| real@facades6 (perfect facade generator) | +8.1 (1) | +310.6 (19) | 0% |
+| m2b_20m_sftmix_s1 (best voxel) | +238.1 (21) | +277.9 (5) | 12.6% |
+| same outputs, hollowed | +0.15 vs arm at n=128 (osmesa) | +425.3 (29); +117.1 vs arm at n=128 | 0% |
+| rft_facades_joint_d4_20m_face_solidity | +241.2 | +570.8 | 0.2% |
+
+**MV-KID ties the facade RFT arm with the best voxel arm (-3.1 [-20.6, +14.5]); V-KID separates them
+by 292.9 floors.** In 38 of the 76 reversed pairs the arm MV prefers is a facade arm, and facade arms
+are shells (median 0.5% hidden blocks, against 15.6% for real). Over 34 design decisions: 13 agree,
+0 are opposite, 12 are MV-only and 3 are V-KID-only.
+
+Caveats:
+- MV intervals are treated as independent, which is conservative.
+- v2 gives 46 reversals.
+- The exact paired-DINO rerun is pending.
+
+## T107. Gate provenance and threshold robustness of the T92 verdicts (2026-11-06)
+
+Run `outputs/run_20261106_193109_gate_provenance` (notes §84).
+
+- **Dates:** bars set 2026-08-04 (a9eb431), V-KID added 2026-08-31, gate code frozen 2026-09-07
+  (16b95f8), head-to-head 2026-11-04/05.
+- **Robustness:** the sweep covers ordering tol -1..2 sd, G6 bar 0.5-5, G7 bar 1-5 and G8 bar 1-5.
+  - V-KID is the sole geometry pass at every tol <= 0 and every G6 bar.
+  - V-KID passes all 360 of the 480 settings with G7 >= 2.
+  - A G7 bar of 1 rejects every row.
+  - A looser G2 (tol >= 0.5) admits EMD and IoU-D4 1-NNA (Fill +1.6/+2.7).
+  - Adding a G6 bar of 2 admits occupancy KID (+48.4).
+  - No threshold admits the encoders (G6 63-106 floors) or IoU MMD (G8 34-36 SE).
+- **Novelty gates:** across z 2/3/5 and floors x0.5/1/2, the positive controls, Dream-Cubed and
+  shell_box are DQ in all 9 settings. The loosest corner readmits gabled_house. z=2 first DQs our
+  own canon arms.
+- **Coverage:** the G7/G8 statistics are rerun for 8 of 21 rows; the chamfer, EMD and encoder rows
+  are held at their T92 verdicts.
+
+## T108. Leak census, opaque-renderer MV-KID at n=256, leak dose curve (2026-11-06)
+
+Run `outputs/run_20261106_193345_leak_opaque_dose`; details notes §85. houses_32 test (399 x 4 views),
+val reference, DINOv2-B corner views, n = 256.
+
+| pipeline | views altered (Fill) | median px | median max ch | MV-KID Fill | MV-KID Hollow |
+|---|--:|--:|--:|--:|--:|
+| deployed | 90.9% | 1.23% | 128 | +0.29 | +0.03 |
+| translucency only (atlas fixed) | 58.7% | 0.21% | 107 | +0.40 | +0.13 |
+| glass opaque, atlas fixed (GPU) | 11.1% | 0.008% | 1 | -0.00004 | -0.00002 |
+| glass opaque, atlas fixed (CPU) | 0 / 1,596 | - | - | (identical renders) | (identical) |
+
+Dose (bins by per-house leak, atlas fixed): separation 0.00 / -0.00 / +0.03 / +0.40 / -0.66 floors from
+no leak to the top quartile (median leak 4.4% of the silhouette), while per-house feature shift
+tracks the leak (Spearman 0.96). LEGO: deployed -0.011, atlas fixed -0.00004.
+Paper numbers that change: 1.75% -> 1.23%, 212/255 -> 128/255, "89% of houses" -> 67%
+(translucency) / 92% (deployed); app:hull deployed row 8.6% / 1.67% / 211 -> 9.1% / 1.23% / 128.
+
+## T109. Objaverse mesh probe at 568 strict objects, seed 0, n = 170 (2026-11-07)
+
+Run `outputs/run_20261106_210006_mesh_probe3d_568_s0` (results.md; notes §86). 284 ref / 284 pool, n = 170
+(was 290 objects, 130 / 160, n = 96).
+
+| row | Strip | Fill | noise | wall | decimate |
+|---|--:|--:|--:|--:|--:|
+| DINOv2 4 ext. KID | +0.0 | +0.0 | +55.6 | +10.7 | +61.8 |
+| DINOv2 4 cut KID | +17.2 | +32.5 | +126.1 | +21.2 | +129.5 |
+| V-KID | +65.8 | +258.3 | +69.8 | +43.2 | +64.7 |
+| Uni3D vis KID | -0.5 [-0.9, -0.2] | -0.4 [-1.0, -0.0] | +38.6 | +37.8 | +44.3 |
+| ULIP-2 vis KID | -0.0 [-0.1, +0.1] | -0.1 [-0.3, -0.0] | +14.2 | +18.4 | +32.7 |
+
+Blindness holds at the larger n; interior separations grow (V-KID Fill 73.8 -> 258.3). Seed 1 and the
+chamfer/EMD rows with intervals pending (script still scoring at the time of this entry).
+
+## T110. Style-cluster fine-tune: cottage cluster against the all-houses mix, n = 256 (2026-11-07)
+
+Run `outputs/run_20261107_113816_cluster_eval_cottage` (scripts/cluster_eval.py; notes, style-cluster paragraph).
+Cluster: houses_32 both_k6 c1 (medieval cottages, `outputs/run_20261106_141808_cluster_houses`), grown with
+1,519 anneal builds inside the cluster radius (`outputs/run_20261106_162105_cluster_assign_anneal32`):
+sft-cottage 1,881 builds (9859ff1c7efa), eval-cottage 114 val+test builds (reference). All arms init from
+wc5m_pretrain_u_s1, 12k steps, lr 1e-4, dropout 0, select best, tokenizer 60684456e598. KID x1000 against the
+cluster's 114 held-out builds, 95% interval from 200 resamples of the arm; cluster scale, comparable only in this table.
+Style hit = share of builds the cluster k-means places in c1 within its 90th-percentile radius.
+
+| arm | geom_kid | mv_dino_kid | style hit | eval-cottage NLL | eval-holdout NLL |
+|---|--:|--:|--:|--:|--:|
+| real cottage train | 0.32 [0.28, 0.72] | 0.008 | 0.895 | | |
+| real houses test, all styles | 3.0 [2.5, 3.8] | 0.446 | 0.074 | | |
+| all-houses mix (wc5m_sftmix_u_s1) | **16.7** [16.1, 17.5] | **1.085** | 0.0 | | |
+| cottage + world-crop mix (cot5m_mix_s1) | 19.9 [19.2, 20.9] | 1.239 | 0.0 | 0.4635 | 0.4806 |
+| cottage only (cot5m_sft_s1) | 21.2 [20.3, 22.3] | 1.140 | 0.0 | 0.4638 | 0.5543 |
+
+Training on the style subset made the model worse at that style on both metrics, and no arm produces a single
+build the clusterer calls a cottage. Without the radius, the nearest centre of every generated build is a
+catch-all cluster (c0, c2 or c5): base 55/22/20%, mix 47/18/34%, cottage-only 25/21/54%, c1 0% in all three
+(real reference 100% c1). Median distance to the nearest centre is 0.92 to 0.94 for the models against 0.84
+for the real reference. Samples (cot5m_sft_s1/samples.png) are wood-and-cobble clumps: the palette moved
+towards the style, the structure did not. Narrowing the data does not fix structure; the generator's error
+is off the style manifold, not between styles. Cottage-only also loses 0.07 nats on the general holdout.
+Pool follow-up: assigning all 358,976 anneal + pretrain-all builds that fit 32
+(`outputs/run_20261107_183120_cluster_assign_anneal_pretrain-all32`) grows cottage only from 1,519 to 1,720
+accepted builds (both_k6 c1; dino_k6 c1 1,885). The extra pretrain-all crops fall into the catch-all clusters
+(both_k6 c0 264,883), so a larger cottage set is not available and the cluster track stops here.
+
+## T111. canon_oriented recreated at two seeds: the legacy recipe reproduces (2026-11-07)
+
+Card `run_20261107_222928_bench_canon_oriented_recreated_at_seeds_0_and` (`--tier both --n 256 --baselines`).
+The Sep 17 command rerun unchanged (`python -m blockgen.experiments_native --arms bpe --oriented --epochs 60
+--batch 8 --merges 256 --split canonical`) through a scratchpad wrapper that pins the split seed to 0, so the
+second torch seed does not move val/test builds into train. Runs `run_20261107_130322_recanon_s0_native` and the
+seed 1 sibling; tokenizer identical to the original (1,079 pieces, 13,890 of 14,868 D4 builds fit, median 1,814).
+256 samples each via `scripts/sample_to_npz.py` (seed 0, T=1.0, top_k 40), as for the original. Recipe: scratchpad
+`recanon/recanon.sh` (log `outputs/logs/recanon.log`). Final train loss 0.315 (original), 0.319, 0.326.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | components | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| canon_oriented (Sep 17) | 297 | 157 | 14.2 | 0.254 | 0.61 | 7.9 | 0.43 |
+| recreation, seed 0 | 313 | 151 | 15.0 | 0.245 | 0.66 | 7.7 | 0.46 |
+| recreation, seed 1 | 319 | 129 | 15.3 | 0.208 | 0.56 | 7.3 | 0.41 |
+
+All three share Holm group `c` on both `geom_kid` and `mv_dino_kid`. No gate fires.
+
+**The legacy recipe reproduces; 297 is the lucky end of a 297 to 319 seed range.** Every recreation stays ahead
+of every new-pipeline voxel arm (best 332, T87), and seed 1 has the best appearance of any learned arm (129).
+The gap to the pipeline is the recipe, not a fortunate checkpoint. The world-crop-pretrained version of the same
+recipe (scratchpad `recanon/legacy_pre.py`) is scored next.
+
+## T112. canon_oriented recipe with world-crop pretraining: new best learned arm, 255 (2026-11-08)
+
+Card `run_20261107_234331_bench_canon_oriented_recipe_with_world-crop` (`--tier both --n 256 --baselines`).
+Run `run_20261107_181022_recanon_wcpre_s0` (scratchpad `recanon/legacy_pre.py`, log `outputs/logs/wcpre.log`):
+canon_oriented's own piece vocabulary tokenizes the 61,365 anneal-worldcrop builds that fit 32; 54,308 kept
+(dropped: >10% voxels outside the vocab, or longer than 5480; none voxel-equal to a val/test house), 123M tokens,
+median 2,018. Legacy trainer throughout (AR2 phase4, d256 x6, dropout 0.1, batch 8, lr 3e-4 constant): 8
+epochs on the crops (loss 0.417), then the unchanged T111 house stage (D4, 60 epochs) from those weights
+(final loss 0.268 against 0.319 from scratch). Seed 0; samples as T111.
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|
+| **legacy recipe + world-crop pretraining** | **255** | **125** | **12.2** | **0.203** | 0.65 | 0.41 |
+| canon_oriented (Sep 17) | 297 | 157 | 14.2 | 0.254 | 0.61 | 0.43 |
+| recreation, seed 0 (T111) | 313 | 151 | 15.0 | 0.245 | 0.66 | 0.46 |
+| recreation, seed 1 (T111) | 319 | 129 | 15.3 | 0.208 | 0.56 | 0.41 |
+
+Holm groups on `geom_kid`: pretrained `c`, canon_oriented and seed 0 `cd`, seed 1 `d`; the pretrained arm
+separates from seed 1 (-3.08 [-3.92, -2.10], p_adj 0.021) but not from canon_oriented or seed 0. On
+`mv_dino_kid` all four share `c`. No gate fires (exact-duplicate rate 0; nn percentile 0.41, in the range of
+the scratch arms).
+
+**World-crop pretraining helps the legacy recipe, the opposite of T98.** It is the best learned arm on every
+headline column (BlockScore 255, appearance 125, geom_kid 12.2, mv_dino_kid 0.203), and against the scratch seed
+range (297 to 319) it is better by 40 to 60. Only the seed 1 comparison clears Holm on its own, so a second
+pretrained seed is needed before the gain is claimed against canon_oriented itself. What T98 changed that this
+run did not: the pipeline tokenizer (unoriented, merges on sft-houses32) and the pipeline trainer (32k-token
+steps, dropout 0 at fine-tune). One seed.
+
+## T113. Second seed of the world-crop-pretrained legacy recipe: 358, so T112's 255 does not hold (2026-11-08)
+
+Card `run_20261108_050420_bench_canon_oriented_recipe_with_world-crop` (`--tier both --n 256 --baselines`).
+`run_20261108_010628_recanon_wcpre_s1` repeats T112 at torch seed 1 (same 54,308 tokenized crops, 8 pretraining
+epochs, 60 house epochs; final house loss 0.275 against 0.268); samples as T111 (seed 0, T=1.0, top_k 40).
+Recipe: scratchpad `recanon/wcpre_s1.sh` (log `outputs/logs/wcpre_s1.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | enterable | palette |
+|---|--:|--:|--:|--:|--:|--:|
+| pretrained, seed 0 (T112) | 255 | 125 | 12.2 | 0.203 | 0.65 | 6.9 |
+| canon_oriented (Sep 17) | 297 | 157 | 14.2 | 0.254 | 0.61 | 6.1 |
+| scratch recreation, seed 0 (T111) | 313 | 151 | 15.0 | 0.245 | 0.66 | 7.4 |
+| scratch recreation, seed 1 (T111) | 319 | 129 | 15.3 | 0.208 | 0.56 | 6.9 |
+| **pretrained, seed 1** | **358** | 146 | **17.2** | 0.236 | 0.60 | 10.2 |
+
+Holm groups on `geom_kid`: pretrained s0 `c`, canon_oriented and scratch s0 `cd`, scratch s1 `d`, pretrained
+s1 `de`. The two pretrained seeds separate from each other (-4.97 [-5.97, -3.97], p_adj 0.012). On
+`mv_dino_kid` all five share `c`. No gate fires on a model arm.
+
+**Pretraining widens the seed spread instead of shifting it.** Scratch seeds span 297 to 319 (mean 310);
+pretrained seeds span 255 to 358 (mean 306). T112's lead was a good seed, and the pretrained recipe is not yet
+better than the scratch one on average. What holds across all five: the legacy recipe beats every pipeline arm
+on `mv_dino_kid` (0.203 to 0.254 against 0.31 or worse), and its geometry ranges from 12.2 to 17.2, so a single
+seed decides geometry rankings at this scale. Claims about this recipe need at least three seeds per arm.
+
+## T114. Functional ground truth on the 76 reversed pairs: sides with MV-KID (2026-11-08)
+
+Run `outputs/run_20261108_204723_functional_groundtruth` (notes §87). Five player-based measures
+(enterable, reached interior floor, reached rooms, roof, largest component), per build, on the
+40 generators of T106/§83, real and probes; FD = mean per-measure W1 to the 399 val builds in
+units of real between-build spread; B = 1000.
+
+| arm | FD [95%] | MV-KID z | V-KID v1 z |
+|---|---|--:|--:|
+| held-out real (n=256) | **0.09** [0.08, 0.19] | 0 | 0 |
+| FILL-INTERIOR | 1.21 [1.11, 1.32] | 0.4 | 444 |
+| HOLLOW-SHELL (real) | 0.60 [0.52, 0.73] | | |
+| real@facades6 | 1.22 [1.07, 1.38] | 8.1 | 311 |
+| classic-matched (best generator) | 0.52 [0.43, 0.65] | 250 | 377 |
+| m2b_20m_sftmix_s1 (V-KID's best voxel arm) | 1.32 [1.20, 1.43] | 238 | 278 |
+| same @hollow | 0.90 | +0.15 vs arm | 425 |
+
+| test | MV-KID | V-KID v1 |
+|---|---|---|
+| Spearman with FD, 40 generators | **+0.67** [0.41, 0.82] | +0.16 [-0.20, 0.45] |
+| Spearman with FD, 30 non-facade | +0.60 [0.27, 0.80] | -0.19 [-0.52, 0.14] |
+| reversed pairs FD sides with, all 76 | **60** | 16 (21% [12.5, 31.9]) |
+| non-facade 38 / facade 38 | 37 / 23 | 1 / 15 |
+
+Real ranks first of 41 under FD, FD_noise, FD_kid and occupancy-only FD_occ; the V-KID share
+of reversed pairs is 8%, 26%, 24% under the variants. Per-build ridge R^2 of the measures on
+V-KID's 77 features: 0.29 to 0.62. Verdict: the functional test detects the interior probes
+MV-KID misses, but on real generators it agrees with the render ranking; V-KID rewards the
+cluttered, unenterable interiors of voxel AR models (median 22% enterable vs real 94%).
+
+## T115. Statistics audit: floor FPC, n-free effect size, exact 40-generator tests, TOST, kernel ablation (2026-11-08)
+
+`outputs/run_20261108_205428_stats_fixes` (notes §88). CPU on cached features; Hollow/Grow DINO
+rendered once.
+
+| question | old | new |
+|---|---|---|
+| floor FPC, truth / bench (non-overlapping sim) | critic: up to 1/1.67 | 0.88-0.95 (n=256), floor overstated 5-12% |
+| V-KID Fill-Interior n=256 (corrected floor) | 444.36 | 491 |
+| MV-KID Fill-Interior n=256 | 0.35 | 0.34 |
+| Fill, V/MV ratio | 1,270x (z) | 27x (effect size, anchor Random-Voxels) |
+| BrickGPT geometric/render gap | 4.4x (z) | 2.2x (effect size) |
+| 40 generators, opposite & both separated | 76 of 388 (subsample test) | 40 of 308 (exact permutation, Holm) |
+| rho, 95% | 0.50 [0.42, 0.54] | 0.50 [0.37, 0.58] sampling; [0.20, 0.72] over generators |
+| Fill / Hollow equivalence, MV-KID, margin 2 floors | not tested | TOST equivalent, 90% CI [-0.28, 0.98] / [-0.25, 0.33] |
+| rank-interval rescale (x2) | unrescaled | no new ties |
+| cubic KID linear share | | 99.8% MV, 98.8-99.5% V; dissociation holds under linear/RBF/no-whitening |
+
+Verdict: the floor is slightly conservative, not anti-conservative; the cross-metric z ratios must
+be replaced by effect sizes; the reversal count halves under the calibrated test.
+
+## T116. Ladder P1: the pipeline with the legacy trainer's knobs scores 338, from 425 (2026-11-09)
+
+Card `run_20261109_040307_bench_ladder_P1_pipeline_with_legacy_knobs` (`--tier both --n 256 --baselines`).
+`run_20261108_202534_p5m_d4legacyknobs_s1` is T98's `p5m_d4scratch_s1` (5M, unoriented pieces `cdce56584ebf`,
+D4) with every legacy setting a config can express: `dropout=0.1 select=last warmup=0 decay_frac=0 lr=3e-4
+beta2=0.999 weight_decay=0.01 max_seq_len=5480 steps=104000` (constant lr, last checkpoint; 808 sequences
+over 5,480 tokens dropped). Still the pipeline's: tag tokens, token-budget batches (16,384), decay on 2-D
+weights only, unoriented pieces. Final eval-holdout loss 0.604. Recipe: scratchpad `recanon/ladder_p1.sh`
+(log `outputs/logs/ladder_p1.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | palette |
+|---|--:|--:|--:|--:|--:|
+| canon_oriented (legacy, oriented) | 297 | 157 | 14.2 | 0.254 | 6.1 |
+| **pipeline + legacy knobs (P1)** | **338** | 176 | **16.2** | 0.285 | 4.4 |
+| canon_unoriented (legacy, unoriented) | 362 | 183 | 17.3 | 0.295 | 7.8 |
+| pipeline defaults (T98) | 425 | 209 | 20.4 | 0.338 | 11.3 |
+
+Holm groups on `geom_kid`: canon_oriented `c`, P1 `cd`, canon_unoriented `de`, T98 `f`. P1 beats T98
+(-4.20 [-5.17, -3.17], p_adj 0.011) and ties both legacy arms. On `mv_dino_kid` P1 shares `cd` with both
+legacy arms. No gate fires on a model arm.
+
+**The trainer half of the gap is config, and it closes.** The legacy settings move the pipeline 87 points,
+past the legacy unoriented arm it was matched against (362), so nothing code-level is needed for the
+unoriented comparison. The remaining 41 points to canon_oriented are within T101's 65-point orientation effect; P2
+(the same knobs on oriented pieces `78a45c76538c`) tests whether orientation closes them. One seed.
+
+## T117. Cross-face constrained decoding: consistent faces by construction, 679 to 589 at T=0.7, components at the facade ceiling (2026-11-09)
+
+**Setup.** The 20M D4 joint facade model of T68 (selected step 18,000) sampled n=399 on the T68 boxes
+(seed 0, top-k 40) under two decoders at two temperatures. The grammar control forces the face headers
+and the final EOS and makes every cell `empty` or an in-box depth followed by a block, with no state
+across faces. The constrained decoder adds the cross-face rule of notes §89 (`blockgen/corpus/facade_constraints.py`,
+`blockgen/train/sample_constrained.py`): a `ShellState` over the box records each drawn cell's first hit as a
+known voxel and the voxels in front of it as empty; a later face's cell may report its first hit only at a
+depth not already seen through and not behind a known voxel, it carries the known block when it lands on one,
+it may be see-through only when no known voxel lies on its ray, and a cell whose first open voxel is already
+known is written without sampling. Everything the earlier faces left open stays the model's, including a block
+in front of a known voxel where no ray has passed. Faces are drawn in the shard's order (front, right, back,
+left, top, bottom). One card put the four decode arms beside the T68 raw, T70 T=0.7, T77 best-of-4 and T73
+RFT arms, patchwork and the six-face ceiling:
+`outputs/run_20261109_050232_bench_facade_cross-face_constrained_decoding`. Samples, face sheets and
+`summary.json` per arm under `outputs/run_20261028_125240_houses32_facades_joint_d4_20m/constrained_<mode>_t<T>_n399`.
+Decoding took 32 to 36 minutes per arm at batch 32; the constraint costs about four minutes.
+
+**Self-consistency** (sampler's own measure: lift the six faces, project back, count cells that differ).
+
+| arm | consistent face sets | cells changed on reprojection | filled cells hidden | see-through cells filled in | cells written by the rule | median blocks |
+|---|---|---|---|---|---|---|
+| grammar, T=1.0 | 0.000 | 0.386 | 0.298 | 0.587 | 0 | 771 |
+| constrained, T=1.0 | 1.000 | 0.000 | 0.000 | 0.000 | 0.253 | 606 |
+| grammar, T=0.7 | 0.018 | 0.281 | 0.214 | 0.384 | 0 | 686 |
+| constrained, T=0.7 | 1.000 | 0.000 | 0.000 | 0.000 | 0.214 | 509 |
+
+Free decoding almost never produces a consistent face set: three cells in ten come back different after
+the lift, and more than half of the see-through cells at T=1.0 are filled by some other face. Under the
+constraint a fifth to a quarter of all cells have exactly one legal answer and are written without
+sampling.
+
+**The card** (n=399 unless noted; the T=0.7 arms lose the handful of all-air draws).
+
+| arm | BlockScore | geom_kid | mv_dino_kid | n_components (real 2.7) | lcc_ratio (real 0.98) | n_blocks (real 904) | enterable (real 0.95) |
+|---|---|---|---|---|---|---|---|
+| T68 raw, T=1.0 | 1082 | 30.3 | 0.468 | 60.0 | 0.811 | 785 | 0.348 |
+| grammar, T=1.0 | 1057 | 29.6 | 0.496 | 62.7 | 0.813 | 806 | 0.446 |
+| constrained, T=1.0 | 963 | 27.0 | 0.331 | 29.5 | 0.794 | 624 | 0.331 |
+| T70 raw, T=0.7 | 637 | 17.8 | 0.268 | 29.8 | 0.836 | 713 | 0.309 |
+| grammar, T=0.7 | 679 | 19.0 | 0.299 | 33.7 | 0.810 | 689 | 0.316 |
+| constrained, T=0.7 | 589 | 16.5 | 0.166 | 12.9 | 0.812 | 541 | 0.285 |
+| T73 RFT + selection, T=0.7 | 553 | 15.4 | 0.182 | 17.6 | 0.937 | 707 | 0.352 |
+| T77 best-of-4, T=0.7 | 483 | 13.5 | 0.149 | 15.9 | 0.948 | 697 | 0.365 |
+| patchwork | 990 | 27.7 | 0.538 | 26.5 | 0.898 | 1028 | 0.231 |
+| real@facades6 (ceiling) | 493 | 13.8 | 0.001 | 13.5 | 0.814 | 660 | 0.729 |
+
+Holm-corrected paired tests (10,000 permutations): the constrained arm is separated from its grammar
+control on `geom_kid` at both temperatures (T=1.0: 27.0 vs 29.6, p_Holm 0.033; T=0.7: 16.5 vs 19.0,
+p_Holm 0.033) and on `mv_dino_kid` at both (groups f vs gh, cd vs ef). At T=0.7 the constrained arm
+shares a `geom_kid` group with RFT (d, cd) and is separated from best-of-4 and the ceiling (c); on
+`mv_dino_kid` it shares a group with best-of-4 (cd, c). The grammar control is not separated from the raw
+sampler at either temperature, so the grammar itself changes nothing and the whole effect is the
+cross-face rule.
+
+**Reading.** The pre-registered prediction of notes §89 held: the constraint cuts the lifted shell's
+components from 34 to 13 at T=0.7, the six-face ceiling's 13.5, and moves `geom_kid` by 2.5 at both
+temperatures. The extra pieces of T68 were edge disagreement between faces, not fragmentation inside
+them, and removing them is worth 90 BlockScore points at T=0.7 (679 to 589) and 94 at T=1.0, at no
+training cost and four minutes of decode time. The appearance gain is larger still: `mv_dino_kid` 0.299
+to 0.166, level with best-of-4, because a shell whose faces agree renders as one house. The sheets
+show the same thing: on the same boxes and seed, the constrained builds have roofs that sit on their
+walls and far fewer stray blocks in the air.
+
+The constraint does not close the gap to the ceiling (16.5 vs 13.8 on `geom_kid`) or to best-of-4
+(483), and the card says where the rest sits: the constrained shells are thinner and smaller
+(541 blocks against the ceiling's 660, `wall_frac` 0.65 against 0.74, `walk_floors` 0.45 against
+0.87, yaw symmetry 0.57 against 0.67) while `lcc_ratio` stays at 0.81, which is also the ceiling's
+value and so is not what separates them. The rule has one cost, visible in the median block count
+(686 to 509) and in the sheets: a see-through cell is absolute, so a front face with holes empties
+whole columns for the five faces after it, and a sparse front face sentences the build to a
+skeleton (two beams, a row of dots) where the control drew a dense cluster. `enterable` drops a
+little (0.316 to 0.285) for the same reason. The front face dictates because it is drawn first; the
+order is the shard's training order, so a different order needs a retrained model.
+
+**What follows.** The lever is orthogonal to selection and to the fine-tune, so the next arms are
+constrained best-of-4 at T=0.7 and constrained decoding of the T73 RFT model, which should combine
+the component fix with their solidity. The see-through cost suggests a relaxed rule that forbids
+first-hit contradictions but lets a later face fill a column an earlier face saw through, re-projecting
+the earlier face's cell. The oracle completions from the real front face (and front plus right),
+which measure how much of a real shell the model recovers when the dictating face is correct, OOM'd
+at batch 32 beside another session's bench job and are rerunning at batch 8; their numbers are
+appended to notes §89 when they land.
+
+## T118. canon_oriented's recipe at 20M: 190, the best learned arm by a margin past seed noise (2026-11-09)
+
+Card `run_20261109_074328_bench_canon_oriented_recipe_at_20M` (`--tier both --n 256 --baselines`).
+`run_20261108_202210_recanon20m_s0_native` is T111's command (legacy `experiments_native`, oriented 3D-BPE,
+D4, 60 epochs, batch 8, constant lr 3e-4, split pinned to seed 0) with the model widened to d512 x 8, ff 2048
+(27M parameters against 5M), torch seed 0. Final train loss 0.112 against 0.319/0.326 for the 5M seeds.
+Samples as T111 (T=1.0, top_k 40, 256). Recipe: scratchpad `recanon/legacy20m.sh` (log `outputs/logs/legacy20m.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | palette | dino_nn_percentile | voxel_nn_iou |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| **20M, seed 0** | **190** | **98** | **9.1** | **0.159** | 4.5 | 0.359 | 0.390 |
+| canon_oriented (5M, Sep 17) | 297 | 157 | 14.2 | 0.254 | 6.1 | 0.433 | 0.360 |
+| 5M recreation, seed 0 (T111) | 313 | 151 | 15.0 | 0.245 | 7.4 | 0.464 | 0.361 |
+| 5M recreation, seed 1 (T111) | 319 | 129 | 15.3 | 0.208 | 6.9 | 0.412 | 0.366 |
+| real test | 0 | 0 | -0.1 | 0.001 | 0 | 0.508 | 0.375 |
+
+Holm on `geom_kid`: 20M beats canon_oriented (-5.18 [-6.04, -4.14]), recanon s0 (-5.95) and s1 (-6.22), all
+p_adj 0.011. On `mv_dino_kid` 20M is alone in group `c` (5M arms `cd`/`d`). No gate fires on a model arm.
+
+**Scale is the lever the legacy recipe was missing.** The 20M model gains 5 to 6 geom units over every 5M arm,
+past the 5-unit seed spread T113 measured, and leads on appearance, palette and both primaries. Samples
+(`native_bpe/samples_textured.png`) show roofs, stone bases, windows and furnished interiors. The cost is
+proximity to training data: `dino_nn_percentile` falls to 0.359 (real 0.508, 5M 0.41 to 0.46) and train loss
+is a third of the 5M one, but there are no voxel duplicates and nearest-neighbour IoU (0.390) is at real's
+level (0.375). One seed; T112's 255 that did not hold is the warning. Next: a second 20M seed.
+
+## T119. Ladder P2: oriented pieces under the legacy knobs score 330, tied with canon_oriented (2026-11-09)
+
+Card `run_20261109_075008_bench_ladder_P2_oriented_pieces_with_legacy` (`--tier both --n 256 --baselines`).
+`run_20261109_052337_p5m_d4oriknobs_s1` is T116's P1 with the tokenizer swapped for oriented pieces
+`78a45c76538c` (`learn_pieces --oriented`, 213 forced + 256 merges, D4 shard `sft-houses32/78a45c76538c-d4`);
+same knobs, 104k steps. Final eval-holdout loss 0.621 (not comparable to P1's 0.604: different vocabulary).
+Recipe: scratchpad `recanon/ladder_p2.sh` (log `outputs/logs/ladder_p2.log`).
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | palette |
+|---|--:|--:|--:|--:|--:|
+| canon_oriented (legacy, oriented) | 297 | 157 | 14.2 | 0.254 | 6.1 |
+| **pipeline + legacy knobs, oriented pieces (P2)** | **330** | **156** | 15.8 | **0.253** | 9.2 |
+| pipeline + legacy knobs, unoriented pieces (P1) | 338 | 176 | 16.2 | 0.285 | 4.4 |
+| canon_unoriented (legacy, unoriented) | 362 | 183 | 17.3 | 0.295 | 7.8 |
+| pipeline defaults (T98) | 425 | 209 | 20.4 | 0.338 | 11.3 |
+
+Holm on `geom_kid`: canon_oriented, P2 and P1 share `c`; canon_unoriented `cd`; T98 `d`. On `mv_dino_kid`
+P2 and canon_oriented share `c`, P1 and canon_unoriented `cd`. P2 beats T98 on both primaries (p_adj 0.012).
+
+**The pipeline now matches the legacy recipe.** Orientation moves appearance and `mv_dino_kid` to
+canon_oriented's level (156 against 157; 0.253 against 0.254), and geometry sits 1.6 units behind, inside one
+Holm group and inside the 5-unit seed spread. The 33-point BlockScore gap is one seed's worth. The ladder's
+answer: the pipeline's deficit was trainer settings (T116) plus unoriented pieces (this entry); tags,
+token-budget batching and 2-D-only decay cost nothing measurable. Pipeline runs at 20M with these knobs and
+oriented pieces are the comparison to T118.
+
+**Oracle completions (appended 2026-11-09, batch 8).** The 399 real test houses, the real front face (or
+front plus right) forced verbatim, the model drawing the remaining faces; agreement of each drawn face
+with the real one, and IoU of the lifted shell with the real shell. Means over the drawn faces.
+
+| given | mode | T | shell IoU | shell block agree | drawn-face mask IoU | depth exact | block agree | cells written by the rule | components |
+|---|---|---|---|---|---|---|---|---|---|
+| front | grammar | 1.0 | 0.347 | 0.505 | 0.687 | 0.324 | 0.331 | 0 | 8.0 |
+| front | constrained | 1.0 | 0.509 | 0.581 | 0.849 | 0.601 | 0.468 | 0.285 | 3.1 |
+| front | grammar | 0.7 | 0.362 | 0.552 | 0.665 | 0.354 | 0.373 | 0 | 5.5 |
+| front | constrained | 0.7 | 0.553 | 0.601 | 0.869 | 0.639 | 0.505 | 0.282 | 2.3 |
+| front + right | grammar | 0.7 | 0.469 | 0.630 | 0.705 | 0.394 | 0.414 | 0 | 4.8 |
+| front + right | constrained | 0.7 | 0.716 | 0.668 | 0.955 | 0.744 | 0.571 | 0.314 | 2.1 |
+
+Given the real front face, the constraint lifts the completed shell's IoU with the real shell from
+0.36 to 0.55, and with front plus right from 0.47 to 0.72. The per-face table says why: the back
+face's mask is fixed by the front face (every filled front column has a back hit, every see-through
+column has none), so its mask IoU is 1.0 by construction, and the side faces' depth, which is mostly
+the footprint's extent, goes from 0.29 exact to 0.74. What the rule leaves to the model stays hard:
+the back face's depth (0.27 exact either way, a 2.7 cell mean error) and the block identity of every
+free cell (0.37 to 0.51). So the constraint recovers the silhouette and the footprint from a correct
+front face; materials and the relief of the far side are the model's and do not improve much.
+
+## T120. The f=4 oracle of the cascade-and-AR hybrid: the fine model ignores its coarse level (2026-11-09)
+
+**Setup** (notes §90). A per-face facade model that reads its own level f=4 before the face: the
+`pooled4` layout, `[BOS, tags, face, U/4, V/4, cell*, face, U, V, cell*, EOS]`, trained with T66's
+per-face 5M recipe unchanged (8,000 steps, five minutes, `outputs/run_20261109_125654_houses32_facades_pooled4_5m`,
+holdout NLL 0.72 over face and prefix cells). The oracle gives the real f=4 (`any` pooling) of each of
+the 399 test front faces and lets the model draw the face at T=1.0 and T=0.7; the copy is the upsample
+of that level, the cascade row is T88's completion from the same level. `hybrid from the box` is the
+model drawing its own coarse level first, the two-stage AR as a generator.
+
+| arm | mask IoU | mask recall | depth exact | block agree | distinct blocks / face (real 12.6) | faces with glass (real 0.74) | W1 fill_frac | W1 n_blocks |
+|---|---|---|---|---|---|---|---|---|
+| copy (upsample f4) | 0.761 | 1.000 | 0.520 | 0.556 | 4.4 | 0.21 | 0.208 | 8.2 |
+| cascade, mode from f4 (T88) | 0.754 | 0.864 | 0.581 | 0.515 | 4.4 | 0 | | |
+| hybrid from real f4, T=1.0 | 0.617 | 0.762 | 0.381 | 0.284 | 9.9 | 0.69 | 0.022 | 2.7 |
+| hybrid from real f4, T=0.7 | 0.574 | 0.704 | 0.403 | 0.333 | 4.5 | 0.37 | 0.051 | 8.1 |
+| hybrid from the box, T=1.0 | 0.567 | 0.739 | 0.175 | 0.022 | 9.9 | 0.69 | 0.027 | 2.7 |
+
+**Reading.** The pre-registered bar was block agreement above the copy's 0.556, which the cascade
+missed at 0.515. The hybrid misses it by much more: 0.28 to 0.33, with mask IoU 0.62 against the
+copy's 0.76 and a quarter of the dictated silhouette left undrawn (recall 0.76). With the real
+gestalt in its context the fine model does not reproduce it; its faces given the real f=4 agree with
+the real face barely more than its faces drawn from the box (mask IoU 0.617 against 0.567), so the
+prefix carries palette and size and little else, and the sheet shows the per-face model's usual
+speckled faces under a coarse level they do not follow. What the AR fine stage does deliver is the
+distribution: windows on 69 percent of faces against the cascade's none (real 74 percent), 9.9
+distinct blocks per face against the cascade's 4.4 (real 12.6), and W1 to real on fill fraction and
+block count a tenth of the copy's. So the two stages have complementary failures, the cascade
+faithful to the gestalt and blind to detail, the AR rich in detail and deaf to the gestalt, and
+putting the gestalt in the AR's context does not join them. Under the rule set in §90 this closes
+option (a) of §74 for faces as a free lever; the fix it points to is a decode-time constraint that
+holds the fine face to its coarse level (empty coarse blocks empty, filled ones filled, the move of
+T117 one level up), which would buy mask fidelity but not block agreement, the number that failed.
+The trainer's own fast-tier card at n=64 scored the free two-stage model 220, not comparable with the
+n=399 facade cards.
+
+## T121. Category conditioning on the legacy recipe: probe 0.53 against 0.33, and its houses tie canon_oriented (2026-11-09)
+
+`run_20261109_091009_legacycat_s0` (scratchpad `recanon/legacy_cat.py`, chain `recanon/legacy_cat.sh`, log
+`outputs/logs/legacy_cat.log`): T111's legacy recipe (5M AR2 phase4, oriented 3D-BPE learned on this data,
+256 merges, D4, batch 8, constant lr 3e-4, dropout 0.1, 22 epochs) on `sft-cat` builds that fit 32 (4,621,
+11 classes plus `none`; 36,188 after D4, 34,057 within 5,480 tokens). The class token replaces BOS, as in
+T99. Final train loss 0.427. Samples at T=1.0, top_k 40, batched 16 (full re-forward, no KV cache): 128 per
+class, 256 for house. Sheets: `sheets/overview.png` (8 per class, one class per row, sampling order) and
+`sheets/<class>.png` (24 each).
+
+Conditioned eval (`python -m blockgen.eval.conditioned --n 128 --boot 200`, T99 protocol, same probe and
+`eval-cat` reference):
+
+| class | ceiling | T99 pipeline probe | **legacy probe** | T99 geom_kid | **legacy geom_kid** |
+|---|--:|--:|--:|--:|--:|
+| tree | 0.95 | 0.78 | **0.95** | 4.2 | **1.9** |
+| vehicle | 0.74 | 0.58 | **0.85** | 4.3 | **0.8** |
+| pixelart | 1.00 | 0.56 | **0.74** | 8.0 | **1.8** |
+| aircraft | 0.63 | 0.39 | **0.51** | 5.1 | **3.0** |
+| house | 0.77 | 0.34 | **0.44** | 18.7 | **12.2** |
+| statue | 0.75 | 0.27 | **0.62** | 15.0 | **7.4** |
+| farm | 0.56 | 0.20 | **0.36** | 14.5 | **8.0** |
+| ship | 0.63 | 0.20 | **0.38** | 7.1 | **2.6** |
+| shop | 0.45 | 0.20 | **0.42** | 21.3 | **12.5** |
+| castle | 0.53 | 0.10 | **0.20** | 16.7 | **10.1** |
+| tower | 0.51 | 0.05 | **0.31** | 20.5 | **11.0** |
+| **mean (11)** | **0.69** | 0.33 | **0.53** | 12.3 | **6.5** |
+
+Mean margin (KID to the other classes minus KID to its own): 13.5 against T99's 8.0. Every class improves
+on both columns. Copy check (scratchpad, D4 train builds of the class): no sample equals a training build
+in any of pixelart, tree, vehicle and house; same-shape IoU >= 0.8 for 0 to 1.6%. The pixelart row repeats one
+yellow character, a mode of the class, not a copy.
+
+Houses card `run_20261109_125713_bench_category-conditioned_legacy_recipe` (`--tier both --n 256
+--baselines`, the 256 house-token samples):
+
+| arm | BlockScore | appearance | geom_kid | mv_dino_kid | palette | enterable | dino nn pct |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| **category model, house token** | **272** | **128** | **13.0** | **0.207** | 15.0 | 0.51 | 0.52 |
+| canon_oriented | 297 | 157 | 14.2 | 0.254 | 6.1 | 0.61 | 0.43 |
+| recanon s0 (T111) | 313 | 151 | 15.0 | 0.245 | 7.4 | 0.66 | 0.46 |
+
+One Holm group (`c`) on both primaries. No gate fires.
+
+**The legacy recipe makes category conditioning work, and training on 11 classes costs houses nothing.**
+The pipeline's category model (T99) scored 355 on houses; this one scores 272 and sits in canon_oriented's
+group, with its training-set proximity at real's level (0.52 against 0.51) where the houses-only models sit
+closer (0.43 to 0.46). Its weak spots are palette (15.0, the worst of the three) and traversal (enterable
+0.51). One seed. Next: the 20M version, since scale was the large lever on houses (T118).
+
+## T122. Constrained decoding stacked with best-of-4 and the RFT model: appearance to 0.098, geometry at the ceiling, and a reward that saturates (2026-11-09)
+
+**Setup.** The cross-face constrained decoder of T117 applied where T117 said it should stack: under
+best-of-4 selection on `face_solidity` (k=4, `scripts/facade_constrained.py bon`), on the T73 RFT model
+(`run_20261101_154120_rft_facades_joint_d4_20m_face_solidity_rsel_t07`), and both at once. All arms
+T=0.7, top-k 40, seed 0, the T68 boxes, n=399, batch 32. One card put the three new arms beside the T117
+grammar control and constrained arm, the T77 best-of-4 and T73 RFT arms, patchwork and the six-face
+ceiling: `outputs/run_20261109_144658_bench_facade_constrained_decoding_stacked`. Per-arm outputs
+(`summary.json`, `scores.parquet` for the best-of-4 arms, `samples.png`, `facades.png`, `faces.npz`) under
+`outputs/run_20261028_125240_houses32_facades_joint_d4_20m/constrained_bon_face_solidity_k4_t0.7_n399`
+and `<RFT run>/constrained_{constrain,bon_face_solidity_k4}_t0.7_n399`. Wall time 56, 9 and 36 minutes
+for the three arms, the card 30 minutes; the whole chain ran 13:05 to 15:17 UTC.
+
+**Sampler's own measures.** All three arms are consistent face sets by construction (reprojection
+changes no cell), with 21% to 23% of the drawn cells written by the rule. The reward distributions
+of the three best-of-4 arms are the part that matters:
+
+| best-of-4 arm | `face_solidity`, all 1596 candidates (mean / median) | kept 399 (mean) | kept at 0.99 or above | median blocks kept |
+|---|---|---|---|---|
+| T77 base, free decoding | 0.625 / 0.744 | 0.861 | 0.018 | 697 |
+| base, constrained | 0.690 / 0.835 | 0.914 | 0.073 | 550 |
+| RFT, constrained | 0.871 / 0.911 | 0.971 | 0.371 | 496 |
+
+**The card** (n=399; the base arms lose the handful of all-air draws; real values in the header).
+
+| arm, T=0.7 | BlockScore | geom_kid | mv_dino_kid | n_components (2.7) | lcc_ratio (0.98) | n_blocks (904) | enclosed_air (0.114) | enterable (0.95) | twin rate (0.010) |
+|---|---|---|---|---|---|---|---|---|---|
+| grammar control (T117) | 679 | 19.0 | 0.299 | 33.7 | 0.810 | 689 | 0.008 | 0.316 | 0.000 |
+| constrained (T117) | 589 | 16.5 | 0.166 | 12.9 | 0.812 | 541 | 0.016 | 0.285 | 0.015 |
+| best-of-4 (T77) | 483 | 13.5 | 0.149 | 15.9 | 0.948 | 697 | 0.015 | 0.365 | 0.010 |
+| **constrained best-of-4** | 497 | 13.9 | **0.098** | **7.7** | 0.922 | 618 | 0.083 | 0.316 | 0.005 |
+| RFT + selection (T73) | 553 | 15.4 | 0.182 | 17.6 | 0.937 | 707 | 0.048 | 0.352 | 0.028 |
+| **constrained RFT** | 552 | 15.4 | 0.147 | 10.4 | 0.902 | 621 | 0.079 | 0.323 | 0.038 |
+| **constrained best-of-4 on RFT** | DQ | 14.8 | 0.304 | 4.3 | 0.971 | 555 | 0.236 | 0.251 | **0.271** |
+| real@facades6 (ceiling) | 493 | 13.8 | 0.001 | 13.5 | 0.814 | 660 | 0.069 | 0.729 | 0.010 |
+
+Holm-corrected paired permutation tests (10,000 permutations). On `geom_kid` the constrained best-of-4
+arm, the T77 best-of-4 arm and the ceiling share group c; the constrained RFT arm, the RFT arm and the
+disqualified arm sit in cd; the constrained arm alone in de and the grammar control in e. On
+`mv_dino_kid` the constrained best-of-4 arm is alone in group c (0.098), separated from best-of-4 and
+constrained RFT (d, 0.149 and 0.147), which are separated from RFT (e, 0.182); the grammar control and
+the disqualified arm share f (0.299 and 0.304).
+
+**Reading.**
+
+*Constrained best-of-4 on the base model is the best learned facade arm on appearance and coherence,
+and ties the ceiling on geometry.* `mv_dino_kid` 0.098 is a third below best-of-4 (0.149) and in a Holm
+group of its own; `n_components` 7.7 is the first learned facade arm below the six-face ceiling's 13.5,
+`enclosed_air` 0.083 is the closest any facade arm has come to real's 0.114, and the see-through cost
+of T117 is mostly gone (618 blocks against 541 for the constraint alone), because selection on face
+solidity prefers the candidates whose front face has no holes to empty columns with. Its BlockScore,
+497 against best-of-4's 483, is the geometry pillar, where the two arms and the ceiling are one Holm
+group: the facade geometry pillar is at its ceiling for all three, and nothing drawn as six faces can
+pass 493 on BlockScore while the interior stays empty. The remaining gap is the ceiling's own, held by
+`enterable` 0.73 and `walk_floors`, not by the faces.
+
+*Constrained decoding of the RFT model adds appearance, not geometry.* BlockScore 552 against 553, the
+same `geom_kid`, components 17.6 to 10.4 and `mv_dino_kid` 0.182 to 0.147 (separated). The fine-tune
+already bought most of what the rule gives on the shell, and the rule removes what edge disagreement
+the fine-tune left.
+
+*Constrained best-of-4 on the RFT model is disqualified for self-duplication, and the samples say why.*
+The twin rate (pairs within the set at IoU 0.8 or above) is 0.271 against real's 0.010, thirteen spreads
+out; `mv_dino_kid` falls back to the grammar control's level (0.304); `enclosed_air` is double real's
+and `bbox_fill` 0.455 against 0.288. The sheet is monoliths: solid single-material cuboids, grass and
+dirt layer cakes, blank stone and sandstone blocks, with a real-looking house in about one cell in four.
+The reward table shows the mechanism. `face_solidity` is a fraction of filled face cells, and three
+levers push the same way: the RFT model was fine-tuned on it, the constraint forces a fifth of the cells
+to agree with faces already drawn, and selection takes the most solid of four. Under one lever 1.8% of
+kept builds are at 0.99 or above, under two 7.3%, under three 37%: the reward saturates, and at its
+ceiling the optimum is a filled box, which every model draws the same way. The two-lever stacks stay
+on the right side of the gate (twin rates 0.005 and 0.038) because neither reaches the plateau.
+
+**What follows.** Two conclusions for the facade track. First, `face_solidity` is spent as a reward:
+any further stacking needs a counterweight (an enclosed-air or interior term, palette entropy, or
+the novelty gate itself) before another solidity lever is added; a selection reward that saturates
+on a filled box was always going to end here once the base distribution got solid enough. Second,
+the geometry pillar is at the six-face ceiling for the best arms, so the facade track's BlockScore
+is now bounded by the representation, not the generator, and the next lever for the number is an
+interior stage (floors and openings behind the shell) rather than another face lever. The relaxed
+see-through rule and the face order of T117 remain open but are worth less than they were, since
+selection already removes the skeletons.
+
+## T123. Functional ground truth and design decisions rebased on the exact 40-pair test (2026-11-09)
+
+`outputs/run_20261109_152704_rankflips_functional_rebase` (notes §91). CPU, cached features.
+
+| quantity | on the subsampling test (T114/T106) | on the exact test |
+|---|---|---|
+| reversed pairs judged | 76 | 40 |
+| walk-through sides with MV-KID / V-KID | 60 / 16 (21%) | **33 / 7 (17.5%, CP [7, 33])** |
+| non-facade pairs, V-KID side | 1 of 38 | **0 of 18** |
+| facade pairs, V-KID side | 15 of 38 | 7 of 22 (5 = BrickNet over facade) |
+| FD_noise / FD_kid / FD_occ, V-KID side | 6 / 20 / 18 of 76 | 2 / 9 / 8 of 40 |
+| Spearman FD vs MV / V / max of two | 0.67 / 0.16 / not computed | 0.67 / 0.16 / 0.17 [-0.18, 0.45] |
+| 34 decisions: agree / MV-only / V-only / neither | 13 / 12 / 3 / 6 | 6 / 14 / 1 / 13 |
+| worked examples, V-KID Holm p | < 1e-100 (normal) | 0.039 (permutation floor) |
+
+Verdict: the functional result strengthens under the calibrated test; V-KID detects interior change
+but does not rank interior function on generators.

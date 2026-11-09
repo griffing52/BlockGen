@@ -1,0 +1,607 @@
+# Hand-maintained facts for scripts/status_matrix.py, which generates docs/status.md.
+#
+# Everything the code can know (tiers, shards, presets, archs, configs, registry
+# runs, rewards, protocol constants) is read from the repo. This file holds what
+# it cannot: legacy tracks, T-numbers, best numbers, planned items, and the
+# status of things that have no code. Rows are {option, status, where, number};
+# `status` starts with one of the four legend words.
+#
+# Status legend (synthesis 2026-10-30):
+#   used     implemented and exercised in a recorded run
+#   unused   implemented, never run
+#   planned  no code
+#   stale    exists but superseded or broken
+#
+# Rows with a `key` are merged with a machine-read fact of the same key; the
+# machine text is appended to `number`. No em dashes anywhere in this file.
+
+# 1. Data sources. `key` is the manifest `source` value; the generator appends
+# the per-tier row counts from data/minecraft/corpus/tiers/*.json.
+data_sources:
+  - option: worldcrop (MAP archive.org world saves, cropped)
+    key: worldcrop
+    status: used
+    where: blockgen/data/worldcrop/run.py; blockgen/corpus/manifest.py build
+    number: 927,427 manifest rows (manifest summary, 2026-10-31; 926k at T55); pretraining only, no licence
+  - option: grabcraft (category-labelled)
+    key: grabcraft
+    status: used
+    where: blockgen/data/grabcraft_dataset.py; enters through the 32/48 caches
+    number: ""
+  - option: 3dcraft (CraftAssist houses with build order)
+    key: 3dcraft
+    status: used
+    where: blockgen/utils/corpora.py
+    number: build-order traces loaded, consumed by nothing
+  - option: text2mc .h5
+    key: text2mc
+    status: used
+    where: blockgen/utils/corpora.py (current vocab); blockgen/curation/corpus.py (legacy, ground-stripped)
+    number: ""
+  - option: text2mc_schem (28k raw .schem)
+    key: text2mc_schem
+    status: used
+    where: blockgen/utils/schem.py
+    number: 21 in all_32, 117 in houses_48
+  - option: templates (1.21.1 jigsaw NBT)
+    key: templates
+    status: used
+    where: blockgen/corpus/templates.py
+    number: 1,007 pieces (T56); internal source only (Mojang assets), never a release or a reference (docs/pipeline.md section 3 tier table)
+  - option: tfrecord crawl (PlanetMinecraft)
+    status: unused
+    where: blockgen/data/tfrecord_dataset.py
+    number: not in any tier
+  - option: legacy raw .schematic
+    status: unused
+    where: blockgen/data/build_cache.py
+    number: drifted crawl
+  - option: LEGO corpora (OMR, StableText2Brick, LDraw, Shadow)
+    status: unused (for training)
+    where: data/lego/; blockgen/eval/bench/lego.py
+    number: lego_void_20 split; interior-blindness replication only (T34)
+  - option: MCGS chunk sample, CurseForge release tier, Hermitcraft, Dream-Cubed, code-generated vanilla structures
+    status: planned
+    where: research.md section F
+    number: shards.from_structures exists, so code-generated structures are unblocked
+
+# 2. Filters and curation (rows without a key are copied as written).
+curation:
+  - option: Learned terrain gate p_built (GBT, 295 features)
+    status: used
+    where: blockgen/data/worldcrop/gate.py
+    number: T54; q=4 for every sft/holdout row (the gate trained on them)
+  - option: Exact dedup (canon hash, D4-minimal)
+    status: used
+    where: blockgen/corpus/canon.py; blockgen/corpus/dedup.py
+    number: folded 216k rows (notes.md section 46)
+  - option: Near dedup (MinHash/LSH, Jaccard 0.8)
+    status: used
+    where: blockgen/corpus/canon.py; blockgen/corpus/dedup.py
+    number: 29.9% of the corpus is a duplicate (T55)
+  - option: Recurrence filter cluster_worlds >= 5
+    status: used
+    where: blockgen/corpus/dedup.py; blockgen/corpus/kinds.py
+    number: marks vanilla village pieces
+  - option: kinds sidecar build / mixed / village / mineshaft
+    status: used
+    where: blockgen/corpus/kinds.py
+    number: build 77.2%, village 12.6%, mineshaft 9.2%, mixed 1.1% over 927,427 rows (2026-10-31; T55.1 had 77.1%)
+  - option: cut / oversize / route flags
+    status: used
+    where: blockgen/corpus/manifest.py
+    number: "`not cut` in pretrain-clean and anneal"
+  - option: Holdout exclusion by world_id and cluster
+    status: used
+    where: blockgen/corpus/tiers.py
+    number: closes the 164 curated-in-worldcrop leak
+  - option: Block floors (tier 20, shard 16, caches 80)
+    status: used
+    where: configs/corpus/pretrain-all.yaml; blockgen/corpus/shards.py MIN_BLOCKS; blockgen/curation/houses.py
+    number: ""
+  - option: Curated house caches houses_32 / houses_48 (8 rules plus enclosed air)
+    status: used
+    where: blockgen/curation/houses.py
+    number: houses_32 = 2,661; houses_48 = 3,088
+  - option: Whole-corpus cache all_32
+    status: used
+    where: blockgen/curation/corpus.py
+    number: 4,712 builds
+  - option: Ground stripping (world-cut corpora)
+    status: used
+    where: blockgen/curation/houses.py
+    number: not applied to worldcrop
+  - option: Pinned split houses_32.s0.70-15-15.v1 (title-grouped)
+    key: split
+    status: used
+    where: blockgen/eval/bench/splits.py; data/minecraft/splits/
+    number: ""
+  - option: Window policy (whole build if it fits max_blocks, else up to max_windows seeded windows)
+    key: windows
+    status: used
+    where: blockgen/corpus/shards.py
+    number: fixed at shard build, not per epoch
+  - option: Drop sequences longer than max_seq_len (never truncate)
+    key: seq_len
+    status: used
+    where: blockgen/train/data.py
+    number: 238 of 1,863 houses dropped at 8,200 (T58)
+  - option: Lab labels (good / bad / unsure) and captions
+    key: lab_labels
+    status: used (collected, not consumed)
+    where: tools/lab/store.py; outputs/lab/lab.db
+    number: nothing writes them into a tier
+  - option: Empty split-backed tier is an error (EmptyTierError)
+    status: used
+    where: blockgen/corpus/tiers.py
+    number: fires for holdout_split tiers only
+  - option: Stale shard warning (spec.tier_sha256 vs tiers/<tier>.json)
+    key: stale_shards
+    status: used
+    where: blockgen/corpus/shards.py StaleShardWarning, _check_fresh
+    number: ""
+  - option: Corpus refresh driver
+    status: unused
+    where: scripts/corpus_refresh.sh
+    number: validated with --dry-run only
+  - option: Legacy prep (IoU dedup, random 15% val, D4, canon 16)
+    status: stale
+    where: blockgen/experiments_*.py
+    number: private splits; contaminated T31
+  - option: Curator interactive API
+    status: used (inside houses.py)
+    where: blockgen/curation/curate.py
+    number: notebook path is legacy
+
+# 3. Tiers: per-tier notes appended to the machine-read row.
+tiers:
+  anneal: {note: "the pretraining tier of T58 to T60 (5M only)"}
+  pretrain-all: {note: "the M2 20M target that never ran; shards ready since 2026-10-15"}
+  pretrain-clean: {note: "soft-filtering ablation partner of pretrain-all; never run"}
+  sft-houses32: {note: "the SFT target and scratch baseline; pinned train split"}
+  eval-holdout: {note: "val+test of the pinned split; 736 of 798 fit the 8,200 context"}
+  vanilla: {note: "negative set for the gate; a tagged pretraining source"}
+  templates: {note: "a source inside the pretrain tiers; standalone shard unused"}
+  mixtures: {note: "tier:weight mixtures are implemented (config.py train_specs, data.py MixedBatches) and no config uses one"}
+
+# 4. Token kinds, layouts, augmentations. `tokens_notes` is keyed by tokenizer
+# hash (plus -d4 for the augmented sibling); legacy rows follow the machine rows.
+tokens_notes:
+  60684456e598: "voxels: BOS, src, q, size, win, (X,Y,Z,BLOCK)*, EOS; every M1/M2/M2b run; m2b_sft mean BlockScore 340.7 (T60)"
+  a9546c1f2f94: "one sequence per face; T66 BlockScore 1205 at n=399"
+  a4ca45ac1fe5: "every face in one sequence, each conditioned on the ones before; T66 1128 (5m), T68 1035 (20m) at n=399"
+  a4ca45ac1fe5-d4: "eight symmetries of every house; T68 NLL 0.806 to 0.479 at 20M, BlockScore 1082 at n=399"
+tokens_legacy:
+  - option: Legacy per-run BlockVocab
+    status: stale
+    where: blockgen/utils/serialize.py
+    number: every legacy run; vocabulary differs per run
+  - option: 3D-BPE pieces (ClusterVocab, oriented variant)
+    status: used (legacy only)
+    where: blockgen/tokenizers/cluster_bpe.py
+    number: best ranked learned arm canon_oriented 141.82 (T64); not a shard kind
+  - option: Growth / attachment stream
+    status: used (legacy)
+    where: blockgen/utils/attach_vocab.py; blockgen/utils/growth_order.py
+    number: T21, T24
+  - option: LLM text lines (BrickGPT, piece lines)
+    status: used (legacy)
+    where: scripts/train_llm_*.py
+    number: T28/T29; llm_control 167.92 (T64)
+  - option: MinecraftACE 4-token records
+    status: used (separate stack)
+    where: libs/MinecraftACE
+    number: T13/T14
+  - option: Facade face sets sides / sides_top
+    status: unused
+    where: blockgen/corpus/facade.py SIDES, SIDES_TOP; shards build --faces
+    number: every facade shard on disk uses all six faces
+
+# 5. Model architectures: notes for machine rows plus the legacy tracks.
+arch_notes:
+  ar2: "voxels: M2b SFT mean BlockScore 340.7, NLL 0.416 (T60, pre-T64 unit); facades: 1082 at n=399 (T68); legacy pieces: canon_oriented 141.82 (T64)"
+  pe_alibi: "trains, then samples through the uncached fallback (sample.Decoder)"
+  preset_20m: "facades only; 20M voxel M2b 346 at n=256 (T78)"
+  preset_60m: "pipeline.md M2 asked for 20M and 60M on pretrain-all"
+architectures_legacy:
+  - option: VoxelTransformerAR (v1)
+    status: stale
+    where: blockgen/models/voxel_transformer_ar.py (legacy loop)
+    number: T10 ar_flat val_nn 0.412; equals AR2 pe=learned
+  - option: CondVoxelAR2 (prefix conditioning plus CFG)
+    status: used (legacy)
+    where: blockgen/training/train_conditioned.py
+    number: T15/T16; canon-16 +112% palette fidelity vs shuffled
+  - option: ResampledCondVoxelAR2 (Q-Former-lite)
+    status: used (legacy, no T-number)
+    where: scripts/train_cond_resampler.py
+    number: outputs/cond/text_resampler
+  - option: GeoAttentionBias
+    status: used (legacy)
+    where: blockgen/experiments_native.py --geo-bias
+    number: T29 null to mildly negative
+  - option: FactoredPieceEmbedding
+    status: unused
+    where: blockgen/models/voxel_transformer_ar2.py piece_factors
+    number: T20 factored OFF; reachable now through model.piece_factors
+  - option: SemanticTokenEmbedding (idea 7)
+    status: used (legacy)
+    where: scripts/run_semantic_prior.py
+    number: negative
+  - option: VoxelUNet3D masked diffusion, four samplers, two-stage
+    status: used (legacy)
+    where: blockgen/training/train_diffusion.py; train_twostage.py
+    number: T10 diffusion32 val_nn 0.33, validity 0.0; T11 remask broken, two-stage no gain
+  - option: LargePyGGraphGenerator (graph VAE)
+    status: used (legacy)
+    where: blockgen/training/train_graph.py
+    number: T10 worst learned arm
+  - option: VoxelPortGNN
+    status: unused
+    where: blockgen/models/voxel_port_gnn.py
+    number: ""
+  - option: PickAndPlace (Track F)
+    status: used (legacy)
+    where: scripts/train_pick_n_place.py
+    number: T24 KID 0.532 at n=16; off the board (n below 128)
+  - option: Attachment AR (T21)
+    status: stale
+    where: scripts/train_attach_corpus.py
+    number: collapses to lines and plates
+  - option: Track D LLM LoRA (Qwen2.5) control and +bias
+    status: used
+    where: scripts/train_llm_geobias.py
+    number: T64 llm_control 167.92, llm_bias 191.88 (train_split trackd, provisional)
+  - option: Track E agentic (BuildAgent plus methods suite)
+    status: used
+    where: blockgen/agentic (paid API)
+    number: T64 dream-caption 155.83, dream 177.23, classic-matched 181.86 (train_split none, provisional)
+  - option: MinecraftACE GPT-2 92M unconditional; MV LLaMA 86.6M image-conditioned
+    status: used (separate stack)
+    where: libs/MinecraftACE
+    number: T13/T14; MV run of 2026-07-19 unrecorded in results.md
+  - option: BrickNet Minecraft retrain (Qwen3-0.6B LoRA)
+    status: used (pilot launched, no result)
+    where: libs/BrickNet/repro
+    number: T69 pilot; T61 is the LEGO repro
+  - option: Graph prototypes (attention-as-adjacency, cell-assignment two-stage)
+    status: used (not benched)
+    where: tools/misc/
+    number: T53 ties retrieval at f=4
+
+# 6. Train configs: T-numbers and the registry names each config produced.
+configs:
+  base: {t: "", patterns: [], note: "defaults every config extends"}
+  smoke: {t: "T57", patterns: [smoke], note: "60-step wiring check"}
+  smoke-facades: {t: "T66", patterns: [smoke_facades], note: "60-step wiring check"}
+  anneal-pretrain-5m: {t: "T58 to T60", patterns: [anneal_pretrain_5m, "m2_pretrain_s*"], note: "591M tokens seen (T58) of a 655M step budget; 6.6B available on the shard"}
+  houses32-sft-5m: {t: "T60", patterns: ["houses32_sft_5m*", "m2_sft_s*", "m2b_sft_s*"], note: "m2_sft_s* ran an earlier version (8k steps); m2b is the config as it stands"}
+  houses32-scratch-matched: {t: "T60 control", patterns: [houses32_scratch_matched_5m, "m2_scratch_s*", "m2b_scratch_s*"], note: "m2_scratch_s* ran an earlier version (28k steps, dropout 0.1, T59)"}
+  houses32-scratch: {t: "T57/T58", patterns: ["houses32_scratch_5m*"], note: "superseded by the matched baseline"}
+  houses32-facades: {t: "T66", patterns: [houses32_facades_5m], note: ""}
+  houses32-facades-joint: {t: "T66", patterns: [houses32_facades_joint_5m], note: ""}
+  houses32-facades-joint-20m: {t: "T68", patterns: [houses32_facades_joint_20m], note: ""}
+  houses32-facades-joint-d4: {t: "T68", patterns: [houses32_facades_joint_d4_5m, review_replay_d4_5m], note: ""}
+  houses32-facades-joint-d4-20m: {t: "T68", patterns: [houses32_facades_joint_d4_20m], note: "the facade post-training parent"}
+  rft-voxel-5m: {t: "", patterns: ["rft_*"], note: "parent m2b_sft_s1 best.pt; command printed by python -m blockgen.posttrain.rft"}
+  rft-facades-joint-d4-20m: {t: "", patterns: ["rft_facades*"], note: "parent houses32_facades_joint_d4_20m best.pt"}
+configs_planned:
+  - option: pretrain-all-20m / pretrain-clean-20m configs
+    status: planned
+    where: configs/train/
+    number: shards ready since 2026-10-15; the all-vs-clean ablation was the stated M2 goal
+stages_extra:
+  - option: Stage anneal (continue into decay on another tier, tags dropped)
+    status: planned
+    where: docs/pipeline.md section 6
+    number: "no tier switch mid-run, no tag dropping; stage anneal is a registry label only"
+  - option: Stage sft with caption or image conditioning
+    status: planned
+    where: legacy blockgen/training/train_conditioned.py only
+    number: no conditioning channel in shards or sampler
+  - option: Stage distil / WARP merge
+    status: planned
+    where: docs/pipeline.md section 7
+    number: ""
+  - option: Chained recipes m2_seeds.sh / m2b_seeds.sh
+    status: used
+    where: scripts/m2_seeds.sh; scripts/m2b_seeds.sh
+    number: the only chained recipe (T59, T60)
+
+# 7. SFT strategies and training mechanics. `key` rows get machine facts appended.
+mechanics:
+  - option: init_from (weights only, fresh optimizer; refuses tokenizer-hash and dropout change)
+    key: init_from
+    status: used
+    where: blockgen/train/trainer.py init_from_checkpoint
+    number: T59 dropout fault is the reason for the refusal
+  - option: allow_partial_init (partial key match recorded as init_missing / init_unexpected)
+    key: partial_init
+    status: unused
+    where: blockgen/train/config.py allow_partial_init
+    number: ""
+  - option: resume (full state; config not reloaded)
+    status: used (once, M1 smoke)
+    where: blockgen/train/trainer.py
+    number: ""
+  - option: Checkpoint selection select=best | last | hook
+    key: select
+    status: used
+    where: blockgen/train/trainer.py select_checkpoint, SELECT_FNS
+    number: selection on first val-tier NLL, not an early exit
+  - option: WSD schedule (the only schedule)
+    status: used
+    where: blockgen/train/trainer.py lr_at
+    number: the cosine schedule in older docs does not exist
+  - option: Token-budget length-bucketed batching, bf16, grad accumulation, AdamW on matrices only
+    status: used
+    where: blockgen/train/data.py MixedBatches; blockgen/train/trainer.py
+    number: ""
+  - option: Tier mixtures train=[tier:weight, ...]
+    key: mixtures
+    status: unused
+    where: blockgen/train/config.py train_specs; blockgen/train/data.py
+    number: ""
+  - option: Periodic validation on eval_seqs holdout sequences, final pass on every fitting sequence
+    key: eval
+    status: used
+    where: blockgen/train/config.py eval_seqs, final_eval_all; trainer.py holdout_sizes
+    number: registry val_nll_all is the whole-tier figure
+  - option: torch.compile flag
+    key: compile
+    status: unused
+    where: blockgen/train/config.py compile; trainer.py strip_compiled
+    number: checkpoints are now stripped of the _orig_mod. prefix on load
+  - option: Adjacency-constrained decoding
+    status: stale (legacy only)
+    where: blockgen/training/constrained_decode.py
+    number: T11 biggest lever; no logits hook in the new sampler
+  - option: Temperature / top_k at sampling
+    key: sampling
+    status: used
+    where: blockgen/train/config.py temperature, top_k; python -m blockgen.train --sample
+    number: t=0.5 sweep on the 20M facade model (notes.md section 60)
+  - option: KV-cache decoding with uncached fallback
+    status: used
+    where: blockgen/train/sample.py Decoder
+    number: a model without past/return_cache is sampled by full re-forward
+  - option: Manual promotion route --sample --n 399 then bench --tier both
+    status: used
+    where: blockgen/train/__main__.py --sample; blockgen/eval/bench
+    number: every board entry took this route; T68 facades at n=399
+
+# 8. Post-training ladder. `module` decides planned (missing) vs unused/used;
+# `evidence` names the machine rule: bon (a BoN report outside a smoke run),
+# posttrain_runs (a registry row with stage posttrain).
+posttrain_rungs:
+  - option: 1. Best-of-N with a verifier
+    module: blockgen/posttrain/bon.py
+    evidence: bon
+    where: python -m blockgen.posttrain.bon --run <dir> --n N --k K --reward <name>
+    number: writes an arm npz with report.method=bon and trained_on_signals; facade face_solidity k=4 871 at T=1.0, 483 at T=0.7 = on the facade ceiling 493 (T70, T77); voxel lcc26 k=4 340 at n=256, still the best voxel arm (T71, T74)
+  - option: 2. Rejection-sampling fine-tuning
+    module: blockgen/posttrain/rft.py
+    evidence: posttrain_runs
+    where: python -m blockgen.posttrain.rft --run <dir> --reward <name> --n N --keep-frac F; then the printed blockgen.train command
+    number: "facade RFT + select=reward + T=0.7 = 553 at n=399, ceiling 493 (T73); voxel RFT step 500 395, step 4000 (select=reward) 359 at T=1.0, 478 at T=0.7 (T71, T73, T74)"
+  - option: 3. GRPO with verifiable rewards
+    module: blockgen/posttrain/grpo.py
+    where: docs/pipeline.md section 7
+    number: needs per-sequence log-probs and a KL reference; after the arch registry
+  - option: 4. DPO / SimPO on 2AFC or reward-ranked pairs
+    module: blockgen/posttrain/dpo.py
+    where: libs/MinecraftACE/dpo/train_dpo_acce.py is the only template
+    number: 617 lab compares exist and are off-policy for every trainer model
+  - option: 5. Merge (WARP) and distil
+    module: blockgen/posttrain/merge.py
+    where: docs/pipeline.md section 7
+    number: ""
+posttrain_extra:
+  - option: select=reward (checkpoint selection by the trained-on reward)
+    status: used
+    where: blockgen/posttrain/select.py; registered as SELECT_FNS["reward"]
+    number: "T73/T74: facade kept step 500 (553 at T=0.7); voxel kept step 4000 (359 at T=1.0, best voxel fine-tune)"
+  - option: Honesty rule (reward only on non-pillar signals; report as method-internal)
+    status: used
+    where: blockgen/posttrain/__init__.py docstring; rewards.get refuses pillar inputs
+    number: trained_on_signals travels with every sample report and registry row
+  - option: MineCLIP reward
+    status: planned
+    where: research.md
+    number: no code
+  - option: 2AFC collection (python -m tools.lab --phone)
+    key: compares
+    status: used
+    where: tools/lab; configs/lab/phone.json
+    number: no trainer checkpoint is pinned in phone.json, so the pairs are off-policy
+
+# 9. Controls, ceilings, protocol, metrics (protocol constants are machine rows).
+controls:
+  - option: Card of record (T64 re-score) and the facade card
+    status: used
+    where: outputs/run_20261023_011035_bench_traversal_pillar_leaderboard_re-score; outputs/run_20261028_143416_bench_facade_track_baselines_five_facade
+    number: T64 at n=128; T66/T68 facades at n=399
+  - option: Controls real_test, real_shuffled_materials, real@monochrome, real@solidify, real@single_mode, train_verbatim
+    status: used (auto-added)
+    where: blockgen/eval/bench/fast.py
+    number: T64 n=128 solidify 214.57, shuffled 231.53, monochrome 297.94; single_mode and train_verbatim DQ
+  - option: Procedural baselines uniform_random, shell_box, gabled_house, patchwork, train_copy_noise
+    status: used (--baselines)
+    where: blockgen/eval/bench/baselines.py
+    number: T64 603.10, 476.22, 312.75, 246.15, 310.52
+  - option: Facade ceilings real@facades4/5/6
+    status: used
+    where: scripts/facade_oracle.py
+    number: real@facades6 = 493 at n=399 (T65)
+  - option: Facade baselines unigram / markov / patchwork
+    status: used
+    where: scripts/facade_baselines.py; blockgen/corpus/facade_baselines.py
+    number: 2208 / 1335 / 990 at n=399 (T66); patchwork beats every learned facade arm
+  - option: Decimation real@canon16/8
+    status: stale (ladder rung only; removed as a control 2026-09-17)
+    where: blockgen/eval/bench/ladder.py
+    number: docs/custom-model.md still lists it
+  - option: Traversal probes seal_openings / lower_ceilings, hollow probe
+    status: used (side scripts)
+    where: scripts/bench_traversal.py; scripts/bench_hollow.py
+    number: T63
+  - option: Validation ladder (geometry, render, point-cloud rows)
+    status: used
+    where: blockgen/eval/bench/ladder.py; outputs/analysis/ladder (gitignored)
+    number: T67 adds the volumetric row
+  - option: BlockScore (worst pillar of appearance / geometry / palette plus RMS of coherence, geometry_scalars, traversal; novelty DQ gates)
+    status: used
+    where: blockgen/eval/bench/composite.py
+    number: unit = real_test spread, shrinks with n (T35)
+  - option: geom_kid (80-dim D4-invariant descriptor with room scalars)
+    status: used
+    where: blockgen/eval/bench/geometry.py
+    number: the only realism metric that sees interiors
+  - option: mv_dino_kid (multi-view render realism)
+    status: used
+    where: blockgen/eval/bench/full.py
+    number: structurally blind (solidify 0.000, T34 to T39)
+  - option: Traversal pillar (player walk)
+    status: used (since 2026-10-23)
+    where: blockgen/eval/traversal.py
+    number: real 95% enterable, llm 2%, agentic 50 to 68% (T63)
+  - option: Faithfulness (retrieval_acc, clipL)
+    status: stale (unreachable)
+    where: blockgen/eval/bench/runner.py parse_arm never sets ArmSpec.prompts
+    number: ""
+  - option: Head-to-head permutation test
+    status: used
+    where: blockgen/eval/bench/runner.py
+    number: Holm groups
+  - option: Human 2AFC Bradley-Terry
+    status: used
+    where: scripts/human_study_analyze.py
+    number: T40
+  - option: Learned arms on the board today
+    status: used
+    where: tools/lab /leaderboard
+    number: "ranked: canon_oriented 141.82 at n=128 (T64), facades 1035 to 1205 at n=399 (T66/T68), m2b_sft_s1 386 at n=256 (2026-10-31 card); provisional (train_split none or trackd): dream-caption 155.83, llm_control 167.92, dream 177.23, classic-matched 181.86, llm_bias 191.88"
+  - option: Trainer runs on the board
+    key: board
+    status: unused
+    where: tools/lab/catalog.py now globs outputs/*/bench/scorecard.json
+    number: in-run cards are fast tier at n=64 or 256, so houses32-v1 (tier both, min_n 128) lists them under skipped; re-score through --sample --n 399 then bench --tier both
+
+# 10. Trained runs: names that are wiring checks, and notes keyed by run basename.
+runs:
+  smoke_names: [smoke, smoke_facades, review_replay_d4_5m]
+  notes:
+    run_20261014_101448_houses32_scratch_5m: "T57"
+    run_20261014_103742_anneal_pretrain_5m: "T58"
+    run_20261014_110921_houses32_sft_5m: "T58"
+    run_20261014_113512_houses32_scratch_5m_v2: "T58"
+    run_20261014_115238_houses32_sft_5m_v2: "T58"
+    run_20261014_122205_m2_scratch_s0: "T59 (28k steps, dropout 0.1, select last)"
+    run_20261014_125922_m2_pretrain_s0: "T59/T60 pretrain parent"
+    run_20261014_133106_m2_sft_s0: "T59 dropout fault: SFT at 0.1 on a dropout-0 parent"
+    run_20261014_135118_m2_scratch_s1: "T59"
+    run_20261014_142815_m2_pretrain_s1: "T59/T60 pretrain parent"
+    run_20261014_145956_m2_sft_s1: "T59 dropout fault"
+    run_20261014_152001_m2_scratch_s2: "T59"
+    run_20261014_155653_m2_pretrain_s2: "T59/T60 pretrain parent"
+    run_20261014_162825_m2_sft_s2: "T59 dropout fault"
+    run_20261015_225212_m2b_sft_s0: "T60"
+    run_20261015_231328_m2b_scratch_s0: "T60 control"
+    run_20261015_235516_m2b_sft_s1: "T60; voxel post-training parent"
+    run_20261016_002201_m2b_scratch_s1: "T60 control"
+    run_20261016_010438_m2b_sft_s2: "T60"
+    run_20261016_013050_m2b_scratch_s2: "T60 control"
+    run_20261026_153838_houses32_facades_5m: "T66; 1205 at n=399"
+    run_20261026_155541_houses32_facades_joint_5m: "T66; 1128 at n=399"
+    run_20261028_110415_houses32_facades_joint_20m: "T68; 1035 at n=399"
+    run_20261028_123627_houses32_facades_joint_d4_5m: "T68; 1113 at n=399"
+    run_20261028_125240_houses32_facades_joint_d4_20m: "T68; 1082 at n=399; facade post-training parent"
+    run_20261031_102252_rft_m2b_sft_s1_lcc26: "T71; 395 at n=256"
+    run_20261031_114825_rft_facades_joint_d4_20m_face_solidity: "T72; 994 at n=399"
+    run_20261101_134001_rft_m2b_sft_s1_lcc26_rsel_t07: "T73/T74; select=reward chose step 4000: 359 at T=1.0, 478 at T=0.7"
+    run_20261102_142710_m2_20m_pretrain_s1: "T78; 20M pretrain, crashed after training in the end-of-run draw (no summary or registry row)"
+    run_20261102_151738_m2b_20m_sft_s1: "T78; 346 at n=256 (5M raw 386, 5M BoN 340), best-of-4 lcc26 341 (appearance only); select=best step 1500; no summary or registry row"
+    run_20261104_004730_m2b_20m_sft3k_s1: "T87; 3k decayed SFT, 338, holdout best 0.286 at step 1750 (no gain over 16k)"
+    run_20261104_020102_m2b_20m_sftmix_s1: "T87; SFT + anneal 1:1, 6k, 332 (best voxel), holdout 0.263 still falling at the last step"
+    run_20261104_235313_bench_canon_oriented_against_the_new_pipeline: "T93; canon_oriented 297 tops every new-pipeline voxel arm (mix 332)"
+    run_20261105_013018_wc5m_pretrain_u_s1: "T94; 5M world-crop-only pretrain, unoriented"
+    run_20261105_032124_wc5m_pretrain_o_s1: "T94; 5M world-crop-only pretrain, oriented"
+    run_20261105_020502_wc5m_sftmix_u_s1: "T94; unoriented SFT mix 361, best-of-4 358"
+    run_20261105_035618_wc5m_sftmix_o_s1: "T94; oriented SFT mix 373, best-of-4 351 (appearance worse, geometry tied)"
+    run_20261105_050900_bench_5M_world-crop_pretraining_oriented: "T94; orientation is not the lever"
+    run_20261105_101818_wc5m_pretrain_p_s1: "T96; 5M world-crop-only pretrain, 3D-BPE pieces cdce56584ebf"
+    run_20261105_112220_wc5m_sftmix_p_s1: "T96; pieces SFT mix 501, best-of-4 491 (geometry far worse than voxels 361)"
+    run_20261105_132412_bench_5M_world-crop_pretraining_3D-BPE_pieces: "T96; 3D-BPE alone does not reproduce canon_oriented"
+    run_20261105_091034_m2b_20m_sftwc16k_s1: "T97; 20M SFT + world-crop mix 16k, best step 8000, 333 (ties the 6k mix)"
+    run_20261105_154732_bench_20M_SFT_world-crop_mix_16k: "T97; longer SFT saturates at about 332"
+    run_20261105_154811_p5m_d4scratch_s1: "T98; pieces D4 scratch 60k, 425 (enterable 0.60, geom_kid 20.4)"
+    run_20261105_172651_p5m_d4pre_s1: "T98; pieces D4 from pieces pretrain, 476, best step 22000"
+    run_20261105_181623_bench_3D-BPE_with_D4_scratch_against: "T98; legacy schedule reproduces traversal, not geometry"
+    run_20261105_181801_cat5m_scratch_s1: "T99, T102; category scratch 5M, probe 0.33 (ceiling 0.69), houses 355 at n=256"
+    run_20261105_185826_cat5m_pt_s1: "T99; category 5M from world-crop pretrain, probe 0.16, houses 349"
+    run_20261105_212258_bench_category-conditioned_5M_cat_house: "T99; conditioning costs houses nothing"
+    run_20261105_212201_bricknet_sample_mc_sft_base: "T100; BrickNet mc_sft_base 256 of 260 draws valid"
+    run_20261105_225739_bench_BrickNet_stage_0_readout: "T100; BrickNet 640, solid clumps, below every real control"
+    run_20261105_225412_bench_legacy_3D-BPE_arms_at_n_256: "T101; canon_oriented 297, canon_unoriented 362 (Holm-separated on geometry)"
+    run_20261106_000559_bench_category-conditioned_5M_cat_house_n_256: "T102; cat scratch 355 at n=256, T99 groups hold"
+    run_20261105_225345_bench_facade_arms_at_n_256: "T103; facade BoN T0.7 290 at n=256, beside canon_oriented 297"
+    run_20261106_141254_bench_facade_best-of-4_T0_7_against_canon: "T104; geometry tie, facade wins appearance, canon wins palette/coherence/traversal; 12% single-material boxes"
+    run_20261107_113816_cluster_eval_cottage: "T110; cottage-subset fine-tunes worse than all-houses mix (geom 21.2/19.9 vs 16.7), 0% style hits"
+    run_20261107_222928_bench_canon_oriented_recreated_at_seeds_0_and: "T111; canon_oriented recipe reproduces: seeds 0/1 at 313/319 beside 297, one Holm group"
+    run_20261107_234331_bench_canon_oriented_recipe_with_world-crop: "T112; legacy recipe + world-crop pretraining 255 at seed 0; seed 1 358 (T113), not a reliable gain"
+    run_20261108_050420_bench_canon_oriented_recipe_with_world-crop: "T113; pretrained seed 1 scores 358, so T112 255 was a good seed (pretrained mean 306 vs scratch 310)"
+    run_20261109_040307_bench_ladder_P1_pipeline_with_legacy_knobs: "T116; pipeline + config-level legacy knobs 338 (from 425), past legacy unoriented 362; tied with canon_oriented"
+    run_20261109_074328_bench_canon_oriented_recipe_at_20M: "T118; legacy recipe at 20M scores 190, best learned arm, beats all 5M arms on geom past seed noise; one seed"
+    run_20261109_075008_bench_ladder_P2_oriented_pieces_with_legacy: "T119; pipeline + legacy knobs + oriented pieces 330, tied with canon_oriented 297 on both primaries; gap closed"
+    run_20261109_121625_bench_agentic_arms_beside_the_20M_legacy: "not rankable: --n 133 left the 256-sample model arms at 256 (mixed n); shows the T51 agentic arms DQ on the T91 twin gate (21 to 32% near-copies); n=256 card with distinct prompts queued"
+    run_20261109_125713_bench_category-conditioned_legacy_recipe: "T121; category-conditioned legacy recipe, house token 272 (one Holm group with canon_oriented); conditioned probe 0.53 vs T99 0.33"
+    run_20261101_154120_rft_facades_joint_d4_20m_face_solidity_rsel_t07: "T73; 553 at n=399, best learned facade arm"
+  stale_names: [m2_sft_s0, m2_sft_s1, m2_sft_s2, m2_scratch_s0, m2_scratch_s1, m2_scratch_s2, houses32_scratch_5m, houses32_scratch_5m_v2, houses32_sft_5m, houses32_sft_5m_v2]
+  blockscore_note: "In-run BlockScores are fast tier (no appearance pillar) and, before 2026-10-23, in the pre-T64 descriptor unit; they are comparable only within one card. Quotable numbers come from the manual route at n=399."
+
+# 11. Open decisions (synthesis section 5), with what has been decided since.
+open_decisions:
+  - option: Commit the pipeline now or after the arch registry
+    status: planned
+    where: git status shows blockgen/corpus, blockgen/train, blockgen/posttrain, configs/corpus, configs/train untracked
+    number: trainer.py records a git sha that contains none of this code
+  - option: Which interpreter is the pipeline's
+    status: used (conda python)
+    where: /home/griffing52/miniconda3/bin/python (torch 2.7, pandas 3.0.1); .venv lacks pandas
+    number: every command on this page uses the conda python
+  - option: Does the arch registry cover non-AR models
+    status: unused
+    where: blockgen/train/archs.py (ar2 only; loss and collate are AR)
+    number: a dense-grid collate and a non-CE loss are a further day
+  - option: 3D-BPE pieces as a CorpusTokenizer kind before post-training
+    status: planned
+    where: blockgen/tokenizers/cluster_bpe.py; blockgen/corpus/tokenizer.py KINDS
+    number: the board leader canon_oriented cannot be loaded into the new trainer
+  - option: First post-training target, voxel (m2b_sft_s1) or facade (joint_d4_20m)
+    status: planned
+    where: configs/train/rft-voxel-5m.yaml; configs/train/rft-facades-joint-d4-20m.yaml
+    number: BoN k=4 probe on the facade parent launched first (2026-10-31)
+  - option: Board visibility of trainer cards
+    status: used
+    where: tools/lab/catalog.py globs one level deeper
+    number: cards are discovered and listed under skipped with the protocol's reasons
+  - option: Equal n enforced in the protocol or in docs only
+    status: planned
+    where: blockgen/eval/bench/protocol.py match_arm; tools/lab/standings.py n_groups
+    number: the lab groups rows by n; the protocol does not refuse mixed n
+  - option: Re-manifest the 41 unmanifested world-crop months
+    status: planned
+    where: data/minecraft/worldcrop/*/crops.jsonl vs manifest parquets
+    number: changes every tier sha and orphans current shards
+  - option: pretrain-all vs pretrain-clean vs anneal for the first 20M pretraining run
+    status: planned
+    where: data/minecraft/corpus/shards/{pretrain-all,pretrain-clean,anneal}
+    number: only anneal has been trained on, at 5M
+  - option: Do agentic arms with train_split none count as clean
+    status: planned
+    where: blockgen/eval/bench/protocol.py CLEAN_TRAIN_SPLITS
+    number: decides whether dream-caption 155.83 ranks beside canon_oriented
+  - option: Home of the honesty rule text
+    status: used
+    where: blockgen/posttrain/__init__.py; rewards.get pillar refusal
+    number: docs/pipeline.md section 7 quotes the rule; blockgen/posttrain/__init__.py is the source

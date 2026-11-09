@@ -1,235 +1,233 @@
-# Architecture — the codebase map
+# Architecture: the codebase map
 
-This page is the operator's map of the whole repo: how data flows from raw corpora to
-figures, what every package does, and where to plug in your own models and experiments.
-Concepts (why three tracks, what the metrics mean) live in
-[Models](models.md)/[Representations](representations.md); this page is about the code.
+This page is the operator's map of the repo: how data flows from raw corpora to a card
+on the leaderboard, what every package does, and where a new model plugs in. Concepts
+live in [Models](models.md) and [Representations](representations.md); this page is about
+the code. It uses **Track** for a generator family (Track A to F, [Models](models.md))
+and **Arm** for a tokenisation story in the shared trainer (Arm A to E,
+[Training pipeline](pipeline.md) §4).
 
 ## The pipeline at a glance
 
 ```
-raw corpora ──► caches (npz) ──► curation ──► prep protocol ──► tokenize ──► train
- (5 sources)     data/cache/      Curator /     dedup → split     one of 4     one of 7
-                                  houses.py     → augment →       reprs        trainers
-                                                canonicalize
-                                                                      │
-      figures ◄── render ◄── evaluate ◄── sample ◄───────────────────┘
-      outputs/    renderer/   eval/        per-model samplers
-                  grid.py     novelty.py   (+ constrained_decode)
-                                  ▲
-prompt ──► LLM ──► program ──► executor ──► Canvas ──► Structure ──┘
- (Track E, blockgen/agentic/: no training, no corpus — the model writes commands)
+raw sources ──► manifest ──► dedup + kinds ──► tiers ──► shards ──► blockgen.train ──► run dir
+ worldcrop,      corpus/      corpus/           corpus/   corpus/     train/              outputs/run_*/
+ caches,         manifest.py  dedup.py          tiers.py  shards.py   trainer.py          {best,last}.pt
+ templates                    kinds.py                    tokenizer.py                    samples.png
+                                                                        │                 bench/scorecard.json
+                                                                        ▼
+                       leaderboard ◄── bench ◄── structure cache (npz + _manifest.json)
+                       tools/lab       eval/bench/   train/sample.py, posttrain/bon.py,
+                                                     agentic/report.py, legacy samplers
 ```
 
-Track E joins the same pipeline at the *sample* stage: it produces `Structure`s and a
-structure cache in the standard format, so it is rendered and evaluated by exactly the
-tooling the trained tracks use ([Agentic](agentic.md)).
-
-Every experiment battery (`blockgen/experiments_*.py`) is a driver that walks this
-pipeline end-to-end for a set of *arms* and writes one run directory — see
-[Experiments](experiments.md) for the batteries and their arms.
+Every arm enters the benchmark as a structure cache, so a legacy trainer, an LLM program,
+a procedural baseline or a best-of-N filter over a trained model are scored by the same
+code. The legacy batteries (`blockgen/experiments_*.py`) walk their own prep, train and
+evaluate loop and write `novelty.json` per arm ([Experiments](experiments.md)); they
+predate the corpus layer and still produce the T10 to T24 arms.
 
 ## Package layout
 
 | Path | Role |
 |---|---|
-| `blockgen/data/` | raw-corpus → cache builders (schematics, tfrecords, GrabCraft scrape) |
-| `blockgen/curation/` | interactive `Curator` + the cross-corpus house cache builder |
-| `blockgen/utils/` | `Structure`, corpora loaders, block remapping, orderings, `growth_order.py` (attachment streams for [Track F](pick-and-place.md)) |
-| `blockgen/tokenizers/` | standard block vocab, per-voxel serialization, 3D-BPE |
+| `blockgen/data/` | raw corpus readers: schematics, tfrecords, GrabCraft, and `worldcrop/` (archive.org world saves to crops, with the terrain gate) |
+| `blockgen/curation/` | `Curator` and the cross-corpus house caches (`houses.py`, `corpus.py`) |
+| `blockgen/corpus/` | the corpus layer: manifest, canonical hashes and MinHash, dedup, kinds, tiers, the `CorpusTokenizer`, shards, facades, representation registry, templates ([Data](data.md)) |
+| `blockgen/train/` | the shared trainer: `config.py` (flat `TrainConfig`, presets), `archs.py` (architecture registry), `data.py` (shard batching), `trainer.py`, `sample.py`, `registry.py` ([Training pipeline](pipeline.md)) |
+| `blockgen/posttrain/` | rewards with the pillar refusal, best-of-N (`bon.py`), rejection-sampling FT (`rft.py`), the `select=reward` hook |
+| `blockgen/utils/` | `Structure` (`data.py`), `serialize.py` (legacy token streams and grids), corpora loaders, `block_remap.py`, `schem.py`, orderings, `growth_order.py` |
+| `blockgen/tokenizers/` | `standard_vocab.py`, `cluster_bpe.py` (3D-BPE pieces), `piece_factors.py`; `block_tokenizer.py` is a dead stub |
 | `blockgen/models/` | the model zoo (below) |
-| `blockgen/agentic/` | Track E: LLM-written build programs — DSL, canvas, providers, agent loop ([Agentic](agentic.md)) |
-| `blockgen/training/` | one trainer module per model family + constrained decoding |
-| `blockgen/eval/` | novelty report + connectivity/validity |
-| `blockgen/labeling/` | renders → captions → frozen embeddings ([Labeling](labeling.md)) |
+| `blockgen/training/` | the legacy trainers, one per family, plus `constrained_decode.py` |
+| `blockgen/agentic/` | Track E: DSL, canvas, providers, agent loop, recipes, scoring ([Agentic](agentic.md)) |
+| `blockgen/ontology/` | what each block is, mined from the corpus ([Block ontology](ontology.md)) |
+| `blockgen/eval/` | `novelty.py`, `validity.py`, `traversal.py` (player walk), `facade_stats.py`, and `bench/` (the benchmark) |
+| `blockgen/labeling/` | renders, captions, frozen embeddings ([Labeling](labeling.md)) |
 | `blockgen/export/` | converters to external layouts ([MinecraftACE](minecraftace.md)) |
-| `blockgen/renderer/` | textured EGL renderer + mosaic grids |
-| `blockgen/experiments_*.py` | the run drivers / batteries |
-| `blockgen/config.py` + `configs/` | layered YAML config system |
-| `scripts/` | launch helpers + figure/render scripts |
-| `libs/` | vendored MinecraftACE / LegoACE (own docs page) |
+| `blockgen/renderer/` | textured EGL renderer, texture atlas, mosaic grids |
+| `blockgen/experiments_*.py` | the legacy run drivers |
+| `blockgen/config.py` + `configs/` | `configs/{datasets,experiments,models,training,agentic}` for the legacy loader; `configs/corpus/` tier yamls; `configs/train/` trainer yamls |
+| `scripts/` | launch helpers, figure scripts, `m2_seeds.sh` / `m2b_seeds.sh`, `corpus_refresh.sh`, facade oracle and baselines |
+| `tools/lab/` | BlockLab ([BlockLab](lab.md)) |
+| `deploy/` | the live `/gen` demo: inference server and Minecraft mod |
+| `libs/` | vendored MinecraftACE / LegoACE, BrickNet, BrickAgent |
 | `legogen/` | Blender 4.2 LDraw renderer for the LEGO corpora |
-| `outputs/` | all run artifacts (gitignored) |
+| `outputs/` | run artefacts (gitignored); `outputs/registry.jsonl` is the run index |
 
 ## Data layer
 
-- **Caches** (`data/cache/*.npz`): fixed-max-dim arrays of `(block_ids, block_data)`
-  volumes + a `_meta.json` sidecar. Builders: `data/tfrecord_dataset.py` (labeled
-  PlanetMinecraft crawl — the preferred cache, 100% metadata),
-  `data/build_cache.py` (legacy `data/raw` schematics), `data/grabcraft_dataset.py`
-  (scraped GrabCraft JSON with exact `(id,data)` and categories).
-- **External corpora** (`utils/corpora.py`): `load_3dcraft` (2.5k houses + human
-  placement-order traces), `load_text2mc` (11k builds, remapped via
-  `utils/block_remap.py`).
-- **Curation**: `curation/curate.py::Curator` is the interactive filter/search tool
-  (see [Data & curation](data-and-curation.md)); `curation/houses.py::
-  load_house_structures(max_dim=…)` is the *programmatic* entry point every current
-  experiment uses — the pooled, quality-gated, cross-corpus house cache
-  (`houses_32` = 2,661 builds; enclosed-air "house-ness" gate, corpus-calibrated).
+Two generations coexist.
+
+- **Caches** (`data/minecraft/cache/*.npz` + `_manifest.json`): fixed-max-dim
+  `(block_ids, block_data)` volumes. Builders: `blockgen/curation/houses.py`
+  (`houses_32` = 2,661, `houses_48` = 3,088), `blockgen/curation/corpus.py` (`all_32`),
+  `blockgen/data/tfrecord_dataset.py`, `blockgen/data/grabcraft_dataset.py`,
+  `blockgen/data/build_cache.py`. `load_house_structures(max_dim)` is the entry point
+  every legacy experiment and the benchmark's reference use. External corpora load through
+  `blockgen/utils/corpora.py` (3D-Craft, text2mc `.h5`, text2mc `.schem`).
+- **The corpus layer** (`blockgen/corpus/`): one Parquet manifest over 927k builds
+  (world crops, the three caches, game templates), `dedup.parquet` and `kinds.parquet`
+  sidecars, tiers as hashed id lists, and uint16 token shards per tier and tokenizer. The
+  trainer reads shards only. [Data](data.md) walks it end to end.
+
+The benchmark's split is `data/minecraft/splits/houses_32.s0.70-15-15.v1.json`
+(`blockgen/eval/bench/splits.py`); the `sft-houses32` and `eval-holdout` tiers are its
+train and val+test sides.
 
 ## Representation layer
 
-`utils/data.py::Structure` is the universal unit: paired `block_ids`/`block_data`
-int arrays + metadata, with `crop_to_non_air()`, `occupied_mask`, D4 symmetry ops.
-Four interchangeable representations feed the models:
+`blockgen/utils/data.py::Structure` is the universal unit: paired `block_ids` and
+`block_data` arrays plus metadata, with `crop_to_non_air()` and `occupied_mask`; the D4
+symmetries live in `blockgen/utils/augment.py`. Representations in use:
 
-1. **Flat token stream** (`tokenizers/serialize.py`): `[BOS,(X,Y,Z,BLOCK)*,EOS]`,
-   coordinates as tokens, raster order `(y,z,x)` → bottom-up builds. `BlockVocab`
-   built by `build_block_vocab`; `STANDARD_VOCAB` (~441 entries) names the classes.
-2. **3D-BPE piece stream** (`tokenizers/cluster_bpe.py`): `learn_clusters` greedily
-   merges frequent adjacent-voxel patterns into multi-voxel *pieces*
-   (`ClusterVocab`); `build_cluster_sequences` re-serializes structures as piece
-   placements. ~2× shorter sequences, anti-memorization (T10), LegoACE brick-library
-   analog.
-3. **Canonical grid**: scale-normalization (downsample to `N³`) for the diffusion
-   track and for the "miniature" AR regimes (canon-12/16 — where all the best
-   results live).
-4. **Block+port graph**: PyG graphs for the graph-VAE track.
+1. **Flat token stream.** Legacy: `blockgen/utils/serialize.py` (`BlockVocab` per run,
+   `build_block_vocab`, `structure_to_grid`). Shared trainer:
+   `blockgen/corpus/tokenizer.py::CorpusTokenizer` kind `voxels`, a fixed 507-token
+   vocabulary (hash `60684456e598`) with prefix tags `src, q, size, win`.
+2. **Facades.** `blockgen/corpus/facade.py`: six `(depth, id)` face images, `project`
+   and `lift`; tokenizer kind `facades` in `per_face` or `joint` layout
+   ([Representations](representations.md) §6).
+3. **3D-BPE pieces.** `blockgen/tokenizers/cluster_bpe.py`: `learn_clusters` merges
+   frequent adjacent-voxel patterns into a `ClusterVocab`. Legacy only; not a shard kind.
+4. **Canonical grid.** Scale normalisation to `N³` for diffusion and the canon-12/16 AR
+   regimes.
+5. **Block-and-port graph.** PyG graphs for the graph VAE.
+6. **Growth stream.** `blockgen/utils/growth_order.py` for Track F.
+
+`blockgen/corpus/reps.py` registers `voxels` and `facades` as `encode`, `decode`,
+`picture` for the lab and the figure scripts; it is not yet linked to the tokenizer's
+`KINDS`.
 
 ## Model zoo (`blockgen/models/`)
 
 | Class | File | Params | What it is |
 |---|---|---|---|
-| `VoxelTransformerAR` | `voxel_transformer_ar.py` | ~5–6M | baseline causal transformer, learned absolute PE |
-| `VoxelTransformerAR2` | `voxel_transformer_ar2.py` | ~5–6M | PE-pluggable rewrite — **the current flagship** |
-| `CondVoxelAR2` | `voxel_transformer_cond.py` | ~6M | AR2 + prefix conditioning + CFG (T15/T16) |
-| `VoxelUNet3D` | `voxel_diffusion.py` | ~5–15M | masked discrete diffusion 3D-UNet, 4 samplers |
-| `LargePyGGraphGenerator` | `large_pyg_graph_generator.py` | few M | graph VAE (TransformerConv → latent → GRU decoder) |
-| `VoxelPortGNN` | `voxel_port_gnn.py` | ~1–2M | starter block+port GNN (legacy) |
-| `PickAndPlace` | `pick_n_place.py` | ~5.4M | Track F: causal graph encoder + picker (`G→P(V)`) and placer (`G×V→P(E)`) heads; relative-offset attention bias instead of positional encoding ([full page](pick-and-place.md)) |
+| `VoxelTransformerAR2` | `voxel_transformer_ar2.py` | 5.5M (5m), 26.8M (20m) | PE-pluggable causal transformer, `pe` in {learned, sin, rope, alibi, phase4, none}; the only arch in `blockgen/train/archs.py` |
+| `VoxelTransformerAR` | `voxel_transformer_ar.py` | ~5M | v1 baseline, learned absolute PE; equals AR2 `pe=learned` |
+| `CondVoxelAR2` | `voxel_transformer_cond.py` | ~6M | AR2 plus prefix conditioning and CFG (T15/T16) |
+| `ResampledCondVoxelAR2` | `condition_resampler.py` | ~6M | Q-Former-lite resampler over the full SigLIP sequence; `scripts/train_cond_resampler.py` |
+| `GeoAttentionBias` | `geo_attention_bias.py` | | relative-offset attention bias for AR2 (`geo_bias`); null to mildly negative (T29) |
+| `FactoredPieceEmbedding` | `factored_embedding.py` | | `(family, variant)` embeddings; unused since T20 |
+| `SemanticTokenEmbedding` | `semantic_embedding.py` | | idea #7 prior; tested negative |
+| `VoxelUNet3D` | `voxel_diffusion.py` | 5 to 15M | masked discrete diffusion 3D-UNet, four samplers |
+| `LargePyGGraphGenerator` | `large_pyg_graph_generator.py` | few M | graph VAE |
+| `VoxelPortGNN` | `voxel_port_gnn.py` | 1 to 2M | starter GNN, unused |
+| `PickAndPlace` | `pick_n_place.py` | 5.4M | Track F picker and placer heads ([Pick-and-place](pick-and-place.md)) |
 
-Shared AR defaults (`ARTrainConfig`): `d_model=256, nhead=8, num_layers=6,
-dim_feedforward=1024, dropout=0.1`.
+### `VoxelTransformerAR2` and the phase4 PE
 
-### `VoxelTransformerAR2` and the phase4 PE (the best arm)
+AR2 hand-rolls its attention block on `F.scaled_dot_product_attention` so the positional
+encoding is a constructor argument. **phase4** decomposes each position in the
+`(X, Y, Z, BLOCK)` stream into a phase embedding (`pos % 4`, which slot) and a record-index
+embedding (`pos // 4`, which record). The grammar is given rather than rediscovered, and
+tail positions stop starving. The T11 ablation put phase4 first and ALiBi last; the
+coordinates travel as tokens, so the PE's job is grammar, not geometry (`research.md` §B,
+`results.md` T11). AR2's extra knobs (`geo_bias`, `piece_factors`, `semantic_embedding`)
+reach the constructor through `TrainConfig.model`, a dict of keyword arguments.
 
-AR2 hand-rolls its attention block on `F.scaled_dot_product_attention` (stock
-`nn.TransformerEncoderLayer` exposes neither q/k rotation nor per-head biases), which
-makes the positional encoding a constructor argument: `pe ∈ {learned, sin, rope,
-alibi, phase4, none}`.
+### The model contract for the shared trainer
 
-**phase4** is the grammar-aware scheme and the T11 ablation winner (val_nn 0.405 =
-84% of the real-build baseline). Instead of one embedding per absolute position, it
-decomposes the position of each token in the `(X,Y,Z,BLOCK)` stream into:
+`blockgen/train/archs.py` is the seam. An `Arch` is `build(cfg, tokenizer)`,
+`loss(model, batch)`, `sample(model, tokenizer, cfg, n, seed=None)` and a benchmark
+`track`. A model the loop can drive exposes `forward(input_ids, pad_mask=None) -> logits`
+and `.max_seq_len`; for fast sampling it may add
+`forward(step, past=past, return_cache=True) -> (logits, past)`, and a model without a
+cache (`pe=alibi` is one) is sampled by a full re-forward per step. Registering a new
+family is one `register(Arch(...))` plus `arch: <name>` in a YAML
+([Bring your own model](custom-model.md)).
 
-- a **phase embedding** `nn.Embedding(4, d_model)` indexed by `pos % 4` — *which slot
-  of the record am I* (X, Y, Z, or BLOCK);
-- a **block-index embedding** `nn.Embedding(max_seq/4+1, d_model)` indexed by
-  `pos // 4` — *which record am I in*.
+## Training layer
 
-The period-4 grammar is thereby *given* to the model rather than rediscovered, and
-tail positions no longer starve (with plain learned PE, only the largest builds ever
-reach the tail indices, so those rows train on a handful of examples). The ablation
-also showed generic relative PE is **not** a win here (RoPE ≈ learned, ALiBi worst) —
-our coordinates travel as tokens, not positions, so the PE's job is grammar, not
-geometry. Motivation and the full ablation: `research.md` §B, `results.md` T11.
+**Shared trainer** (`blockgen/train/`): `python -m blockgen.train --config
+configs/train/<name>.yaml [key=value ...]`. One step-based loop, warmup-stable-decay
+schedule, token-budget length-bucketed batches, bf16, `init_from=<ckpt>` for a new stage
+(refuses a tokenizer-hash or dropout mismatch), `resume=<run_dir>` for the same run,
+`select` in {best, last, reward}, end-of-run sampling and benchmark on `bench_tier`, and a
+registry line. `python -m blockgen.train --sample <run_dir> --n 399` writes the structure
+cache the benchmark ranks. Details: [Training pipeline](pipeline.md) §5.
 
-`CondVoxelAR2` subclasses AR2 (phase4) and adds LegoACE-style conditioning: frozen
-DINOv2/CLIP embeddings → `cond_proj` linear → prefix tokens (+ prefix position
-embeddings), a learned `null_cond` trained by 10% condition-dropout, and
-classifier-free guidance in `generate_cond(cfg_scale=…)`.
-
-### Diffusion track
-
-`VoxelUNet3D` (compact 3D-UNet, `base_channels=48`, GroupNorm/SiLU, sinusoidal time
-embedding) trained MaskGIT/D3PM-absorbing-style by `train_diffusion.py` (mask a
-fraction of voxels, cross-entropy on the masked ones, air down-weighted). Four
-samplers on one trained net: `sample_grids` (MaskGIT confidence order),
-`sample_grids_flow` (discrete flow matching), `sample_grids_remask` (ReMDM-lite —
-currently broken, T11), `sample_grids_stratified`. `calibrate_air_bias` fits the
-per-sampler air bias — the single most fragile knob in the codebase (a scalar can't
-fit mixed-size corpora; every bad diffusion result in the ledger traces back to it).
-
-## Training layer (`blockgen/training/`)
+**Legacy trainers** (`blockgen/training/`), one per family, still the only route for
+Tracks B, C, F and conditioned models:
 
 | Module | Trains | Notes |
 |---|---|---|
-| `train_ar.py` | flat AR | `build_sequences` / `train_ar` / `sample_structures` |
-| `train_ar_ext.py` | any token stream | `train_from_sequences(…, pe=…)` selects AR2; also cluster-BPE sampling and category-token conditioning (`[BOS, CAT, …]`) |
-| `train_diffusion.py` | UNet3D | `DiffusionTrainConfig`, `build_grids`, `calibrate_air_bias` |
-| `train_twostage.py` | occupancy → materials | Scaffold-recipe two-stage (didn't beat single-stage, T11) |
-| `train_graph.py` | graph VAE | recon CE + KL, `beta=1e-3` |
-| `train_conditioned.py` | `CondVoxelAR2` | full CLI (see [Labeling](labeling.md) for the data it consumes) |
-| `train_pick_n_place.py` | `PickAndPlace` | `PieceCodec`, `GrowthDataset`, two cross-entropies (pick + place); reports `place_lift` against the legal-face chance baseline, not raw accuracy |
-| `constrained_decode.py` | — (inference only) | **in-loop 6-adjacency constrained sampling**: per-axis factorized coordinate masking keeps every new voxel adjacent to the built structure; EOS gated by `min_blocks`. Validity 1.0 by construction, quality-neutral in raster order (T11) |
+| `train_ar.py`, `train_ar_ext.py` | flat AR, any token stream | `train_from_sequences(..., pe=...)` selects AR2; cluster-BPE and category-token conditioning |
+| `train_diffusion.py` | `VoxelUNet3D` | `calibrate_air_bias`, the most fragile knob in the codebase |
+| `train_twostage.py` | occupancy then materials | did not beat single-stage (T11) |
+| `train_graph.py` | graph VAE | recon CE + KL |
+| `train_conditioned.py` | `CondVoxelAR2` | consumes the labeling pipeline's embeddings |
+| `train_pick_n_place.py` | `PickAndPlace` | reports `place_lift` against the legal-face chance baseline |
+| `constrained_decode.py` | inference only | in-loop 6-adjacency constrained sampling, validity 1.0 by construction (T11) |
+
+**Post-training** (`blockgen/posttrain/`): `python -m blockgen.posttrain.bon --run <run>
+--n 256 --k 8 --reward face_solidity` samples `n*k`, keeps the top of each group by a
+reward and writes an arm with `trained_on_signals`; `python -m blockgen.posttrain.rft
+--run <run> --reward lcc26 --n 2048 --keep-frac 0.25` writes the kept builds as a derived
+tier (`blockgen/corpus/shards.py::from_structures`) and prints the fine-tuning command.
+`rewards.py` refuses any reward that is a BlockScore pillar input
+([Training pipeline](pipeline.md) §7).
 
 ## Evaluation (`blockgen/eval/`)
 
-`novelty.py::evaluate_novelty(samples, train_set, vocab, grid=…)` produces the shared
-report: `mean_nn_iou`, `duplicate_rate` (≥0.95 IoU), `diversity`, occupancy
-`validity_rate`, `block_agreement`, plus comparison grids (each sample beside its
-nearest training neighbors — the visual novelty proof). The batteries extend it with
-`val_nn` (IoU to *held-out* builds — the honest generalization number) and a
-real-val-vs-train baseline (what a *real* unseen house scores: ≈0.48 for houses —
-sample scores are read as a fraction of this ceiling). `validity.py` supplies
-`n_components` and the `repair_lcc` gate (keep largest connected component).
+`novelty.py::evaluate_novelty` is the shared novelty report (`mean_nn_iou`,
+`duplicate_rate`, `diversity`, `validity_rate`, `block_agreement`, comparison grids);
+`validity.py` supplies `n_components`, `repair_lcc` and `gated_sample`;
+`traversal.py::traversal_stats` walks a two-block player through a build (`enterable`,
+standing reached, floors reached; T63); `facade_stats.py::face_stats` measures relief
+jumps, holes, lone cells and dust on the six faces.
 
-`blockgen/eval/bench/` is the cross-track benchmark ([Evaluation suite](benchmark.md)),
-additive by construction — the three modules above are never modified, so T1–T22 stay
-reproducible.
+`blockgen/eval/bench/` is the benchmark ([Evaluation suite](benchmark.md)). The legacy
+eval modules are never modified, so T1 to T22 stay reproducible.
 
 | module | role |
 |---|---|
-| `splits.py` | the canonical group-aware train/val/test split |
-| `topology.py` | connectivity, floating mass, sealed interior — as *distance to real* |
-| `geometry.py` | D4-invariant voxel descriptors, `geom_kid`, aperture-aware interiors |
-| `palette.py` / `stats.py` | palette JSD and co-occurrence; bootstrap / subsample CIs |
-| `features.py` / `distances.py` | render + DINOv2 cache; KID, MMD, FD, PRDC, DINO-NN |
-| `probes.py` | corruption and invariance rungs (`solidify`, `occupancy_noise`, …) |
-| `ladder.py` | the gate: a metric must rank known damage before it may rank anything |
+| `splits.py` | the pinned group-aware split |
+| `topology.py` | connectivity, floating mass, sealed interior, as distance to real |
+| `geometry.py` | the 80-dim D4-invariant descriptor, `geom_kid`, geometry scalars; the only metric that sees interiors |
+| `palette.py` / `stats.py` | palette JSD; bootstrap and subsample CIs |
+| `features.py` / `distances.py` | render + DINOv2 cache; KID, MMD, FD, PRDC |
+| `pointcloud.py` | the volumetric row: MMD, coverage, 1-NNA under chamfer and IoU (T67) |
+| `probes.py` / `ladder.py` | corruption rungs and the gate a metric must pass before it ranks |
 | `compare.py` | paired head-to-head tests, Holm-corrected |
-| `composite.py` | `BlockScore` — worst pillar in real-sample spreads, with cheat gates |
-| `fast.py` / `full.py` / `runner.py` | the two tiers and the CLI |
+| `composite.py` | `BlockScore`: worst pillar in real-sample spreads, with DQ gates |
+| `protocol.py` | `houses32-v1`: tier both, min n 128, the descriptor pin, `train_split` rules |
+| `fast.py` / `full.py` / `runner.py` | the two tiers and the CLI `python -m blockgen.eval.bench` |
 
 ## Rendering (`blockgen/renderer/`)
 
-- `textured.py` — headless **EGL/pyrender** renderer with real Minecraft textures
-  (`textures.py` maps vocab tokens → texture tiles). Never import alongside
-  osmesa/pyrender-CPU in the same process (context clash — this is why MinecraftACE
-  sample rendering happens on the blockgen side).
-- `grid.py::save_grid` — mosaic contact sheets; falls back to matplotlib voxels when
-  EGL is unavailable. CLI: `python -m blockgen.renderer.grid --houses 32 …`.
-- `labeling/render_views.py` — the 4-view per-structure export for captioning and
-  DINOv2 ([Labeling](labeling.md)).
-- `legogen/renderer/` — separate Blender 4.2 + ImportLDraw package for LDraw/OMR
-  sheets (LEGO corpora only).
+`textured.py` is the headless EGL/pyrender renderer with real block textures
+(`textures.py` maps tokens to tiles); `grid.py::save_grid` draws mosaic sheets and falls
+back to matplotlib voxels without EGL. Never import it beside osmesa/pyrender-CPU in one
+process, which is why MinecraftACE sample rendering happens on the blockgen side.
+`blockgen/labeling/render_views.py` writes the 4-view export for captioning and DINOv2.
+`legogen/renderer/` renders LDraw with Blender.
 
 ## Config system
 
-`blockgen/config.py` + `configs/{datasets,experiments,models,training}/*.yaml`:
-layered YAML with an `extends:` chain, flattened onto the argparse destinations of
-whichever battery you launch — so `--config ideas-full` is shorthand for a bundle of
-CLI flags, and any explicit flag still wins. Launch helpers under `scripts/`
-(`run_overnight.sh`, `run_ideas.sh`) add a GPU-wait gate (poll `nvidia-smi` until
-`FREE_MB` are free), `nohup` detachment, and persist the exact invocation to
-`cmd.txt` for resume; `pause_ideas.sh`/`resume_ideas.sh` kill-to-free-VRAM and replay
-the same stamp (finished arms skip via their on-disk `novelty.json`).
+Two loaders. `blockgen/config.py` with `configs/{datasets,experiments,models,training,agentic}`
+is the legacy layered YAML (`extends:` chains flattened onto a battery's argparse
+destinations). `blockgen/train/config.py::TrainConfig` is the flat typed config of the
+shared trainer, loaded from `configs/train/*.yaml` with `extends:` and `key=value`
+overrides; an unknown YAML key raises. Tier definitions live in `configs/corpus/*.yaml`
+(`configs/corpus/README.md`).
 
-## Writing your own experiment
+## Where a new model plugs in
 
-!!! tip "Want the runnable version?"
-    [Bring your own model](custom-model.md) walks the whole loop end to end —
-    model contract, split, tokenize, train, sample, render, evaluate — with a
-    working file you can execute: `.venv/bin/python examples/custom_model.py`.
-    This section is the design pattern behind it.
+The runnable version is [Bring your own model](custom-model.md). The short form:
 
-The pattern every battery follows — copy it:
+1. Write `blockgen/models/<name>.py` to the contract above and register an `Arch` in
+   `blockgen/train/archs.py`.
+2. `python -m blockgen.train --config configs/train/smoke.yaml arch=<name>` (60 steps;
+   the run dir must contain `run.json`, `metrics.jsonl`, `samples.png`, `summary.json`,
+   `bench/scorecard.json`).
+3. Train from `configs/train/houses32-sft-5m.yaml` or from scratch; pin `tokenizer:`.
+4. `python -m blockgen.train --sample <run> --n 399`, then
+   `python -m blockgen.eval.bench --tier both --n 399 --name "..." --arms ar/<name>:<npz>`.
+5. `python -m tools.lab --open` and read `/leaderboard`; record the run in `results.md`
+   and `notes.md`, which remain the research record the docs summarise.
 
-1. **Prep** (the honest-novelty protocol, in this order): dedup (IoU 0.95,
-   variant-keeping) → held-out val split (~15%, *before* augmentation) → D4
-   augmentation (8×, train only) → canonicalize/serialize.
-2. **Train** via the matching `training/` module; save the checkpoint and the exact
-   vocab/prep needed to decode samples later (the render scripts rebuild prep from
-   this).
-3. **Sample** (optionally through `constrained_decode`), **evaluate** with
-   `evaluate_novelty` + `n_components`, and write `novelty.json` into the arm's
-   directory — its presence is the resume marker.
-4. Guard each arm (`try/except` → `ERROR.txt`/`SKIP.txt`, continue), append to
-   `leaderboard.md`, and record the run in `notes.md`/`results.md` (the living
-   research record — the docs summarize it, they don't replace it).
-
-Model-side, the cheapest place to add a new AR idea is a new `pe=` variant or head on
-`VoxelTransformerAR2` (everything downstream — trainer, samplers, constraint, eval —
-is representation-agnostic); a new decode-time constraint belongs next to
-`constrained_decode.py` on the native track or as a `LogitsProcessor` on the
-[MinecraftACE](minecraftace.md) track.
+A new decode-time constraint belongs beside `constrained_decode.py` for the legacy
+samplers; `blockgen/train/sample.py` has no logits-mask hook yet. A new token kind touches
+`blockgen/corpus/tokenizer.py` (`KINDS`), `shards.py`, `blockgen/train/config.py`,
+`trainer.py` and `sample.py`.

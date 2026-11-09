@@ -20,10 +20,28 @@ sweep (`research.md`) + earlier notes. ★ = must-cite / closest relatives.
   (attachment relations, not spatial order) + geometry-conditioned AR + DPO alignment +
   constrained decoding/rollback. *Relevance:* nearest relative of our 3D-BPE cluster
   tokens — theirs is attachment-tree, ours is merged rigid pieces; must discuss contrast.
-- ★ **BrickNet** — Kulits & Schmid, CVPR 2026, arXiv 2604.22984.
+- ★ **BrickNet** — Kulits & Schmid, CVPR 2026 (pp. 39252–39261), arXiv 2604.22984.
   https://kulits.github.io/BrickNet/ — LM over **graph-backed connectivity programs**;
-  100k+ LDraw objects released. *Relevance:* precedent + data source for our Track C
-  (block+port graph) and the LEGO-transfer north star.
+  Qwen3 0.6B–14B LoRA r=32, PT 250k iters on 8.1M collision-free spanning-tree walks
+  (253,623 graphs) + SFT 40k iters on 67,185 Gemini-captioned models; no rollback or
+  constrained decoding. Data gated (form, requested 2026-10-20); adapters + `bricknet`
+  package (MIT) public; code in `libs/BrickNet`. *Relevance:* precedent + data source
+  for our Track C (block+port graph) and the LEGO-transfer north star. **Reproduced
+  Table 2 at 0.6B (results.md T61): 3/4 cells within CI, nucleus collision 13.6 vs
+  16.0.** Caveat for citing their text-conditioned numbers: P_inv is not defined precisely in the text; our
+  readings on val bracket their 0.256 (0.279 placement-weighted, 0.197 per-sample). With
+  short out-of-register captions the 0.6B SFT model skips the root node in ~30% of samples
+  (never on val-style captions) (notes.md §50, §50.1).
+- ★ **BrickBench / BrickAgent** — Kulits, Xu, Jones, Schmid, Wu, arXiv 2610.12452 (2026).
+  https://brickben.ch, code github.com/kulits/BrickAgent (MIT, `pip install brickagent`),
+  clone in `libs/BrickAgent`. Agentic text-to-LEGO benchmark: coding agents write Python
+  against a connector-fit API with a mechanical validator (BrickNet convex collisions +
+  PyBullet stability); 300 prompts in 3 settings with DSG question graphs; Valid / VQA
+  (Gemma 4 31B) / Align + Design ELO (pairwise VLM, human-validated tau 0.89). GPT-6 Astra
+  ELO 1297, Claude Opus 5.5 1249; BrickNet-14B 731 and BrickGPT 338 as trained baselines;
+  agents beat trained generators on BrickNet's own PE/SigLIP2/VQAScore; humans still win a
+  LEGO Turing test 9:1. *Relevance:* the LEGO twin of Track E and the evaluation protocol
+  ours should mirror (notes.md §51, results.md T62: one task verified valid locally).
 - **Rollback-Free Stable Brick Generation** — arXiv 2605.06947 (2026). RL post-training
   with assembly-level rewards (collision/connectivity/interlocking/shape) removes
   test-time rollback. *Relevance:* validity-as-training-signal (vs our inference gate);
@@ -43,6 +61,7 @@ sweep (`research.md`) + earlier notes. ★ = must-cite / closest relatives.
   voxel→LEGO conversion pipeline for our transfer demo.
 - **Brick-Composer / BC-Bench** — arXiv 2606.05445 (2026). MLLM diverse-brick assembly
   benchmark. *Relevance:* related work; eval-protocol reference.
+- **ldraw-nova** (anteloc, GitHub, 2026, AGPL-3.0). LLM-agent toolchain that writes LDraw LEGO models: brief, retrieve, build, inspect, repair, deliver; renders and collision/gap/contact checks as the agent's feedback; no paper, no metrics. Source of the `inspect` method and `lessons` context in Track E (docs/agentic-suite.md §5.7). https://github.com/anteloc/ldraw-nova
 
 ## 2. Minecraft / voxel generation
 
@@ -114,6 +133,16 @@ sweep (`research.md`) + earlier notes. ★ = must-cite / closest relatives.
 - **OctGPT** — SIGGRAPH 2025, arXiv 2504.09975. Multiscale octree AR, binary spherical
   quantization. *Relevance:* hierarchical AR + quantization-collapse fix (FSQ/BSQ) for the
   VQ arm.
+- **NCM (Next-Concept Modeling)** — Kumbong, Khare, Mlauzi, Woen, Ding, Buchanan, Arora,
+  Mirhoseini, Ré, "Next-Concept Modeling: Fast, Parallel Coarse-to-Fine Text Generation,"
+  arXiv 2610.14162 (2026-10). https://arxiv.org/abs/2610.14162 · code
+  https://github.com/HazyResearch/ncm (MIT, eval only). Multiscale residual VQ-VAE with
+  nested dropout + a block-diagonal transformer that predicts one level at a time, all
+  positions in parallel (K forward passes); code corruption during training; CFG ramped
+  by level; MBR. LM1B Gen PPL 93 at 12 NFE vs MDLM 115 at 128; OWT 83 vs AR 35; beats AR
+  and diffusion on Sudoku. *Relevance:* the learned-hierarchy recipe for our fourth arm
+  (research.md §H); cite with VAR (2404.02905), SAR3D (2411.16856), G3PT, 3D-WAG
+  (2411.19037), MARS (2502.11390) as the next-scale lineage. Not novel in 3D by itself.
 - **Octree adaptive tokenization** — arXiv 2504.02817 (2025). *Relevance:* variable-length
   3D token budgets; related work for BPE compression framing.
 - **RAR** — Yu et al., ICCV 2025. Random-order→raster annealing improves AR image gen

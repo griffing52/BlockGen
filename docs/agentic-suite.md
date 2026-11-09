@@ -229,12 +229,12 @@ parameter and its default. As of this writing:
 
 | kind | names (params) |
 |---|---|
-| method | `legacy(arm, config)`, `classic(plan, n_examples, repair_rounds, critique_rounds, critique_mode, critique_views)`, `dream(refine, refine_min_score, max_iters, stop_at, patience, mode, feedback, redream, redream_patience, redream_dependants, repair_rounds, plan, n_examples, skip_dreams)`, `best_of_n(n, inner, inner_params)`, `dream_vote(n_dreams, **dream params)`, `blueprint(...)`, `floors(...)`, `turnaround(...)` (section 5.4) |
+| method | `legacy(arm, config)`, `classic(plan, n_examples, repair_rounds, critique_rounds, critique_mode, critique_views)`, `dream(refine, refine_min_score, max_iters, stop_at, patience, mode, feedback, redream, redream_patience, redream_dependants, repair_rounds, plan, n_examples, skip_dreams)`, `best_of_n(n, inner, inner_params)`, `dream_vote(n_dreams, **dream params)`, `blueprint(...)`, `floors(...)`, `turnaround(...)` (section 5.4), `inspect(plan, n_examples, repair_rounds, inspect_rounds, inspect_mode, clean_at, show_passed, critique_rounds, critique_mode, critique_views)` (section 5.7) |
 | actions | `dsl(commands)`, `blocks(allow_states)` (alias `block_lines`), `python(timeout_s, max_ops, mem_mb, seed, annotate, size)` (alias `pyapi`), `mixed(parts, sub, size)` |
 | image | `openai:<model>(quality, size, background)`, `diffusers:<model>(steps, guidance, offload, strength, dtype, size)` (lazy, alias `local-image`), `mock:solid`, `mock:render(split, corpus, renderer, px)`, `mock:dir(path)` |
 | renderer | `textured(px, pack_dir, ortho, max_fallback_frac)`, `flat(px, margin, textures)`, `null(px)` |
-| context | `palette(skip_if_ontology)`, `ontology(variant, path, seed)`, `examples(k, pool)`, `texture_sheet(blocks, tile, cols, shuffled, seed, face)`, `dream_palette(k, key)`, `reference(note)`, `scale(strict, canvas, dream_cue)` (section 5.5) |
-| scorer | `embed(backbone, reduce, crop_fg, baseline, device)`, `silhouette(thresh, px, reduce)`, `color_lab(bins, thresh, reduce)`, `pixel(px, reduce)`, `clip_text(backbone, crop_fg, views, device)`, `material(k)`, `validity()`, `scale(ceiling)` (diagnostic, section 5.5), `vlm(rubric)`, `interior(min_room, furnish_frac, slab_frac, wall_run)` (offline only, section 5.4) |
+| context | `palette(skip_if_ontology)`, `ontology(variant, path, seed)`, `examples(k, pool)`, `texture_sheet(blocks, tile, cols, shuffled, seed, face)`, `dream_palette(k, key)`, `reference(note)`, `scale(strict, canvas, dream_cue)` (section 5.5), `lessons(k, path, always, shuffled, seed)` (section 5.7) |
+| scorer | `embed(backbone, reduce, crop_fg, baseline, device)`, `silhouette(thresh, px, reduce)`, `color_lab(bins, thresh, reduce)`, `pixel(px, reduce)`, `clip_text(backbone, crop_fg, views, device)`, `material(k)`, `validity()`, `scale(ceiling)` (diagnostic, section 5.5), `vlm(rubric)`, `interior(min_room, furnish_frac, slab_frac, wall_run)` (offline only, section 5.4), `inspection()` (section 5.7) |
 | accept | `always`, `nonempty_legacy`, `nonempty(min_frac)`, `improve(eps)`, `improve_valid(eps, max_validity_drop)`, `anneal(t0, decay, seed)` |
 | llm (vendors) | `openai`, `gemini`, `anthropic`, `claude-code` / `cc`, `local` (OpenAI-compatible server, `$LOCAL_LLM_URL`), `ollama` (`$OLLAMA_URL`), `mock` (`mock:auto` = AutoMock) |
 
@@ -340,6 +340,11 @@ name or a parameter raises with a "did you mean" suggestion.
 | `blueprint-noscale` | blueprint | `blueprint` without the `scale` context | control for `blueprint` |
 | `floors` | floors | storey-by-storey builds, bottom up, each against a storey dream | `blueprint` (unit granularity) |
 | `turnaround` | turnaround | one 2x2 sheet split into the four view targets | `turnaround_perview`, `dream-multiview` |
+| `inspect` | inspect | 1 execution repair, then 3 inspect-and-repair rounds: geometry checks (grounded, connected, supported, interior, roofed, enterable, headroom, openings) as TEXT feedback, no images; best-of by `inspection` + `validity` (section 5.7) | `classic-matched` (same turns, visual feedback) |
+| `inspect-critique` | inspect | 2 inspect-and-repair rounds, then 1 render critique | `inspect`, `classic-matched` |
+| `inspect-lessons` | inspect | `inspect` plus the `lessons` context: curated building rules retrieved by tag for the request | `inspect`, `inspect-lessons-shuffled` |
+| `inspect-lessons-shuffled` | inspect | the same number of lessons with non-matching texts (the `always` rules stay) | token-matched control |
+| `classic-lessons` | classic | `classic-matched` plus the retrieved lessons | isolates retrieval from inspection |
 
 ### 4.4 Batteries
 
@@ -989,6 +994,94 @@ python -m blockgen.agentic run --recipe dream-caption,dream-caption-shuffled --p
 on the 4 diverse prompts (2026-10-05, no network): $0.058 per build for `dream`,
 $0.069 with a caption or a spec, $0.079 with both (one extra LLM call each, two for
 `both`); the caption arms reuse `dream`'s cached images.
+
+---
+
+### 5.7 Inspect-and-repair and the lessons knowledge base
+
+`turns.repair` tells the builder what the *executor* saw: lines that failed and
+commands that placed nothing. It says nothing about what was *built*. A sealed box
+with no door, a roof floating above its walls and a shell open to the sky all execute
+cleanly, and the traversal probe (`eval/traversal.py`) measures the result: real houses
+are 95% enterable, LLM builds 2%, agentic arms 50 to 68%. The render critique
+(`critique_rounds`) is the suite's only answer so far, and it costs images.
+
+ldraw-nova, an LLM agent that writes LDraw LEGO models (2026), runs the cycle
+*brief, retrieve, build, inspect, repair, deliver*, where inspect is a set of geometry
+checks (collision, gaps, contacts, connectivity) whose report the agent reads before it
+repairs. `blockgen/agentic/inspection.py` is the Minecraft twin, built from probes the
+benchmark already trusts:
+
+| check | severity when failed | what it measures | fix hint the builder gets |
+|---|---|---|---|
+| `built` | error | zero blocks | start from the ground |
+| `grounded` | warning | the lowest block is above y=0 | move the build down |
+| `connected` | error > 5% stray, warning > 2%, else note | blocks in pieces not attached to the main one, and where the largest stray piece is | attach or remove |
+| `supported` | warning | blocks with nothing below them in their column and no supported neighbour beside them (> 25%) | posts, lower the roof, extend the walls |
+| `interior` | error | fewer than 8 enclosed air cells; names a solid mass separately | hollow the footprint; close walls and roof |
+| `roofed` | warning | floor area inside the walls with nothing above it (> 25%) | roof the whole footprint |
+| `enterable` | error / warning | the player walk cannot get in; storeys it cannot reach | a 1 x 2 door at floor level; stairs |
+| `headroom` | warning | under half the interior has 3 clear blocks | raise the ceiling |
+| `openings` | note | no glazed block and no window aperture over a sill | windows at floor+1 |
+| `size` | note | footprint under 6% of the canvas footprint | build for the player |
+
+Checks that do not apply (an empty build has no interior to walk) are marked `[skip]`
+and the turn tells the builder a finding that does not fit the request (a bridge has no
+room) may be skipped. Calibrated on 400 real `houses_32` builds: mean score 0.93, 55%
+clean at warning level; the per-check failure rates on real houses are supported 14%,
+enterable 17%, roofed 10%, headroom 9%, connected 6%, the rest 0%. The raw column
+rule for support flagged 44% of real houses (corpus crops often lack their floor), which
+is why the rule forgives a block with a supported horizontal neighbour.
+
+```
+INSPECTION of the build (automatic geometry checks: 7 of 10 passed)
+[FAIL] enterable: a player cannot get inside: no doorway reachable from the ground (0 openings are only 1 block tall)
+       fix: cut a door 1 wide and 2 tall at floor level through an outer wall (air at y=floor and y=floor+1), facing open ground
+[note] openings: no window openings in the walls
+       fix: cut 1 x 1 or 2 x 1 openings at y=floor+1..+2 and glaze them
+[ok]   built, grounded, connected, supported, interior, roofed, headroom
+Numbers: blocks 344, bbox 10x6x10, pieces 1, unsupported 0, enclosed_air 256, rooms 1, open_sky 0%, doorways 0, window_cells 0
+```
+
+**The method.** `inspect` is `classic` with inspect-and-repair rounds between the
+execution repair and the render critiques: `plan? -> generate -> repair -> inspect x N
+-> critique x M`. A round inspects the current build, stops when it is clean at
+`clean_at` severity (`error | warning | info`, default `warning`), otherwise sends
+`turns.inspect` (execution summary, inspection block, mode instruction) and tries the
+reply; an empty rejected reply ends the stage. Every round's inspection is traced
+(`inspection` events) and the last one sits in `Attempt.extra['inspection']`. The
+`inspection` scorer (share of applicable checks passed) lets `accept: improve_valid`
+and `select: best` keep the build that passes most. `inspect_mode: patch` works on
+patchable action spaces.
+
+**Reported for every arm.** `MethodResult.metrics()` carries `inspect_pass`,
+`inspect_enterable` and `inspect_failed` for the final build of any method, so a
+`classic` arm and an `inspect` arm compare on the same checks (summary.md has the two
+numeric columns). Like `scale`, this is a diagnostic: the benchmark pillars stay
+untouched, and a build that passes every check is not therefore a good house.
+
+**Lessons.** `configs/agentic/lessons.yaml` is a small curated knowledge base of
+building rules (door, room, roof-sits, windows, storeys, chimney, tower, supports,
+materials, size, ...), each with tags. The `lessons` context puts the `always` rules
+plus the `k` best tag matches for the request in the system prompt, lexically (the
+`examples.select_examples` device), and records the chosen ids in `ep.notes['lessons']`
+and the trace. `shuffled: true` is the token-matched control: the `always` rules stay
+and each retrieved rule's text is swapped for a rule that does not match the request.
+ldraw-nova's authors keep research and admitted lessons apart; so does this file,
+which is edited by hand and never written by a run.
+
+**Battery.** `inspect-v1` (`configs/agentic/batteries/inspect-v1.yaml`) runs
+`classic-matched`, `classic-lessons`, `inspect`, `inspect-lessons`,
+`inspect-lessons-shuffled` and `inspect-critique` on 12 detailed prompts; `estimate`
+prices it at $3.70 as an upper bound (every round firing). Read `inspect_pass` and
+`inspect_enterable` first, since every arm is measured on the same checks, then the
+bench. n=12 is a pilot.
+
+```bash
+.venv/bin/python -m blockgen.agentic battery inspect-v1 --mock --renderer flat   # offline, seconds
+.venv/bin/python -m blockgen.agentic estimate --battery inspect-v1               # no network
+.venv/bin/python -m blockgen.agentic battery inspect-v1 --allow-spend --budget-usd 6
+```
 
 ---
 

@@ -152,6 +152,7 @@ permission level 0, so requiring op would make it unusable).
 | `text_cond` | `cond_piece_ar` | CLIP-text-conditioned. `/gen a small stone house`. Bare `/gen` samples its null branch. |
 | `agentic` | `agentic` | **Group (12 models).** An LLM writes a build program; executed command by command. Real text conditioning, any canvas size, ~2k-block builds. `/model agentic list`. |
 | `agentic_plus` | `agentic` | Same group with the full loop — plan, 2 repair rounds, **visual self-critique**. Slower, ~4× the cost, better builds. |
+| `facade_rft` | `trainer_run` | Facade model (six face images lifted to 3D), fine-tuned on face solidity; the best learned facade arm (BlockScore 553, results T73). Served at temperature 0.7 unless `/gen` sets another. Samples the whole build (about 5 to 15 s), then places it bottom layer first. Any `python -m blockgen.train` run can be served the same way: `kind: trainer_run`, `checkpoint: <run>/<ckpt>.pt`. Needs `pandas` in the server venv. |
 | `recipe` | `recipe` | **Group.** The benchmarked agentic recipes, run live: `dream-caption` *(best on houses32, T51)*, `dream`, `classic-matched`, the free `*-local` ones, and `mock`. Narrates its thinking in chat, shows the dream as a block wall, places every attempt as it is scored. See [Recipes](#recipes-watch-the-loop-think). |
 
 Add one by appending an entry — no server code changes if its `kind` already exists:

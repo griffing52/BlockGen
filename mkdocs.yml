@@ -1,5 +1,5 @@
 site_name: BlockGen
-site_description: Text-free generative models for structured 3D block data (Minecraft → LEGO → electronics)
+site_description: Generative models and a validated benchmark for structured 3D block data (Minecraft first, LEGO next)
 theme:
   name: material
   palette:
@@ -33,11 +33,11 @@ nav:
   - Getting started: getting-started.md
   - Workflow (train → evaluate → view): workflow.md
   - Architecture (code map): architecture.md
-  - Data & curation: data-and-curation.md
+  - Data (sources to shards): data.md
   - World-crop corpus: worldcrop.md
-  - Training pipeline plan: pipeline.md
+  - Training pipeline: pipeline.md
   - Representations & tokenization: representations.md
-  - Models (the three tracks): models.md
+  - Models (the tracks): models.md
   - Agentic generation (Track E): agentic.md
   - Agentic methods suite: agentic-suite.md
   - Block ontology: ontology.md
@@ -46,9 +46,11 @@ nav:
   - Labeling & captions: labeling.md
   - Experiments & outputs: experiments.md
   - Bring your own model: custom-model.md
+  - Add a model, end to end: add-a-model.md
+  - Status matrix: status.md
   - Reproducing a run (T18): reproduce-native.md
   - Evaluation suite: benchmark.md
   - BlockLab (local tool): lab.md
   - Scripts reference: scripts.md
-  - Results: results.md
-  - Roadmap (LEGO / electronics): roadmap.md
+  - Results (root results.md): results.md
+  - Roadmap (research.md section I): roadmap.md

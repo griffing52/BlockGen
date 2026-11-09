@@ -204,6 +204,14 @@ esp. LEGO with NON-cuboid parts.
   protocols, 2026); **LEGO-Eval caution: naive VLM judges ≈ zero human agreement on
   fine-grained 3D** — tool-augmented judging required. Judge-guided *discrete* remains
   open but adjacent-published.
+- Agentic LEGO, unpublished (2026-11-05 addendum): **ldraw-nova** (github.com/anteloc/ldraw-nova,
+  AGPL-3.0, 520 stars, no paper, no metrics) is an LLM-agent toolchain, not a learned model:
+  brief, retrieve (curated knowledge base + example search), build (plan JSON -> Python
+  generator -> LDraw .mpd), inspect (renders, collision/gap/contact checks), repair, deliver.
+  A third agentic twin of Track E after BrickWright and BrickBench. The two pieces Track E
+  lacked, symbolic inspection as a repair signal and retrieved lessons, are now the `inspect`
+  method and the `lessons` context (docs/agentic-suite.md §5.7, notes §81). Running it as an
+  external LEGO generator on the BrickBench task is deferred past the CVPR deadline.
 
 ### E.2 The open intersection (our bet)
 
@@ -585,3 +593,514 @@ verifier is Python and BlockScore's fast tier is seconds; best-of-N; checkpoint 
 on-policy distillation from a 300M teacher. Not feasible: PPO with a separate critic and
 reward model above 100M, async multi-model pipelines, RL on 128³ sequences without
 hierarchical tokens.
+
+## H. Next-Concept Modeling as a hierarchical arm: what it is, what it would take (2026-10-23)
+
+Prompted by Kumbong, Khare, Mlauzi, Woen, Ding, Buchanan, Arora, Mirhoseini, Ré,
+"Next-Concept Modeling: Fast, Parallel Coarse-to-Fine Text Generation", arXiv 2610.14162
+(2026-10-09), code https://github.com/HazyResearch/ncm (MIT, evaluation only). The
+question asked: can a model of this shape learn the hierarchy of a build, adding detail
+at each level? Short answer: yes in principle, it is next-scale prediction (VAR) with a
+learned residual hierarchy, and 3D is the easier domain for it. But its measured gains
+are speed over diffusion, not quality over AR, so the case for it here rests on what fast
+sampling and a learned coarse level unlock (post-training, hierarchical rewards,
+level-wise control), not on beating arm A at BlockScore. Details below, then the plan.
+
+### H.1 What NCM is, precisely
+
+Two stages, both small.
+
+**Tokenizer: a multiscale residual VQ-VAE.** Encoder E maps a length-L token sequence to
+latents z in R^{L x d} (for most datasets the encoder is just an embedding lookup; the
+LM1B one has 6 blocks). K levels with lengths l_1 < ... < l_K = L. Level k pools the
+current residual down to l_k positions (F.interpolate area, i.e. average pooling; level 1
+uses a learned strided conv initialised as average pooling), snaps each position to the
+nearest entry of a per-level codebook, lifts the codes back to length L (linear
+interpolation plus a small per-level residual conv "Phi"), adds the result to the running
+reconstruction ẑ, and subtracts it from the residual. Decoder is one transformer block
+over ẑ^(K) producing per-position token logits. Loss is reconstruction CE plus commitment
+(beta 0.25) plus a codebook term; codebooks move by EMA (0.95 to 0.99) with dead-code
+restart. The ingredient that makes coarse levels meaningful is nested dropout: with
+probability 0.5 the decoder is fed ẑ truncated at a random level k, so early levels must
+carry the gist on their own. Reported exact-sequence reconstruction 98.8 to 100%.
+Settings: K = 12 for L = 128 (linear schedule), K = 32 for L = 1024, codebooks 4096 to
+8192, d = 384; Sudoku uses K = 12 over L = 89 with 16-entry codebooks and the schedule
+1, 2, 4, 6, 9, 13, 18, 26, 37, 50, 67, 89.
+
+**Generator: a transformer that predicts one level at a time, all positions in parallel.**
+p(r_{1:K}) = prod_k prod_i p(r_k^i | ẑ^(k-1)). The input at level k is ẑ^(k-1) resized to
+l_k positions and projected, plus a level embedding; RoPE restarts at 0 within each
+level. Attention is block-diagonal: a level attends only to itself and the prompt prefix,
+never to earlier levels' tokens, which enter only through ẑ. This was their best variant
+(Gen PPL 15.4 vs 19.6 for block-causal on TinyStories) and it is what makes sampling K
+forward passes. Training is one pass over all levels with teacher forcing, with the
+conditioning codes corrupted: a fraction of input codes (mean 0.5, decreasing linearly
+from coarse to fine) is replaced by uniform random codes from the same codebook while the
+targets stay clean. Loss weight per level l_k^(-alpha); alpha in [0, 1] made no
+difference, 1.5 hurt. Conditional tasks use a prefix-LM mask and classifier-free guidance
+whose weight ramps from 0 at the coarsest level to the set value at the finest.
+Test-time scaling is MBR: sample N, keep the one most similar to the rest.
+
+**Numbers worth holding onto.** LM1B Gen PPL 93 at 12 NFE vs MDLM 115 and DUO 97 at 128
+NFE. OpenWebText 83 at 32 NFE vs DUO 78 and MDLM 105 at 1024, while a plain AR model
+samples at 35. Sudoku: beats both AR and diffusion baselines at every clue count with
+fewer function evaluations (the one place NCM wins on quality, and it is a global
+constraint-satisfaction task). Generators are about 100M parameters; tokenizers 15 to
+144M; everything trained on one node, timed on one H100. Appendix H probes the hierarchy:
+fixing the three coarsest of 12 levels and resampling the rest keeps a story's theme and
+changes names, objects and wording. Stated limitations: fixed K and schedule regardless
+of input, tokenizer trained separately from the generator, artifacts at level boundaries.
+
+**What is and is not released.** The repo has the quantizer (`models/quant.py`, with
+EMA, k-means init, dead-code restart, nested dropout, learned level-1 sampling), the
+VQ-VAE wrapper, the generator (`models/next_concept.py`, with masks, KV cache, CFG,
+sampling), checkpoints and configs. There is no training loop, no loss, and no corruption
+code. Algorithm 1 is a page, so this is a day of writing, but it is ours to write.
+
+### H.2 Lineage: this is VAR for text, and 3D already has VAR
+
+NCM's contribution relative to VAR (Tian et al., NeurIPS 2024, 2404.02905) is making
+next-scale prediction work where there is no natural pooling: learned level-1 sampling,
+nested dropout so coarse codes carry meaning, corruption for robustness, block-diagonal
+attention. Voxels do have natural pooling, and the 3D field already has the
+corresponding models: SAR3D (2411.16856, multiscale 3D VQ-VAE on triplanes, next-scale
+AR, 0.8 s per object), G3PT (cross-scale VQ, residual across scales), 3D-WAG (2411.19037,
+wavelet token maps, BMVC 2025), OctGPT (2504.09975, already in references.md §4), MARS
+(2502.11390, level-of-detail VQ for meshes). None of them is on voxel structures of
+discrete block classes, and none measures the hierarchy with a generator-blind bench, but
+"NCM on Minecraft" is not itself a contribution. What NCM adds that those lack and that
+we should keep: the residual VQ with nested dropout (so coarse levels decode to something
+on their own, rather than being a fixed pooling), code corruption, and the
+within-level-independence recipe with a measured attention ablation.
+
+This arm is already on the plan: research.md §G.5 lists "hierarchical AR (next-scale or
+octree) where hierarchical rewards attach" as the fourth tokenization arm, and
+docs/pipeline.md §4 arm C (dense grid, 2³ patches at 32³, 4,096 tokens) is the data path
+it shares. T53 was a hand-built two-stage coarse-to-fine (cell assignment at f=4, then
+connections) and tied retrieval; its lesson, that the frame must be fine enough to pin
+geometry, becomes here "the hierarchy must reach at least 16³".
+
+### H.3 Mapping onto builds: the assumptions to make explicit
+
+1. **Dense canvas, not the sparse raster.** NCM's levels are lengths of one sequence
+   with pooling between neighbours. In arm A's `(x, y, z, id)` list, neighbouring tokens
+   are fields of different blocks and position i has no spatial meaning, so pooling it is
+   not the user's "add detail at the next level". The natural host is the fixed 32³
+   canvas of `houses_32` (arm C): pool in 3D with trilinear/area interpolation over
+   (D, H, W), levels are resolutions. Running the released 1D recipe on our token shards
+   as text is still worth one cheap run as a control (text has no spatial order either
+   and it worked), but the prediction is that its coarse codes are "which y-bands are
+   dense", not massing.
+2. **Latent pooling is not T17's decimator.** T17 showed strided decimation of discrete
+   ids destroys 86.5% of blocks because walls are one voxel thick. NCM pools continuous
+   embeddings and keeps the residual, and the decoder is trained for exact
+   reconstruction, so a one-voxel wall becomes a half-strength latent at 16³ plus a
+   correction at 32³. Whether the coarse levels alone decode to a connected massing is an
+   empirical question and the first thing to measure (H.4 step 1).
+3. **Air dominance.** A house is a median 745 blocks in 32,768 cells. The codebook will
+   spend most of its capacity on air and the recon CE will look excellent while occupied
+   voxels are wrong. Arm C needed air down-weighting to produce anything (notes §8). The
+   tokenizer must be judged on occupied-voxel exactness and build-exact rate, and the
+   recon loss probably needs the same class weighting.
+4. **Within-level independence is our failure mode by construction.** Every position at
+   a level is sampled independently given the coarser reconstruction. "Right gestalt,
+   incoherent up close" (§B) is exactly the error this invites at the finest level: a
+   wall whose patches disagree. Mitigations, in the order to try: the paper's corruption
+   training (mean 0.5), the residual structure itself (the finest level only adds a small
+   correction if the tokenizer put the wall at 16³), best-of-N selected by connectivity
+   or the fast tier, and as an ablation two to four MaskGIT iterations inside the finest
+   level, reusing arm C's sampler. The pure recipe goes first so the result is about NCM.
+5. **Finest level is 2³ patches, not voxels.** Block-diagonal attention costs sum of
+   l_k², so 32³ = 32,768 positions at the finest level is a billion-entry attention per
+   head; 16³ patches of 2³ is 4,096, the arm-C budget, and the tokenizer's conv decoder
+   unpatchifies to 32³ with per-voxel class logits. Levels 1³, 2³, 4³, 8³, 16³ give 4,681
+   tokens in total and K = 5 forward passes per sample. VAR uses a denser schedule
+   (1, 2, 3, 4, 5, 6, 8, 10, 13, 16); the level-schedule ablation is cheap and the paper
+   says it matters little in 1D. Anisotropic levels (coarser in y, houses are wide) are a
+   second-round option.
+6. **The tokenizer is a trained artifact with a hash.** pipeline.md's rule that a
+   tokenizer is a versioned artifact whose hash a checkpoint refuses to mismatch applies
+   with more force: the hash must cover the VQ-VAE weights, and every generator run names
+   its tokenizer. The tokenizer should train on the anneal tier (world-crop windows at
+   32³), not on 1,863 houses, both because a VQ-VAE at that size overfits and because that
+   is what the pretrain tier is for; the generator then follows the pretrain -> SFT
+   schedule like arm A.
+7. **Conditioning comes free, and lands where geometry is decided.** Prefix-LM over our
+   tags (src, q, size, win) and CLIP/DINO tokens, CFG ramped by level. T15's finding was
+   that palette transfers and geometry does not; in NCM the coarse levels are where
+   geometry lives and CFG is weakest there by design (ramp from 0). Testing the ramp
+   direction is a one-flag ablation with a real hypothesis behind it.
+8. **Quality expectation, stated before running.** On text NCM sits in the
+   diffusion class (83 vs AR 35 Gen PPL). On our data AR beats diffusion on houses (T6,
+   0.568 vs 0.369 NN-IoU). The prior is therefore that NCM loses to arm A on material
+   coherence and fine geometry at matched parameters, and the Sudoku result is the one
+   reason to expect gains on global constraints: connectivity, enclosure, traversability
+   (T63), the pillars where arm A and the LLM arms are weakest. Pre-register that split.
+9. **Speed is the lever that matters here, even though it is not our inference
+   bottleneck.** Five forward passes per build instead of up to 8,200 makes the
+   expensive stages of docs/pipeline.md §7 affordable: best-of-N and MBR at sampling,
+   20 to 50k generations for DPO data, GRPO groups with a Python verifier (§G.6 said RL on
+   dense sequences needs hierarchical tokens). Rewards can also attach per level: a
+   massing reward at 4³ or 8³ before any material is placed. That is the story the arm
+   would carry in the paper, not the architecture.
+
+### H.4 What to do, in order
+
+1. **Tokenizer-only study (one to two days, no generator).** A 3D multiscale residual
+   VQ-VAE at 32³ with the schedule in H.3.5, conv encoder/decoder, EMA codebooks with
+   restart, nested dropout 0.5, air-weighted CE. Train on anneal windows, hold out
+   `houses_32` test. Report: occupied-voxel exactness, build-exact rate, codebook
+   utilisation per level, and a `samples.png` whose columns are the truncated
+   reconstructions ẑ^(1) ... ẑ^(K) of real houses. That figure answers the user's
+   question directly: if level 3 is a connected massing and level 5 adds windows and
+   trims, the hierarchy exists before anything is generated. Gate: at least 99% occupied
+   exactness and 90% build-exact on the holdout, or the generator is not worth training.
+   Run the connectivity and traversal probes on the coarse-only decodes too; a hierarchy
+   whose coarse levels are porous cannot host a massing reward.
+2. **Generator, unconditional, houses_32 (two to three days).** Block-diagonal transformer
+   at the 5M and 20M presets, corruption mean 0.5, alpha 0, pretrain on anneal then SFT
+   as arm A's M2b protocol (select = best, no dropout change at init_from). Bench at
+   n >= 256 on houses32-v1 against arm A's T59 numbers and arm C. Add the raw and the
+   best-of-8 arms separately, compute-matched, since MBR is part of the method's claim.
+3. **Ablations that separate NCM from VAR.** Fixed average-pool hierarchy without VQ
+   residual learning (VAR-style) vs learned residual; nested dropout off; corruption off;
+   block-causal attention; two-step MaskGIT refinement at the finest level; level
+   schedule. Each is a flag, each a 5M run.
+4. **Conditioning and control.** Prefix tags plus CLIP tokens with CFG ramp up and
+   ramp down; the Appendix H probe on builds (fix levels 1 to 2, resample 3 to 5: same
+   house, different details; swap coarse codes between two houses). Rendered as a grid,
+   this is a figure the paper does not have today.
+5. **Only then post-training.** Best-of-N by fast tier, DPO on 2AFC pairs from the lab,
+   per-level massing rewards. This is where the arm pays for itself or does not.
+
+### H.5 Implementation questions to settle before writing code
+
+- Own implementation in `blockgen/models` against the shared trainer, borrowing the EMA,
+  restart, k-means init and nested-dropout logic from `quant.py` (MIT), vs vendoring the
+  repo under `libs/` and adding a training loop. Recommendation: own implementation. The
+  quantizer is 1D (B, L, C) with 1D interpolation and would need a 3D rewrite anyway, the
+  trainer's checkpoint, hash, registry and bench hooks are what make a result comparable,
+  and `trainer.build_model` currently hard-codes `VoxelTransformerAR2` and token shards,
+  so a dense-grid data path has to be added (arm C needs it too; pipeline §10's open
+  question about arm C sharing the backbone is answered by this arm sharing it).
+- Patch size and finest level: 2³ patches to 16³ (recommended) vs voxel-level with a
+  windowed finest level vs 4³ patches to 8³ (too coarse by T53).
+- Codebook size per level: 4096 as in text, or 512 to 1024 given air dominance and the
+  small number of distinct house-scale configurations; whether to use FSQ/BSQ as OctGPT
+  does to avoid collapse instead of EMA plus restart.
+- Nested dropout cutoff distribution (uniform over levels in the code; LM1B used 0.7
+  full / 0.3 truncated) and whether coarse-only decodes should be pushed toward
+  connectivity with an auxiliary loss (no, not in the first round).
+- Corruption schedule and alpha: transfer the paper's values, ablate later.
+- Canvas: 32³ only for the first round; 48³ and world-crop windows need their own
+  tokenizer or a window-tiled finest level, and are a second tokenizer version.
+- Augmentation: yaw rotations and mirrors are free on a conv tokenizer and should match
+  what arm A sees.
+- Selection and compute matching for MBR/best-of-N arms: which selector (fast tier,
+  connectivity, geom descriptor similarity as the paper's "most similar to the rest"), and
+  how the bench card records the N.
+- What "n" means for the tokenizer hash: weights plus config plus the anneal tier hash.
+
+### H.6 Reservations, plainly
+
+The paper's win is 10 to 30x faster than diffusion at diffusion quality, and quality
+well below AR on text. The hierarchy is real (Appendix H) and the Sudoku result is the
+one hint that it helps global constraints, which is our weakest pillar. The 3D version is
+prior art several times over, so the architecture cannot be the contribution; the
+contribution would be hierarchy-attached rewards, level-wise control, and bench evidence
+on a dense structured domain, which is what §G.5 already reserved the fourth arm for. No
+training code is released. The tokenizer-only study in H.4.1 costs under two days and
+settles whether the coarse levels of a learned residual hierarchy are massings or noise,
+which is the question actually asked. Start there.
+
+### H.7 The 2D port: facades as the first host (2026-10-30)
+
+The facade track (notes §54 to §60, T65 to T68) makes a face an image already: a
+(U, V) grid of cells, each `empty` or `(depth, block)`, up to 32 x 32, six per build,
+lifted into the canvas the bench scores. NCM for images is VAR with NCM's deltas
+(residual per-level codebooks, nested dropout, block-diagonal attention, code
+corruption, level-ramped CFG), and a face is a categorical image with three heads
+(mask, depth, block) instead of RGB. So the port is: 2D area pooling over cell
+embeddings, levels 1, 2, 4, 8, 16, 32 (K = 6, finest at the cell, 1,024 positions,
+no patching), a conv or one-block decoder with three categorical heads, and the
+generator predicting all six faces of a build inside each level block so the faces
+see each other at every scale. The box stays a forced prefix (size tags, as the joint
+sampler does today) and cells outside it are masked, so the six faces always describe
+one real box. Decoding is codes -> decoder -> argmax per head -> `Facade` -> `lift`
+-> bench, all of which exists; the only new code is the model and a dense face loader
+(a third `kind`). That is why this is the cheaper host: the 3D arm needs the dense
+32^3 data path and the air problem (H.3.3); the face's empty cells are outside the
+silhouette, not 97 percent of the canvas.
+
+What the hierarchy would mean on a facade, checkable by eye from truncated decodes:
+1 x 1 and 2 x 2 the box and the dominant material, 4 x 4 storeys and the roof line,
+8 x 8 the window rhythm and bands, 16 and 32 the windows, doors, trim and the depth
+relief. Those sheets are the whole first experiment, and they are images, so no
+renderer is in the loop. *Measured 2026-11-02 (T75, notes §63) with fixed pooling:*
+on a 32-cell face f = 16 is the box and material, f = 8 the bands, f = 4 storeys,
+roof line and footprint shape, f = 2 openings and trim, f = 1 the relief. Windows
+are one or two cells wide and survive only to f = 2, so the periodic structure is a
+fine-level feature, not an 8 x 8 one; pooled levels are smoother and more connected
+than real faces, so a coarse level does not host the models' fragmentation. Rule for
+the cascade: `any` (dilating, recall 1), `majority` as the control. *Cascade trained
+2026-11-03 (T88, notes §74):* the depth residual is learned (completion from the real
+f = 4 beats the copy on depth exactness, roof lines come back sharp) and the block
+residual is not (block agreement below the copy, no window ever drawn); the coarse
+levels memorise the 7.5k train boxes within a thousand steps; samples from the box are
+smooth one-material blobs that match the face statistics better than any AR arm, so
+those statistics are gameable by smoothness. The learned residual VQ is deferred;
+the next move is the cascade's coarse level as a prefix to the per-face AR, which draws
+the trim with its neighbours in context (notes §74).
+
+Why it targets the measured failures rather than only being cheaper:
+- **Relief noise (§60).** The 20M D4 model at temperature 1 draws speckled depth (jump
+  rate 0.29 vs real 0.10) and fragments into 6.8 pieces at 26-connectivity; at 0.5 the
+  faces are solid but a fifth of the draws are empty, the ground-plate mode. In a
+  coarse-to-fine model "what and where" (coarse levels, sampled at full temperature for
+  diversity) and "texture" (fine levels, which can run cold) are separate passes. The
+  testable claim: a per-level temperature schedule gets temperature 0.5's solidity
+  without its empty builds. AR has no such knob.
+- **Faces that do not meet (T68).** `geom_kid` for every facade arm is held by
+  `n_components` (60 to 75 against the ceiling's 13.5) because faces disagree at shared
+  edges. With all six faces in one level block, corner depths and materials are settled
+  at 2 x 2 and 4 x 4 before any cell is drawn, and attention within the block crosses
+  faces at every scale. Measure with the 26-connected shell components and a direct
+  shared-edge agreement rate.
+- **Windows and doors.** Patchwork beats every learned model on geometry because real
+  faces have real windows. Periodic structure is what the 8 x 8 level codes; the Sudoku
+  result is the one hint that the hierarchy is good at global regularities. Enterability
+  (0.35 at best vs ceiling 0.73) needs a door at the floor, which is a coarse-level
+  decision.
+- **Interiors.** Unchanged; the ceiling stays 493. Only the 3D hierarchy reaches inside,
+  and the 2D and 3D arms are the same code with 2D or 3D interpolation, which is the
+  bridge: the facade arm is the correctness check for the volume arm.
+
+Simplest first steps, as in H.4 but in 2D:
+1. One face type, the roof plan or the front, as the user suggested in §60. Pool real
+   faces to 16, 8, 4, 2 with majority rules on (mask, depth, block), decode naively, and
+   look: does 8 x 8 read as a facade? Half a day, no model.
+2. Fixed-pooling cascade on that face type: a small 2D U-Net or 1,024-token transformer
+   that predicts level k + 1 from level k with corrupted input, trained on all levels,
+   sampled in five passes. Score with `facade_sheets.py` statistics (jump rate, 2D
+   components, holes) against the per-face 5M AR at matched budget. D4 gives eight
+   faces per face for free.
+3. Learned residual VQ on the same face type, then six faces jointly, with the lifted
+   builds on the T68 card at n = 399 against the 20M D4 joint model (1082), patchwork
+   (990) and the ceiling (493). Report raw and best-of-N separately.
+4. Then H.4 in 3D with the same code.
+
+Data: 2,114 houses x 6 faces x 8 symmetries is about 100k face images at 32 x 32 or
+smaller, enough for a small VQ-VAE; the anneal tier's crops add faces by the million if
+the tokenizer wants them. Compute: six faces x 1,365 positions is 8,190 tokens per build
+with block-diagonal attention, so a 5M to 20M generator trains in minutes to an hour.
+Code to start from: VAR (FoundationVision/VAR, MIT) releases the multi-scale VQ-VAE and
+the training loop that NCM does not; NCM's deltas are small on top of it.
+
+## I. CVPR 2027: which papers, and what makes them worthy (2026-10-28)
+
+Four independent reads on the same day: a readiness audit of the unsent ICLR draft and
+its planning docs, a cold review of the draft by a reader who was not allowed to see
+notes.md or results.md, an inventory of every other track for second-paper candidates,
+and a web check of the CVPR 2027 call and the 2025 to 2026 literature. This section is
+their synthesis. Each report's full text is in the session transcript; the claims below
+are the ones at least two reads agreed on or that come with a source.
+
+### I.1 The calendar
+
+CVPR 2027 (Seattle, June 20 to 25; call posted 2026-09-03,
+https://cvpr.thecvf.com/Conferences/2027/CallForPapers and /AuthorGuidelines):
+
+| what | when (AoE) |
+|---|---|
+| paper enrollment, author list frozen, OpenReview profiles required | Nov 10, 2026 |
+| full paper | Nov 16, 2026 |
+| supplementary | Nov 23, 2026 |
+| reviews out / rebuttal | Jan 25 to Feb 1, 2027 |
+| decisions | Feb 25, 2027 |
+
+Eight pages including figures and tables; references and the new mandatory section
+titled "LLM Usage Statement" (after the main text, before the references; disclose any
+generative AI use in research or writing, or state none; missing it is desk reject) do
+not count. Double blind, arXiv allowed, all authors join the reviewer pool. There is no
+datasets-and-benchmarks track; "data synthesis, datasets and benchmarks" is a topic.
+Anything online after 2026-09-15 is contemporaneous work. 3DV 2027 has already closed
+(Aug 28). The first realistic fallback after a February reject is ICCV 2027 (Hong Kong,
+October; deadline estimated early March 2027, unconfirmed), then NeurIPS 2027 Datasets
+and Benchmarks (expected mid May 2027, unconfirmed). SIGGRAPH and ICML 2027 fall before
+the CVPR decision, so they are alternatives, not fallbacks.
+
+Nineteen days from today to the full-paper deadline, on one shared 16 GB GPU.
+
+### I.2 Verdict
+
+One paper is realistic for the CVPR main conference: the evaluation paper. Nothing else
+in the repo reaches a main-conference bar in nineteen days, and the inventory read said
+so plainly. The strongest second candidate, world-crop pretraining, has its decisive
+experiment already run and unreported (the M2b three-seed result, never written as a
+results entry) and is the right workshop paper to draft in parallel. Everything else is
+a scored arm or a supplementary table for the evaluation paper, or not yet a paper.
+
+### I.3 The evaluation paper: what it is and what holds it at borderline
+
+The draft on disk is not a "benchmark" paper; its headline is the blindness result.
+Render-and-embed metrics (multi-view DINOv2 KID and six other render-space statistics)
+cannot see whether a structure has an inside: Fill-Interior adds a median 33 percent of
+blocks and moves MV-KID a fraction of a noise floor while the geometry KID moves by
+about two hundred, cutaway views recover the signal with the same encoders, and a
+mass-matched Grow-Shell control shows the render metric does see mass that lands
+outside. BlockScore, the gates, the ladder, the human 2AFC and the leaderboard are the
+supporting apparatus. The cold reviewer rated it 3 of 5 at confidence 4 and said the
+finding is "real, cleanly demonstrated and worth publishing".
+
+Both the cold review and the audit put the same two gaps first:
+
+1. **No standard volumetric 3D metric on the ladder.** PointFlow's MMD-CD, COV and 1-NNA
+   on point clouds sampled from all occupied voxels, voxel IoU, and KID on a pretrained
+   3D encoder would all see Fill-Interior. The paper answers this only in prose. Without
+   that table the second contribution reads as "a handcrafted descriptor whose
+   thickness bin was designed to see the probe beats an image metric". This is the first
+   paragraph of every 3D reviewer's report.
+2. **No external published generator is scored.** Four in-house arms, two of which the
+   paper itself calls weak baselines. Candidates with released samples or weights:
+   Dream-Cubed (NeurIPS 2026, the closest competitor, render FID plus a human study on
+   Minecraft worlds), Scaffold Diffusion (3D-Craft houses, qualitative eval only), the
+   3D-Craft VoxelCNN, BrickGPT on the LEGO side.
+
+Then, in order of damage:
+
+3. The human agreement the protocol pre-registers (Bradley-Terry strengths, Spearman rho
+   against each metric over all pairs) is never reported; what is reported is three pairs
+   and one 93-of-93 reversal, which says both metrics disagree with people. Twenty raters
+   is thin. Appendix H still describes a schedule that is not the one run.
+4. The headline separation is quoted at 0.14, 0.4, 0.38, 1.0, 1.1, 2.0 and 0.26 in
+   different places, and the Section 6.2 prose contradicts Table 12 by a factor of ten.
+   If Table 12 is right the probe is weakly but significantly detected under the
+   deployed translucent renderer, so "invisible" holds exactly only for an opaque
+   renderer. One run of record, one n, one number, and the claim softened to "two orders
+   of magnitude less sensitive, exactly invisible under opaque rendering".
+5. The noise-floor unit scales with n and moved from 202 to 287 between two identical
+   runs; it is a test statistic quoted as an effect size to three figures. Report an
+   n-free effect size beside it.
+6. The leaderboard sits at n=128 against the paper's own minimum of 256, and still
+   carries the legacy subsample p-values rather than the permutation test the text
+   describes.
+7. BlockScore is five pillars in the text, three in practice (Appendix M). Define all
+   five in the method or present it as the max over the ones that decide.
+8. Figure numbers disagree with Table 2 (Figs 12 and 15), Fig 2 says eight rungs and
+   draws six, Table 11 is captioned in-domain but is the LEGO ladder, three TODOs and a
+   visible margin comment survive, main text is ten single-column pages against eight
+   two-column, no mainstream 3D generation related work (TRELLIS, Hunyuan3D, CLAY,
+   AssetGen, OccNet, SparseFlex), and the LEGO licence reads "unresolved" in one place
+   and "MIT" in another.
+
+The release report's open items (Grow-Shell has no probe in code, the bench_hollow run
+and the seed sweep have no released source, requirements-full.txt broken) are the
+reproducibility half of the same list.
+
+### I.4 The nineteen-day plan for the evaluation paper
+
+Experiments, all of them on existing tooling and none needing more than GPU minutes
+per item except the first:
+
+- Leaderboard of record at n=256 with the 80-dimensional descriptor, the traversal
+  pillar, the permutation test and the procedural baselines. The LLM arms need new
+  samples. About one day. Closes items 4, 6 and the T64 provenance in one run.
+- Volumetric baseline row: MMD-CD, COV, 1-NNA on one point per occupied voxel, voxel IoU
+  nearest-neighbour, and KID on one pretrained 3D encoder, run on the same rungs and
+  through the same gates. One day. Turns item 1 into a table; if a standard metric
+  passes the gates and sees the probe, say so, the paper is then about the audit and
+  the ladder rather than about the descriptor, which is the stronger paper anyway.
+- One external generator's released samples through the suite, even unranked. One to
+  two days if samples can be obtained; start the request on day one. Item 2.
+- Human study: fit the pre-registered Bradley-Terry and rho on the data that exists,
+  with bootstrap intervals over items and raters, and a TOST on the exterior pair. Two
+  hours. More raters only if time remains.
+- Implement the Grow-Shell probe in probes.py and regenerate its table from code; add
+  the twelve-seed interval for the headline. Half a day.
+
+Writing, overlapping:
+
+- Port to the CVPR template at eight pages, appendix to the supplement. Two days.
+- Visual-hull reframe and a mainstream 3D generation related-work paragraph. Half a day,
+  the best value per hour in the list.
+- Fix every stale number and caption in item 8; expand method text to match code (KID
+  kernel and scaling, pooling, gate and DQ thresholds); state the n-dependence of the
+  unit in every caption and drop three-figure precision. One day.
+- Remove the self-doubt and process sentences the cold review listed (ten quotes, mostly
+  in the appendix: "and it did not", "was mismeasured twice", "rejected 3.4x too often",
+  "They are weak baselines").
+- The LLM Usage Statement, the data and terms-of-service statement, the human-subjects
+  and compensation statement, the author list and reviewer commitments before Nov 10.
+
+What the new work contributes to it:
+
+- Traversability (T63, T64) goes in as a third falsifiable probe family and as the
+  honest answer to "the geometric tier is also easily fooled": the descriptor ranked
+  one-block sticks above room-building houses until room scalars were added, and the
+  paper should say it audited its own geometric tier and fixed it. Not a new pillar
+  claim; the pillar never decides BlockScore.
+- The facade oracle (T65) is one row and one sentence: a facade-perfect generator keeps
+  79 percent of the blocks and scores 0.001 on the render pillar. It is the blindness
+  result stated from the generator's side.
+- The facade generators (T66), the agentic methods (T51) and the M2b pretraining result
+  stay out, as scored arms at most. SCOPE.md's argument against folding models in holds.
+
+### I.5 Second paper: world-crop pretraining, as a workshop submission
+
+Thesis: a terrain-gated, deduplicated corpus of about 650k structures cropped from
+archived Minecraft worlds transfers to curated house generation at matched compute.
+Evidence already on disk: the world-crop pipeline (T51), the learned terrain gate (T54),
+the 926k manifest with 30 percent duplicates (T55), the jar templates (T56), the shared
+trainer (T57, T58), the dropout and early-stopping diagnosis (T59), and the unwritten
+M2b result: 5M parameters, three seeds, early stopped, n=256, holdout NLL 0.479, 0.420,
+0.350 for pretrain plus SFT against 0.565, 0.555, 0.509 from scratch, BlockScore 375,
+323, 324 against 502, 445, 334, pretraining winning every seed on both measures.
+
+Missing for a credible paper: a 20M run (three seeds, about two GPU days, queued behind
+the facade job), a scratch arm regularised on holdout rather than left to overfit 1,863
+houses for 156 epochs, one pretrain-all versus pretrain-clean ablation, re-scoring the
+M2b arms under the current descriptor so they are board comparable, and a scaling
+figure. The corpus cannot be released (MAP has no licence, F.3), so the release is code,
+manifest schema and weights, with the F.3 licensing statement in the paper. Three
+figures: the pipeline and yield table, NLL and BlockScore against tokens for scratch
+versus pretrain plus SFT at 5M and 20M, and a sample sheet. First step costs nothing:
+write T60 from outputs/registry.jsonl and the six M2b scorecards.
+
+### I.6 The rest, honestly
+
+- **Agentic dream-and-build (Track E).** Dream-caption beats dream and compute-matched
+  classic on the render KID at n=133 (T51) and all three tie on geometry; classic beats
+  both dream arms on traversability (T63). "Dreaming is a null on geometry; captions
+  move the render metric" is a workshop result. Needs a human 2AFC (the phone queue
+  exists, never run), stage ablations and a second LLM. One to two weeks, 50 to 150
+  dollars of API, no GPU. The fallback if the GPU cannot be shared. The literature read
+  found no 2025 to 2026 paper where an LLM writes WorldEdit-style build programs, so
+  the territory is open; BrickWright (2610.31651) and BrickBench (2610.12452) are the
+  LEGO twins and published the agentic-beats-trained framing first.
+- **Facade generation.** The six-face (depth, block) representation with a lift appears
+  to be new for block structures (MVDD and 2.5D-latent papers are the general
+  precedent; UniRecGen argues the opposite side and should be cited). But one seed,
+  seven minutes of training, and six real faces from six different houses still beat
+  every learned model on every pillar (T66). Workshop only if the 20M model beats
+  patchwork; the interior stage is a separate month.
+- **Traversability alone** is a four-page note; it belongs in the evaluation paper.
+  Nearest neighbours: SceneTeract (2603.29798, reachability and clearance for indoor
+  scenes), LMBuild (2610.04292, functional affordance for part assemblies), SceneEval
+  (WACV 2026 navigability). None measures whether a player can enter a generated
+  building.
+- **Graph and attention work** (T49 to T53): ties and negatives plus one nice one-seed
+  analysis. Not yet. **LEGO reproductions and pick-and-place** (T13, T24, T61, T62): no
+  new result. **BlockLab and the live mod**: demo track material.
+
+### I.7 Novelty, as of today
+
+Unoccupied in the literature found: a block-structure benchmark pairing geometry-space
+and render-space KID; a traversability pillar on generated buildings; a ladder of
+degraded real builds as the calibration instrument (nearest analogue is the face-drop
+regime for meshes in 2606.18451); the six-face facade representation. Cite prominently:
+Dream-Cubed (2604.22847, NeurIPS 2026), MineAnyBuild (NeurIPS 2025 D&B), MineCEraft
+(2608.28884), Scaffold Diffusion (2509.00062), Li's regime map (FDG 2026, same 32 cubed
+canvas and architecture family), SceneTeract, LMBuild, BrickBench, BrickNet (CVPR 2026).
+Dream-Cubed is the one to engage directly: it validated a render FID with a human study
+on the same game, and the blindness result is exactly the thing that validation would
+not catch.

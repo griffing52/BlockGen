@@ -185,7 +185,7 @@ about `Part`s, `AttributeSpec`s and provenance; it knows nothing about blocks.
 `minecraft.py` is the first backend.
 
 That is not speculative tidiness — LEGO parts and electronic schematics are the
-stated next domains ([roadmap](roadmap.md)), and in both the catalog is thousands
+stated next domains (`research.md` §I at the repo root), and in both the catalog is thousands
 of entries the model cannot be assumed to know. The parts of this that transfer
 are exactly the parts that are generic: mine adjacency from a corpus of real
 assemblies, measure appearance from the part's own asset, write the physical

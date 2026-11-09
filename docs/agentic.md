@@ -52,7 +52,7 @@ That is the text-conditioning payoff, and it costs neither training nor a labele
 For scale, the per-voxel LLM baseline on this same family of prompts produced
 ~150–200-block builds at a 0.26 parse rate zero-shot (notes §21).
 
-Full numbers and caveats: [T22](results.md).
+Full numbers and caveats: `results.md` T22 at the repo root.
 
 ---
 
@@ -66,7 +66,7 @@ lines, sandboxed Python, mixed), context modules, scorers and accept policies. I
 headline method is the dream loop (imagine the target image, build, compare the
 render with it, iterate). Its staged methods (`blueprint`, `floors`, `turnaround`)
 plan the floor plan first and build room by room or storey by storey, or draw all
-four views in one image ([section 5.4](agentic-suite.md#54-staged-and-hierarchical-methods)). Everything runs offline with `--mock`:
+four views in one image ([section 5.4](agentic-suite.md#54-staged-and-hierarchical-methods)). Its `inspect` method replaces the render critique with a symbolic geometry inspection (grounded, connected, supported, interior, roofed, enterable, headroom, openings) fed back as text, and the `lessons` context retrieves curated building rules per request ([section 5.7](agentic-suite.md#57-inspect-and-repair-and-the-lessons-knowledge-base)). Everything runs offline with `--mock`:
 
 ```bash
 .venv/bin/python -m blockgen.agentic run --recipe dream-multiview --prompts short:2 --mock

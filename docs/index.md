@@ -1,92 +1,94 @@
 # BlockGen
 
-**Text-free generative modeling of structured / constrained 3D block data.**
+**Generative models of buildable 3D block structures, and the evaluation that keeps
+them honest.**
 
-BlockGen learns to *generate new, plausible 3D structures* — starting from Minecraft
-voxel builds — and to **prove the outputs are novel** (not memorized) via
-nearest-neighbor comparison. The design is intentionally medium-agnostic: the same
-representation + evaluation pipeline is meant to carry over to **LEGO** models and
-**electronics** schematics (see the [Roadmap](roadmap.md)).
+BlockGen learns to generate new, plausible 3D structures, starting from Minecraft voxel
+builds, and measures whether the outputs are novel and whether they are houses a player
+could walk into. The representation and the evaluation are medium-agnostic by design so
+that the same stack carries to LEGO (`research.md` §E, §I).
+
+## Naming
+
+Two letter schemes are in use and they do not collide once named. A **Track** is a
+generator family ([Models](models.md)): A autoregressive tokens, B masked diffusion,
+C graph VAE, D LLM baseline, E agentic programs, F pick-and-place. An **Arm** is a
+tokenisation story trained through the shared trainer
+([Training pipeline](pipeline.md) §4): A sparse raster, B 3D-BPE pieces, C dense grid,
+D text lines, E facades. Each page uses one word and says so.
 
 ## What's here
 
-- Three generative **tracks** over one shared representation
-  ([Models](models.md)): an autoregressive token transformer (A), a masked discrete
-  diffusion 3D-UNet (B), and a graph latent VAE (C).
-- A **novelty evaluation** shared by all tracks (occupancy-IoU nearest neighbors,
-  duplicate rate, diversity, validity).
-- A **metadata-driven curation** tool that carves the noisy scraped dataset into clean,
-  coherent subsets (houses, pixel art, …) and *preserves* material/color variants
-  ([Data & curation](data-and-curation.md)).
-- Reproducible **experiment runners** that emit figures, samples, metrics, and configs
-  under `outputs/` ([Experiments](experiments.md)).
-- A **LegoACE port** (91.7M GPT-2 over native 4-token block records, vendored in
-  `libs/MinecraftACE`) with a full export → train → sample → render/eval loop
-  ([MinecraftACE](minecraftace.md)).
-- An **auto-labeling pipeline** — 4-view renders → VLM + template captions → frozen
-  DINOv2/CLIP embeddings — feeding image/text-conditioned generation
-  ([Labeling & captions](labeling.md)).
-- An **agentic track** (E): a frontier LLM writes a short WorldEdit-style *build
-  program* that is executed onto a voxel canvas — no training, arbitrary canvas
-  sizes, free text/image conditioning, and builds an order of magnitude larger than
-  the per-voxel tracks reach ([Agentic generation](agentic.md)).
-- A **pick-and-place track** (F): a *picker* chooses the block and a *placer*
-  chooses which open face of the partial build to attach it to, so connectivity
-  is guaranteed by the representation and geometry enters as a relative-offset
-  attention bias rather than a positional encoding
-  ([Pick-and-place](pick-and-place.md)).
-- A whole-codebase operator's map — every package, model class (incl. the phase4 PE),
-  trainer, and the write-your-own-experiment pattern ([Architecture](architecture.md)),
-  plus a runnable end-to-end walkthrough for adding your own architecture
-  ([Bring your own model](custom-model.md)).
-- A **validated cross-track benchmark** — every metric must pass a corruption
-  ladder before it is allowed to rank anything, and realism is always reported
-  beside novelty so a memorizing model cannot win ([Evaluation suite](benchmark.md)).
-- **BlockLab**, an always-on local app for the half of the work a printed table
-  cannot do: browsing corpora, keyboard triage, 2AFC comparison, tuning curation
-  gates, and reading a run or the cross-run board with the actual builds beside
-  the numbers ([BlockLab](lab.md)).
+- **A corpus layer** (`blockgen/corpus/`): one manifest over 927k builds (world crops
+  plus curated caches plus game templates), exact and near dedup, a kinds sidecar, tiers
+  with hashed member lists, and tokenised shards in two kinds, `voxels` and `facades`
+  ([Data](data.md)).
+- **A shared trainer** (`blockgen/train/`): `python -m blockgen.train --config
+  configs/train/<name>.yaml`, one step-based loop with a WSD schedule, `init_from` for
+  stages, an architecture registry (`blockgen/train/archs.py`), end-of-run sampling and
+  benchmark, and one line per run in `outputs/registry.jsonl`
+  ([Training pipeline](pipeline.md)).
+- **Post-training** (`blockgen/posttrain/`): best-of-N with a verifier (`bon.py`),
+  rejection-sampling fine-tuning through derived tiers (`rft.py`), a `select=reward`
+  hook, and rewards that refuse BlockScore pillar inputs by construction
+  ([Training pipeline](pipeline.md) §7).
+- **Generator tracks** over one `Structure` type ([Models](models.md)): the
+  autoregressive token transformer (A) with its grammar-aware phase4 PE, prefix
+  conditioning (`CondVoxelAR2`) and a Q-Former-lite resampler; masked discrete diffusion
+  (B); a graph VAE (C); the LLM baseline on text lines (D); LLM-written build programs
+  (E, [Agentic](agentic.md)); pick-and-place growth (F, [Pick-and-place](pick-and-place.md)).
+- **The facade track**: six `(depth, id)` face images per build, lifted back into a
+  box, with its own oracle ceilings, baselines and models
+  ([Representations](representations.md) §6).
+- **A validated cross-track benchmark** ([Evaluation suite](benchmark.md)): every metric
+  passes a corruption ladder before it ranks anything; realism is reported beside
+  novelty; `BlockScore` is the worst pillar; a traversal pillar asks whether a player can
+  get in.
+- **BlockLab** ([BlockLab](lab.md)): the local app for browsing corpora, labelling, 2AFC
+  comparison, and reading a run or the cross-run board with the builds beside the numbers.
+- **A LegoACE port** (`libs/MinecraftACE`) with unconditional and multi-view
+  image-conditioned runs ([MinecraftACE](minecraftace.md)), and an **auto-labelling
+  pipeline** of renders, captions and frozen embeddings ([Labeling](labeling.md)).
+- **An operator's map** of every package and model class ([Architecture](architecture.md)),
+  the model contract ([Bring your own model](custom-model.md)), the route from an empty
+  editor to a board row ([Add a model, end to end](add-a-model.md)), and a generated matrix
+  of what is used, unused, planned or stale ([Status matrix](status.md)).
 
 ## Start here
 
-New to the repo? [Getting started](getting-started.md) sets up the environment and
-the data caches, then **[Workflow](workflow.md)** walks the path everything else
-assumes — train a model, sample it to an evaluation arm, score it against controls
-and baselines, and look at the result in BlockLab. It also says which parts are
-optional, because most of them are: an arm is just a cache of structures, and
-procedural generators, LLM-written programs and hand-built sets all enter the
-pipeline on equal terms.
+[Getting started](getting-started.md) sets up the environment and the data caches.
+[Workflow](workflow.md) walks the route everything else assumes: train a model, sample
+it to an evaluation arm, score it against controls and baselines, and look at it in
+BlockLab. An arm is a cache of structures, so procedural generators, LLM programs and
+hand-built sets enter the pipeline on equal terms.
 
-## Headline results so far
+## Headline results
 
 | Finding | Evidence |
 |---|---|
-| **Adjacency-constrained decoding gives validity 1.0** by construction, ~quality-neutral | T11 `ar_raster_constrained` |
-| **Category conditioning is the best cohesion lever** | T10 — top val_nn + raw validity |
-| **AR is the best house generator**; best arm = 84% of the real-build baseline, zero duplicates | val_nn 0.405 (T11) |
-| **No cross-medium transfer gain** in the data-rich regime — compression ≠ generation | T12 — finetune ≈ scratch |
-| 3D-BPE cluster tokens = anti-memorization (dup 0 where flat memorizes) | T10 vehicles |
-| Flat token embeddings **don't** learn birch≈oak | within-family cos-sim ≈ random baseline |
-| **Growth gives validity 1.0 without constrained decoding**; placer runs 139× its legal-face chance baseline | T24 — pick-and-place |
-| **Programs beat per-voxel tokens for scale**: 1,070-block coherent house, 0 failed commands, $0.008 | T22 — agentic track (`gpt-5-mini`) |
-| **Render-space realism is structurally blind**: deleting every interior in the corpus is not separable from real | T25 — `solidify` shares a group with `real_test` on MV-DINO-KID |
-| **`geom_kid` sees it at 202 real-sample spreads**, needs no GPU, and is exactly invariant to yaw and to material | T25 — validated on the same ladder |
+| Pretraining on world crops then SFT beats matched scratch on every seed, on likelihood (0.416 vs 0.543 nats) and on the board (340.7 vs 426.9 BlockScore, n=256) | T60, `scripts/m2b_seeds.sh` |
+| Render-space realism is structurally blind: deleting every interior is not separable from real on MV-DINO-KID | T25, `real@solidify` |
+| `geom_kid` sees interiors, needs no GPU, and is invariant to yaw and material | T25 |
+| The standard point-cloud suite (MMD, coverage, 1-NNA under chamfer and IoU) is as blind to interiors as the render tier | T67, `blockgen/eval/bench/pointcloud.py` |
+| A player enters 95% of real houses, 2% of LLM-arm builds, 50 to 68% of agentic builds | T63, `blockgen/eval/traversal.py` |
+| A facade-only generator's ceiling is the visible shell: `real@facades6` scores 493 where real is 0 | T65, `scripts/facade_oracle.py` |
+| Best learned facade arm 1035 (20M joint); D4 augmentation is worth 0.33 nats at 20M; patchwork (990) still leads every learned facade model | T66, T68 |
+| Best ranked learned arm on the main board: 3D-BPE `canon_oriented` at 141.82; `dream-caption` 155.83 is the best agentic arm | T64 |
+| Adjacency-constrained decoding gives validity 1.0 by construction, quality-neutral | T11 |
+| Programs beat per-voxel tokens for scale: a 1,070-block coherent house for $0.008 | T22 |
 
-See [Results](results.md) for the full tables and figures, and
-[Data & curation](data-and-curation.md) for all five Minecraft corpora plus the LEGO
-corpora (OMR / StableText2Brick / LDraw / shadow) now fetched for the next phase.
+The dated tables are in the root `results.md`; the plan is `research.md` §I.
 
 ![AR builds a house bottom-up](assets/film_ar_progressive.png)
 
 /// caption
-The AR model generates a house **bottom-up**: foundation → walls → pitched roof.
+The AR model generates a house bottom-up: foundation, walls, pitched roof.
 ///
 
-## The core challenge: variable size / footprint
+## The core challenge: variable size
 
-Real builds vary wildly in size, which breaks fixed-shape models. BlockGen always
-`crop_to_non_air()` first, then handles size per track — EOS-terminated token streams
-(A), a fixed canonical grid (B), size-agnostic graphs (C), or a `STOP`-terminated
-attachment stream (F) — and uses **scale
-normalization** (downsample to a canonical grid) to bring dense builds into range of the
-token tracks. This is discussed in [Representations](representations.md).
+Real builds vary wildly in size. BlockGen always `crop_to_non_air()` first, then handles
+size per track: EOS-terminated token streams (A, D), a fixed canonical grid (B),
+size-agnostic graphs (C), a `STOP`-terminated attachment stream (F), and for the facade
+arm a real bounding box sampled with the faces. Large builds reach the token tracks
+through windows (shards) or scale normalisation. See [Representations](representations.md).

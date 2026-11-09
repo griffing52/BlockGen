@@ -36,7 +36,7 @@ doubles as the common representation for nearest-neighbor search.
 
 The block+port PyG graph: nodes are blocks, edges are adjacency / ports. This maps
 directly onto **LEGO stud connectivity** and **electronics netlists** — the reason Track C
-is the most transferable (see [Roadmap](roadmap.md)).
+is the most transferable (see `research.md` §I at the repo root).
 
 ## 4. Growth sequence (Track F, pick-and-place)
 
@@ -66,6 +66,29 @@ and bias toward locality — the planned way to let AR reach 16–24³ without t
 loss of aggressive downsampling.
 
 ---
+
+## 6. Facades (2.5D, the generation-first-in-2D track)
+
+Six face images per build, one per axis and end: each pixel of a face is the
+depth to the first block along that axis and the block's id and data, `-1`
+where see-through (`blockgen/corpus/facade.py`). The four sides are the
+facades, `+y` the roof plan, `-y` the underside. `lift` writes any set of faces
+back into a canvas; `shell` (project then lift) is the visible shell of a build
+and the ceiling of a facade-only generator (results.md T65). A facade is a 2D
+grid of `(depth, id)` tokens, which is what a sequence model lays out reliably.
+
+**Switching between representations.** `blockgen/corpus/reps.py` is the one
+place that knows the names: a `Representation` is `encode`, `decode` and
+`picture`, and `voxels` and `facades` are registered. BlockLab's drawer, a
+tokenizer kind or a figure script asks `reps.get(name)` and uses the verbs, so
+a new representation is one entry there.
+
+**As tokens.** `CorpusTokenizer.default(kind="facades")` adds two tag groups, `face`
+(the six faces) and `cell` (`empty`), to the shared vocabulary; a face is
+`[BOS, src, q, size, win, face, U, V, cell*, EOS]` with `U`, `V` and depths as
+coordinate tokens and a filled cell as `(depth, block)`. The voxel tokenizer's hash
+is untouched. Sampling prompts the model with the face and its size, so the four
+walls and the roof of one build are generated into one real bounding box.
 
 ## Does air count as a token?
 
@@ -99,5 +122,5 @@ off-diagonal); within-family cosine similarity (≈0.006–0.008) sits at the ra
 So oak / spruce / birch (and the 16 wool colors) are treated as **independent atoms** —
 the model does *not* know birch is like oak. This is the empirical motivation for
 **factored embeddings** `E_family[id] + E_variant[data]`, so that all woods (and all
-wools) share statistics and rare variants generalize. It's the top open idea; see
-[Roadmap](roadmap.md#improving-generation-quality).
+wools) share statistics and rare variants generalize. T20 tested it as `FactoredPieceEmbedding`
+(off by default; [Status matrix](status.md) section 5); the plan is `research.md` §I at the repo root.
