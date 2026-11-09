@@ -60,7 +60,21 @@ PILLARS: Dict[str, Tuple[str, str]] = {
 #: rather than from one metric. Combined by RMS *within* the pillar: these are
 #: several views of one property, so a single odd component should raise the
 #: pillar without dominating it the way a max would.
-STRUCTURE_BLOCKS = ("coherence", "geometry_scalars")
+#: `traversal` (2026-10-23) is the player's reading of a build: whether a
+#: two-block body can get in, how much of the standing room it reaches, how many
+#: storeys, and whether there is headroom. It is its own pillar because it is
+#: the measure the render tier cannot see and the geometric descriptor sees only
+#: through its blind variant; under the max, a house nobody can enter loses.
+STRUCTURE_BLOCKS = ("coherence", "geometry_scalars", "traversal")
+#: The pillars of the pinned v1 protocol (`geometry.DESCRIPTOR_VERSIONS`): the
+#: five-pillar BlockScore of every card before 2026-10-23.
+STRUCTURE_BLOCKS_V1 = ("coherence", "geometry_scalars")
+
+
+def structure_blocks() -> Tuple[str, ...]:
+    """The structure pillars of the active descriptor version."""
+    from blockgen.eval.bench import geometry as geom
+    return STRUCTURE_BLOCKS if geom.has_traversal() else STRUCTURE_BLOCKS_V1
 
 #: Gates. Each names the metric, the direction that indicates cheating, and the
 #: number of real-control spreads beyond which the arm is disqualified.
@@ -72,6 +86,21 @@ class Gate:
     z: float
     reason: str
     min_spread: float = 0.0  # smallest difference worth calling a difference
+    #: False = diagnostic probes of real builds (`is_probe_arm`) are not judged
+    #: by this gate; see the twin gate for why.
+    applies_to_probes: bool = True
+
+
+#: Real-derived controls that are the gates' own positive controls, so every
+#: gate must keep judging them even though they are built from real builds.
+GATE_POSITIVE_CONTROLS = frozenset({"real@single_mode"})
+
+
+def is_probe_arm(name: str) -> bool:
+    """A diagnostic perturbation of held-out real builds, not a submission."""
+    if name in GATE_POSITIVE_CONTROLS:
+        return False
+    return name.startswith("real@") or name == "real_shuffled_materials"
 
 
 GATES: Tuple[Gate, ...] = (
@@ -90,6 +119,19 @@ GATES: Tuple[Gate, ...] = (
     Gate("novelty", "voxel_diversity", "below", 10.0,
          "mode collapse: generated builds resemble each other more than real ones do",
          min_spread=0.02),
+    # Added 2026-11-04 after the Dream-Cubed audit: a set made of ~160 clusters
+    # of near-copies passed both gates above, because one compares to the TRAIN
+    # split and the other averages over all pairs. Same rule as the train-split
+    # duplicate gate (a rate, 3 spreads, 0.02 floor); real held-out sets sit near
+    # 0.01. Cards scored before the metric existed lack the key and are skipped.
+    # Probes are exempt (user decision 2026-11-04): filling interiors makes real
+    # houses genuinely more alike in shape (`real@solidify` reads 0.066, 2.93
+    # spreads), and a diagnostic that rewrites real builds is not a generator
+    # that could be copying itself. `real@single_mode` stays judged.
+    Gate("novelty", "voxel_twin_rate", "above", 3.0,
+         "self-duplication: builds have near-copies (IoU >= 0.8) within the set "
+         "far more often than real ones do",
+         min_spread=0.02, applies_to_probes=False),
 )
 
 
@@ -159,7 +201,7 @@ class Calibration:
         # `w1_norm` entries are already quoted in real-spread units, so their
         # floor is whatever the control arm scores against its own reference
         # and their unit is 1 by construction.
-        for block_name in STRUCTURE_BLOCKS:
+        for block_name in structure_blocks():
             block = arm.get(block_name) or {}
             vals = [e.get("w1_norm") for e in block.values() if isinstance(e, dict)]
             rms = _rms(vals)
@@ -239,6 +281,8 @@ def score_arm(name: str, arm: Dict[str, Dict[str, object]], cal: Calibration,
 
     # --- gates first: a disqualified arm is never given a number to quote ---
     for g in GATES:
+        if not g.applies_to_probes and is_probe_arm(name):
+            continue
         block = arm.get(g.block) or {}
         v = _value(block, g.key)
         if v is None:
@@ -257,7 +301,7 @@ def score_arm(name: str, arm: Dict[str, Dict[str, object]], cal: Calibration,
         else:
             out.missing.append(pillar)
 
-    for block_name in STRUCTURE_BLOCKS:
+    for block_name in structure_blocks():
         block = arm.get(block_name) or {}
         rms = _rms([e.get("w1_norm") for e in block.values() if isinstance(e, dict)])
         z = cal.z(f"{block_name}.__rms__", rms)
@@ -348,10 +392,11 @@ def validate(rows: Sequence[BlockScore]) -> Dict[str, bool]:
     #: A corruption is only required to be caught by a tier that can see it.
     #: Material shuffle permutes placement without touching the multiset, so the
     #: palette statistics are blind to it by construction and the geometric
-    #: descriptor is blind to it by design -- only `appearance` can resolve it.
-    #: Asserting otherwise would demand that a metric detect information it was
-    #: deliberately built not to read.
-    NEEDS = {"real_shuffled_materials": "appearance"}
+    #: descriptor is blind to it by design. `appearance` resolves it, and so
+    #: does `traversal`, which reads doors and stairs by their ids: shuffled
+    #: materials put doors in the roof. Asserting otherwise of the blind tiers
+    #: would demand that a metric detect information it was built not to read.
+    NEEDS = {"real_shuffled_materials": ("appearance", "traversal")}
 
     if "real_test" in by:
         checks["C1_real_is_near_zero"] = bool(np.isfinite(real) and abs(real) < 3.0)
@@ -367,8 +412,8 @@ def validate(rows: Sequence[BlockScore]) -> Dict[str, bool]:
         if arm not in by:
             continue
         need = NEEDS.get(arm)
-        if need and need not in pillars:
-            continue                    # this tier cannot see it; not a failure
+        if need and not any(p in pillars for p in need):
+            continue                    # no pillar here can see it; not a failure
         checks[f"C3_{arm}_worse_than_real"] = bool(
             by[arm].status == "DQ"
             or (np.isfinite(score(arm)) and np.isfinite(real)

@@ -221,3 +221,43 @@ def test_pattern_jsd_is_zero_against_itself_and_positive_against_damage():
     pool = [_struct(_hollow_box(9)), _struct(_hollow_box(11))]
     assert geom.pattern_jsd(pool, pool) == pytest.approx(0.0, abs=1e-12)
     assert geom.pattern_jsd([pb.solidify(s) for s in pool], pool) > 0.05
+
+
+# --- the player's room in the scalar panel ----------------------------------
+def test_descriptor_carries_standing_room_storeys_and_headroom():
+    assert list(geom.GEOMETRY_METRICS[-3:]) == ["walk_standing", "walk_floors", "walk_headroom3"]
+    g = geom.geometry_stats(_struct(_hollow_box(9)))
+    assert g.walk_standing == pytest.approx(49 / 343)
+    assert g.walk_floors == 1.0 and g.walk_headroom3 == 1.0
+
+
+def test_descriptor_sees_a_dolls_house():
+    """A one-high room: the sealed interior ratio is unchanged in kind, the room
+    scalars are all zero, and the descriptor moves."""
+    tall = _struct(_hollow_box(9))
+    occ = np.ones((9, 3, 9), dtype=bool)
+    occ[1:-1, 1, 1:-1] = False
+    doll = _struct(occ)
+    g = geom.geometry_stats(doll)
+    assert g.interior_ratio_sealed > 0
+    assert (g.walk_standing, g.walk_floors, g.walk_headroom3) == (0.0, 0.0, 0.0)
+    d = geom.descriptor([tall, doll])
+    assert not np.array_equal(d[0, -4:-1], d[1, -4:-1])
+
+
+def test_descriptor_version_pin_restores_the_77d_v1_protocol():
+    """`--descriptor v1` (2026-11-02): the 77-d panel, the bare ladder key and the
+    five-pillar BlockScore of the run of record; v2 stays the default."""
+    from blockgen.eval.bench import composite, ladder
+    assert geom.DESCRIPTOR_VERSION == "v2"
+    try:
+        geom.set_descriptor_version("v1")
+        assert sum(w for _, w in geom.descriptor_layout()) == 77
+        assert geom.descriptor([_struct(_hollow_box(9))]).shape == (1, 77)
+        assert ladder.geom_view_key() == "patch2_orb55_t5_h8"
+        assert "traversal" not in composite.structure_blocks()
+    finally:
+        geom.set_descriptor_version("v2")
+    assert sum(w for _, w in geom.descriptor_layout()) == 80
+    assert ladder.geom_view_key() == "patch2_orb55_t5_h8_s12"
+    assert "traversal" in composite.structure_blocks()

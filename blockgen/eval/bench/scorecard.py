@@ -77,7 +77,7 @@ RUN_KEYS = ("dir", "name", "note", "git_sha", "git_branch", "git_dirty",
 #: verdict from `context` and `run` anyway -- the recorded block is a record of
 #: what the code believed at scoring time, never the authority.
 RUN_KEYS_OPTIONAL = ("blockscore", "blockscore_validation", "head_to_head",
-                     "examples", "protocol")
+                     "examples", "protocol", "features", "rescored_from")
 
 #: Keys lifted out of a manifest's free-form `report` and promoted to the top of
 #: an arm's provenance block. The allowlist is closed on purpose and was verified
@@ -565,18 +565,22 @@ def render_markdown(card: Scorecard, digits: int = 3) -> str:
             lines.append(f"| {a} | {_n_of(card.arms[a]) or '?'} | " + " | ".join(cells) + " |")
         lines.append("")
 
-    if any("coherence" in card.arms[a] for a in arms):
+    # Distance-to-real blocks: every entry carries the generated and the real
+    # value and a W1 in real-spread units; none is "higher is better".
+    for section in ("coherence", "geometry_scalars", "traversal"):
+        if not any(section in card.arms[a] and card.arms[a][section] for a in arms):
+            continue
         keys = []
         for a in arms:
-            for k in card.arms[a].get("coherence", {}):
+            for k in card.arms[a].get(section, {}):
                 if k not in keys:
                     keys.append(k)
-        lines.append("## coherence — distance to real (not 'higher is better')")
+        lines.append(f"## {section.replace('_', ' ')} — distance to real (not 'higher is better')")
         lines.append("")
         lines.append("| arm | " + " | ".join(keys) + " |")
         lines.append("|" + "---|" * (len(keys) + 1))
         for a in arms:
-            block = card.arms[a].get("coherence", {})
+            block = card.arms[a].get(section, {})
             cells = [_fmt_vs_real(block[k], digits) if k in block else "—" for k in keys]
             lines.append(f"| {a} | " + " | ".join(cells) + " |")
         lines.append("")

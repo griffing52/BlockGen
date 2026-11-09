@@ -24,6 +24,7 @@ from blockgen.eval.bench import ladder as ld
 from blockgen.eval.bench import palette as pal
 from blockgen.eval.bench import scorecard as sc
 from blockgen.eval.bench import stats, topology
+from blockgen.eval import traversal as tv
 from blockgen.eval.novelty import (NoveltyReport, _iou_matrix, evaluate_novelty,
                                    voxelize_occupancy)
 from blockgen.utils.data import Structure
@@ -54,6 +55,8 @@ class FastReference:
         self.vocab = vocab if vocab is not None else build_vocab(self.train, ctx.grid)
         self.coherence = topology.coherence_table(self.val)
         self.geometry = geom.geometry_table(self.val)
+        # Absent under the pinned v1 descriptor, which predates the block.
+        self.traversal = tv.traversal_table(self.val) if geom.has_traversal() else None
         self.exact_keys = pal.vocabulary(self.train, "exact")
         self.family_keys = pal.vocabulary(self.train, "family")
         # The geometric descriptor is whitened on the reference and reused for
@@ -260,9 +263,10 @@ def score_fast(arm: sc.ArmSpec, ref: FastReference,
                   "palette_size_w1", "n_blocks_w1", "max_dim_w1")}
         return {"meta": meta, "dataset_stats": nulls,
                 "novelty": {k: sc.skipped(reason) for k in
-                            ("voxel_nn_iou_mean", "voxel_dup_rate", "voxel_diversity")},
+                            ("voxel_nn_iou_mean", "voxel_dup_rate", "voxel_diversity",
+                             "voxel_twin_rate")},
                 "realism": {"geom_kid": sc.skipped(reason)},
-                "coherence": {}, "geometry_scalars": {}}
+                "coherence": {}, "geometry_scalars": {}, "traversal": {}}
 
     # --- coherence: always reported against the real distribution -----------
     coherence = topology.coherence_report(
@@ -337,6 +341,7 @@ def score_fast(arm: sc.ArmSpec, ref: FastReference,
                                alpha=ctx.alpha, rng=rng),
             direction="lower_better"),
     }
+    novelty.update(twin_metrics(non_empty, ctx))
 
     # --- geometry: the structural counterpart of the render tier -----------
     # This is the whole reason the geometry tier lives in FAST: `geom_kid` is a
@@ -346,6 +351,17 @@ def score_fast(arm: sc.ArmSpec, ref: FastReference,
     geometry_scalars = geom.geometry_report(
         non_empty, ref.val, n_boot=ctx.n_boot, alpha=ctx.alpha, rng=rng,
         real_table=ref.geometry)
+
+    # --- traversability: can a player walk in? -----------------------------
+    # The material-aware player (doors open, stairs climb) against the real
+    # distribution, in the same distance-to-real shape as the scalar blocks.
+    # `composite` reads it as its own pillar, so a build nobody can enter is a
+    # veto however it renders. The descriptor above carries the blind variant.
+    # Skipped outright under the pinned v1 descriptor: not computing it also
+    # keeps the shared `rng` stream exactly where a v1 card left it.
+    traversal = (tv.traversal_report(
+        non_empty, ref.val, n_boot=ctx.n_boot, alpha=ctx.alpha, rng=rng,
+        real_table=ref.traversal) if geom.has_traversal() else {})
 
     gate = None
     if ref.geom_ladder is None:
@@ -368,8 +384,12 @@ def score_fast(arm: sc.ArmSpec, ref: FastReference,
             note="unbiased polynomial-kernel MMD on D4-invariant geometric "
                  "descriptors; blind to material by construction"))}
 
-    return {"meta": meta, "coherence": coherence, "geometry_scalars": geometry_scalars,
-            "realism": realism, "dataset_stats": dataset_stats, "novelty": novelty}
+    out = {"meta": meta, "coherence": coherence, "geometry_scalars": geometry_scalars,
+           "traversal": traversal, "realism": realism, "dataset_stats": dataset_stats,
+           "novelty": novelty}
+    if not geom.has_traversal():
+        del out["traversal"]
+    return out
 
 
 #: One line per control rung: what it IS, in a sentence, for a reader looking at
@@ -416,6 +436,29 @@ CONTROL_RECIPES: Dict[str, str] = {
         "at voxel_dup_rate == 1.0 on this arm, and anything less means it would "
         "miss a model that recites its training set",
 }
+
+
+def twin_metrics(structures: Sequence[Structure], ctx, rep=None) -> Dict[str, sc.Metric]:
+    """Within-set near-twin rate (`twins`), the self-duplication gate's input.
+
+    Bootstrapped with its OWN generator rather than the shared stream, so adding
+    it moved no other number on a pinned-protocol card.
+    """
+    from blockgen.eval.bench import twins as tw
+    rep = rep if rep is not None else tw.within_set_twins(structures)
+    rng = np.random.default_rng(ctx.seed + 7717)
+    return {
+        "voxel_twin_rate": sc.from_ci(
+            stats.bootstrap_ci(rep.twin.astype(float), n_boot=ctx.n_boot,
+                               alpha=ctx.alpha, rng=rng),
+            direction="lower_better", threshold=rep.threshold,
+            note="fraction of builds with a near-copy (D4+translation IoU) "
+                 "elsewhere in the SAME set"),
+        "voxel_twin_nn_iou_median": sc.metric(
+            float(np.median(rep.nn_iou)) if rep.nn_iou.size else None,
+            direction="lower_better",
+            note="exact when >= threshold; size-pruned pairs read 0"),
+    }
 
 
 def control_arms(test: Sequence[Structure], train: Sequence[Structure] | None = None,

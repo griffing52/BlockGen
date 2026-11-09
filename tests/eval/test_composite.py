@@ -166,3 +166,32 @@ def test_material_shuffle_is_not_required_of_a_tier_that_cannot_see_it():
     card = _card({"real_test": fast_only, "real_shuffled_materials": shuffled})
     checks = comp.validate(comp.leaderboard(card))
     assert "C3_real_shuffled_materials_worse_than_real" not in checks
+
+
+# --- the traversal pillar --------------------------------------------------
+def test_traversal_is_a_pillar_and_a_locked_house_loses_on_it():
+    real = _arm()
+    real["traversal"] = {"interior_standing_reached": {"w1_norm": 0.1},
+                         "enterable": {"w1_norm": 0.1}}
+    locked = _arm()
+    locked["traversal"] = {"interior_standing_reached": {"w1_norm": 4.0},
+                           "enterable": {"w1_norm": 4.0}}
+    rows = comp.leaderboard(_card({"real_test": real, "real@seal_openings": locked}))
+    by = {r.arm: r for r in rows}
+    assert "traversal" in by["real_test"].pillars
+    assert by["real@seal_openings"].worst == "traversal"
+    assert by["real@seal_openings"].score > by["real_test"].score
+
+
+def test_material_shuffle_is_required_of_a_run_that_carries_traversal():
+    """Shuffled materials put doors in the roof, so a FAST-only run with the
+    traversal pillar must catch it even without an appearance pillar."""
+    real = _arm()
+    real["realism"].pop("mv_dino_kid")
+    real["traversal"] = {"enterable": {"w1_norm": 0.1}}
+    shuffled = _arm()
+    shuffled["realism"].pop("mv_dino_kid")
+    shuffled["traversal"] = {"enterable": {"w1_norm": 3.0}}
+    card = _card({"real_test": real, "real_shuffled_materials": shuffled})
+    checks = comp.validate(comp.leaderboard(card))
+    assert checks["C3_real_shuffled_materials_worse_than_real"] is True

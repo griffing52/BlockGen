@@ -450,8 +450,15 @@ GEOM_BACKBONE = "geom"
 
 def geom_view_key() -> str:
     from blockgen.eval.bench import geometry as geom
-    return (f"patch{geom.PATCH}_orb{geom.N_ORBITS}"
+    # The scalar count is part of the key: adding a scalar changes the
+    # descriptor, and a ladder validated on the old one must not gate the new.
+    # The pinned v1 (77-d) descriptor predates the suffix, and its ladder and
+    # every card scored with it carry the bare key (`protocol.LEGACY_DESCRIPTOR`).
+    base = (f"patch{geom.PATCH}_orb{geom.N_ORBITS}"
             f"_t{len(geom.THICKNESS_BINS)}_h{geom.HEIGHT_BINS}")
+    if geom.DESCRIPTOR_VERSION == "v1":
+        return base
+    return base + f"_s{len(geom.GEOMETRY_METRICS) + 1}"
 
 
 def ladder_path(backbone: str, view_key: str, root: Path | str = LADDER_ROOT) -> Path:

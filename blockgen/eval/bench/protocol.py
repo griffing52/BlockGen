@@ -107,6 +107,14 @@ class Protocol:
     seed: int = 0
     slate: Slate = field(default_factory=Slate)
     note: str = ""
+    #: The geometric descriptor `geom_kid` and the scalar panel were measured
+    #: with, as `ladder.geom_view_key()` spells it. Part of the protocol because
+    #: a run scored with a different descriptor produces a BlockScore in a
+    #: different unit of the same name. Empty means "not pinned".
+    descriptor: str = ""
+    #: `report.train_split` values that count as "trained clean" for this
+    #: protocol (see `match_arm`). Defaults to the protocol's own split.
+    clean_train_splits: Tuple[str, ...] = ("canonical", "protocol")
 
     @property
     def needs_full_tier(self) -> bool:
@@ -116,7 +124,9 @@ class Protocol:
         return {"id": self.id, "corpus": self.corpus, "split_key": self.split_key,
                 "tier": self.tier, "min_n": self.min_n,
                 "min_ref": self.min_ref, "seed": self.seed,
-                "slate": self.slate.to_json(), "note": self.note}
+                "slate": self.slate.to_json(), "note": self.note,
+                "descriptor": self.descriptor,
+                "clean_train_splits": list(self.clean_train_splits)}
 
 
 #: The protocol the leaderboard ranks. One entry, deliberately: a leaderboard
@@ -125,8 +135,12 @@ class Protocol:
 #: them apart.
 #:
 #: `houses32-v1` is the protocol every T23/T25 number in results.md was measured
-#: under, so promoting it costs no re-runs -- the four cards already on disk that
-#: match it become the board's first rows.
+#: under. Since 2026-10-23 it pins the geometric descriptor as well: the panel
+#: gained the player's room (standing share, storeys, headroom) and BlockScore a
+#: `traversal` pillar, so a card scored before that carries a BlockScore in a
+#: different unit and is unranked here with that reason until re-scored. The
+#: re-score of every ranked arm is `run_20261023_011035_bench_traversal_pillar_
+#: leaderboard_re-score` (results.md T64).
 OFFICIAL: Tuple[Protocol, ...] = (
     Protocol(
         id="houses32-v1",
@@ -136,11 +150,59 @@ OFFICIAL: Tuple[Protocol, ...] = (
         min_n=128,
         seed=0,
         slate=Slate(k=8),
+        descriptor="patch2_orb55_t5_h8_s12",
         note="The canonical house benchmark: 32^3 GrabCraft houses, the committed "
              "70/15/15 split, both tiers so the appearance pillar is measured, and "
              "at least 128 builds per arm so the bootstrap intervals mean something.",
     ),
+    # The CVPR 2027 metric paper's leaderboard of record
+    # (run_20261103_090315_bench_n_256_leaderboard_of_record). Same corpus and
+    # split as houses32-v1, but the pre-2026-10-23 descriptor (77-d panel,
+    # five-pillar BlockScore without `traversal`, `--descriptor v1`) so every
+    # number matches the 0925 protocol the paper's ladder and gates were
+    # validated under, and n >= 256 per arm. Its BlockScore is in a different
+    # unit from houses32-v1's; the lab never ranks across the two.
+    # `external` admits published generators trained on data disjoint from the
+    # corpus (Dream-Cubed: procedural 1.12 worlds, no GrabCraft/3D-Craft/text2mc).
+    Protocol(
+        id="houses32-paper-v1",
+        corpus="houses_32",
+        split_key="houses_32.s0.70-15-15.v1",
+        tier="both",
+        min_n=256,
+        seed=0,
+        slate=Slate(k=8),
+        descriptor="patch2_orb55_t5_h8",
+        clean_train_splits=("canonical", "protocol", "external"),
+        note="The metric paper's board: houses32-v1's corpus and split, the 77-d "
+             "geometric descriptor and five-pillar BlockScore it was validated with, "
+             "n >= 256 per arm, and published external generators admitted.",
+    ),
 )
+
+#: The descriptor every card written before 2026-10-23 was scored with. Those
+#: cards carry no `geom_descriptor` in their context and no `walk_*` scalars in
+#: any arm, which is how `run_descriptor` tells them apart.
+LEGACY_DESCRIPTOR = "patch2_orb55_t5_h8"
+
+
+def run_descriptor(context: Dict[str, Any], arms: Optional[Dict[str, Any]]) -> str:
+    """Which geometric descriptor a card was scored with.
+
+    The context stamp (`geom_descriptor`) is authoritative. A card without it is
+    read by presence, never by date or version string: an arm whose
+    `geometry_scalars` carry the room scalars was scored by the current
+    descriptor; otherwise the legacy one.
+    """
+    stamp = (context or {}).get("geom_descriptor")
+    if stamp:
+        return str(stamp)
+    if isinstance(arms, dict):
+        for arm in arms.values():
+            scal = (arm or {}).get("geometry_scalars") if isinstance(arm, dict) else None
+            if isinstance(scal, dict) and "walk_standing" in scal:
+                return BY_ID[DEFAULT_ID].descriptor if DEFAULT_ID in BY_ID else LEGACY_DESCRIPTOR
+    return LEGACY_DESCRIPTOR
 
 #: `id -> Protocol`, for the lab and the runner.
 BY_ID: Dict[str, Protocol] = {p.id: p for p in OFFICIAL}
@@ -191,6 +253,13 @@ def match_run(context: Dict[str, Any], run: Dict[str, Any],
     seed = context.get("seed")
     if seed is not None and int(seed) != protocol.seed:
         why.append(f"split seed {seed} (protocol wants {protocol.seed})")
+
+    if protocol.descriptor:
+        desc = run_descriptor(context, arms)
+        if desc != protocol.descriptor:
+            why.append(f"geometric descriptor {desc} (protocol wants "
+                       f"{protocol.descriptor}; BlockScore is in a different unit, "
+                       f"re-score with the current bench)")
 
     # The ruler itself. Checked here rather than in `match_arm` because a small
     # calibration arm invalidates every score in the run, not one row.
@@ -249,7 +318,9 @@ def match_arm(meta: Dict[str, Any], protocol: Protocol) -> List[str]:
         if not train_split:
             why.append("training split not recorded (cannot rule out training on the "
                        "protocol's test builds)")
-        elif train_split not in CLEAN_TRAIN_SPLITS:
+        # First word only, so an annotated value such as
+        # "external (Dream-Cubed ...; no GrabCraft/3D-Craft/text2mc)" matches "external".
+        elif train_split.split(" ")[0] not in protocol.clean_train_splits:
             why.append(f"trained on the {train_split!r} split, not {protocol.split_key} "
                        f"(its training set overlaps this protocol's test builds)")
     return why

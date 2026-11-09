@@ -215,3 +215,31 @@ def test_examples_sink_is_total_and_indexes_the_scored_builds(ref):
     fast.score_fast(sc.ArmSpec("empty", structures=[dead] * 4), ref,
                     sc.Scorecard(context={}), examples=empty_sink)
     assert len(empty_sink) == 1 and empty_sink[0] == ([], [])
+
+
+def test_traversal_block_is_reported_against_real(ref):
+    """The fixture houses have one-high doorways nobody fits through, so the
+    arm here is a set of proper boxes: a two-high doorway each, then the same
+    boxes with the doorway bricked up."""
+    from blockgen.eval import traversal as tv
+
+    def box(n=9):
+        ids = np.zeros((n, n, n), dtype=np.int32)
+        ids[0, :, :] = ids[-1, :, :] = 5
+        ids[:, :, 0] = ids[:, :, -1] = 5
+        ids[:, 0, :] = ids[:, -1, :] = 5
+        ids[0, 1:3, n // 2] = 0
+        return Structure(block_ids=ids, block_data=np.zeros_like(ids))
+
+    boxes = [box(n) for n in (7, 8, 9, 10)]
+    out = fast.score_fast(sc.ArmSpec("boxes", structures=boxes), ref)
+    assert set(out["traversal"]) == {"interior_standing_reached", "enterable",
+                                     "floors_reached", "headroom3"}
+    e = out["traversal"]["enterable"]
+    assert e["direction"] == "distance_to_real" and "w1_norm" in e and "real" in e
+    assert e["gen"]["mean"] == 1.0
+    locked = fast.score_fast(
+        sc.ArmSpec("locked", structures=[tv.seal_openings(s) for s in boxes]), ref)
+    assert locked["traversal"]["enterable"]["gen"]["mean"] == 0.0
+    assert locked["traversal"]["interior_standing_reached"]["gen"]["mean"] == 0.0
+    assert np.isfinite(locked["traversal"]["enterable"]["w1"])

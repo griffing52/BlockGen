@@ -84,6 +84,9 @@ Usage
     python -m blockgen.eval.bench.lego --limit 3000            # -> lego_void_20.npz
     python -m blockgen.eval.bench.lego --name lego_all --no-void-filter
     python -m blockgen.eval.bench --corpus lego_void_20 --tier both --n 256
+    # BrickGPT's own held-out split, unfiltered: the reference for scoring BrickGPT
+    python -m blockgen.eval.bench.lego --name lego_st2b_test --splits test \
+        --no-void-filter --min-blocks 1 --limit 0
 """
 
 from __future__ import annotations
@@ -394,10 +397,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="keep structures with no interior too (the control "
                          "corpus: the probe has nothing to destroy there)")
     ap.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR)
+    ap.add_argument("--splits", nargs="+", default=["train", "test"],
+                    help="dataset splits to pool. `--splits test` builds a "
+                         "corpus BrickGPT never trained on, which is the only "
+                         "honest reference for scoring BrickGPT itself")
     args = ap.parse_args(argv)
 
     structures, report = build_corpus(
-        root=args.root, min_void=0 if args.no_void_filter else args.min_void,
+        root=args.root, splits=tuple(args.splits),
+        min_void=0 if args.no_void_filter else args.min_void,
         min_blocks=args.min_blocks, categories=args.categories,
         limit=args.limit or None, seed=args.seed)
     if not structures:

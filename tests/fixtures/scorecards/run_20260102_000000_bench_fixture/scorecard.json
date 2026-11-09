@@ -510,6 +510,28 @@
           "direction": "higher_better",
           "gate_failed": "recall failed G8_n_stability"
         }
+      },
+      "traversal": {
+        "interior_standing_reached": {
+          "gen": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "real": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "w1": 0.02,
+          "w1_norm": 0.1,
+          "real_spread": 0.2,
+          "direction": "distance_to_real"
+        }
       }
     },
     "real@canon8": {
@@ -727,6 +749,28 @@
           "direction": "higher_better",
           "gate_failed": "recall failed G8_n_stability"
         }
+      },
+      "traversal": {
+        "interior_standing_reached": {
+          "gen": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "real": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "w1": 0.02,
+          "w1_norm": 0.1,
+          "real_spread": 0.2,
+          "direction": "distance_to_real"
+        }
       }
     },
     "gabled_house": {
@@ -943,6 +987,28 @@
           ],
           "direction": "higher_better",
           "gate_failed": "recall failed G8_n_stability"
+        }
+      },
+      "traversal": {
+        "interior_standing_reached": {
+          "gen": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "real": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "w1": 0.02,
+          "w1_norm": 0.1,
+          "real_spread": 0.2,
+          "direction": "distance_to_real"
         }
       }
     },
@@ -1193,6 +1259,28 @@
             null
           ],
           "direction": "lower_better"
+        }
+      },
+      "traversal": {
+        "interior_standing_reached": {
+          "gen": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "real": {
+            "mean": 0.88,
+            "ci": [
+              0.84,
+              0.92
+            ]
+          },
+          "w1": 0.02,
+          "w1_norm": 0.1,
+          "real_spread": 0.2,
+          "direction": "distance_to_real"
         }
       }
     }

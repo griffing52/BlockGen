@@ -154,7 +154,11 @@ def main() -> int:
     ap.add_argument("--examples", type=int, default=6,
                     help="builds per arm rendered into samples.png (0 to skip)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--descriptor", default=geom.DEFAULT_DESCRIPTOR_VERSION,
+                    choices=sorted(geom.DESCRIPTOR_VERSIONS),
+                    help="voxel descriptor; v1 is the 77-d descriptor of the 0925 protocol")
     args = ap.parse_args()
+    geom.set_descriptor_version(args.descriptor)
 
     rng = np.random.default_rng(args.seed)
     split = splits.load_split(args.corpus, args.seed)

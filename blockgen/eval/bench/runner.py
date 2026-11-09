@@ -58,6 +58,7 @@ from blockgen.eval.bench import fast as fast_tier
 from blockgen.eval.bench import scorecard as sc
 from blockgen.eval.bench import splits
 from blockgen.eval.bench.ladder import ladder_path as ld_path
+from blockgen.eval.bench.ladder import geom_view_key
 from blockgen.utils.data import Structure
 from blockgen.utils.runs import new_run_dir
 
@@ -270,6 +271,18 @@ def build_parser() -> argparse.ArgumentParser:
                          "pairs floors the adjusted p at k(k-1)/2 / (n_perm+1), so "
                          "a wide table needs this large: at 18 arms, 10k bottoms "
                          "out at an adjusted 0.015")
+    ap.add_argument("--descriptor", choices=("v1", "v2"), default="v2",
+                    help="pinned geometric-descriptor version (geometry."
+                         "DESCRIPTOR_VERSIONS). v1 = the 77-d V-KID descriptor and "
+                         "five-pillar BlockScore of every card before 2026-10-23, "
+                         "including the run of record; v2 = the 80-d descriptor "
+                         "with the walk_* room scalars plus the traversal block "
+                         "and pillar")
+    ap.add_argument("--save-features", action="store_true",
+                    help="also write features.npz into the run dir: every arm's "
+                         "per-build geom_kid and mv_dino_kid features plus both "
+                         "references, so rank intervals can be bootstrapped later "
+                         "without re-rendering (~20 MB at n=256)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--name", default="",
                     help="what this run is asking, in words: 'ontology arms v2'. "
@@ -293,11 +306,17 @@ def main(argv: List[str] | None = None) -> int:
     rerun = shlex.join(["python", "-m", "blockgen.eval.bench", *argv])
 
     t0 = time.time()
+    from blockgen.eval.bench import geometry as _geom
+    _geom.set_descriptor_version(args.descriptor)
     ctx = sc.BenchContext(corpus=args.corpus, seed=args.seed, grid=args.grid,
                           min_n=args.min_n, n_boot=args.n_boot, n_ref=args.n_ref,
                           text_backbone=args.text_backbone)
     split = splits.load_split(args.corpus, args.seed)
     ctx.split_key, ctx.split_sha, ctx.sizes = split.key(), split.source_sha, split.sizes
+    # The descriptor `geom_kid` is measured with; `protocol.match_run` pins it.
+    ctx.derived["geom_descriptor"] = geom_view_key()
+    ctx.derived["descriptor_version"] = args.descriptor
+    ctx.derived["descriptor_dim"] = sum(w for _, w in _geom.descriptor_layout())
 
     print(f"[bench] split {split.key()} {split.sizes}", flush=True)
     train = splits.split_structures(split, "train")
@@ -358,11 +377,13 @@ def main(argv: List[str] | None = None) -> int:
     # Measurable only now that the reference exists, and part of the context an
     # arm was scored against, so it goes onto `ctx` rather than into a second
     # dict beside it. See `BenchContext.to_json`.
-    ctx.derived = {"n_train": len(train), "n_val": len(val), "n_test": len(test),
-                   "n_ref_used": len(val),
-                   "vocab_size": ref.vocab.vocab_size,
-                   "palette_keys_exact": len(ref.exact_keys),
-                   "palette_keys_family": len(ref.family_keys)}
+    # `update`, not assignment: the descriptor stamp set above lives here too,
+    # and assigning a fresh dict silently dropped it from every card.
+    ctx.derived.update({"n_train": len(train), "n_val": len(val), "n_test": len(test),
+                        "n_ref_used": len(val),
+                        "vocab_size": ref.vocab.vocab_size,
+                        "palette_keys_exact": len(ref.exact_keys),
+                        "palette_keys_family": len(ref.family_keys)})
 
     git = sc.git_info()
     # Built FROM `sc.RUN_KEYS` rather than beside it: the contract and the writer
@@ -582,6 +603,16 @@ def main(argv: List[str] | None = None) -> int:
                     f"not under outputs/run_*/ — the lab only discovers datasets "
                     f"there, so the leaderboard's example strip will be empty for "
                     f"this run (drop --out, or pass one under outputs/)")
+
+    if args.save_features and (geom_feats or dino_feats):
+        import numpy as np
+        blob = {f"geom::{k}": np.asarray(v) for k, v in geom_feats.items()}
+        blob.update({f"dino::{k}": np.asarray(v) for k, v in dino_feats.items()})
+        blob["ref::geom"] = np.asarray(ref.geom_ref)
+        if full_ref is not None:
+            blob["ref::dino"] = np.asarray(full_ref.ref_feats)
+        np.savez_compressed(run_dir / "features.npz", **blob)
+        card.run["features"] = "features.npz"
 
     finished = time.time()
     card.run["elapsed_s"] = round(finished - t0, 2)

@@ -87,6 +87,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 from scipy import ndimage
 
+from blockgen.eval import traversal as tv
 from blockgen.eval.bench import stats
 from blockgen.utils.data import Structure
 
@@ -341,7 +342,7 @@ def interior_volumes(occ: np.ndarray) -> Tuple[int, int]:
 #: Scalars compared against the real distribution, in report order. Each is
 #: `distance_to_real`, never "higher is better" -- the reporting rule
 #: `topology` establishes applies here for the same reason.
-GEOMETRY_METRICS = (
+BASE_METRICS = (
     "thickness_mean",
     "thickness_p90",
     "surface_to_volume",
@@ -351,6 +352,53 @@ GEOMETRY_METRICS = (
     "interior_ratio_open",
     "height_entropy",
 )
+#: The player's room (`traversal.walk_scalars`): the share of interior air a
+#: two-block body can stand in, the number of storeys with a floor, and the
+#: share of standing cells with a third free block above. Occupancy only, so
+#: the panel stays exactly blind to material. Whether the body can get *in*
+#: depends on which blocks are doors and is the `traversal` block and pillar.
+WALK_METRICS = ("walk_standing", "walk_floors", "walk_headroom3")
+
+#: Pinned descriptor versions (2026-11-02). The descriptor is part of a run's
+#: protocol: a `geom_kid` (V-KID) or BlockScore measured under one is in a
+#: different unit from one measured under the other.
+#:
+#: * ``v1`` -- the 77-d descriptor (55 pattern orbits + 5 thickness + 8 height
+#:   + 8 scalars + log1p size) and the five-pillar BlockScore. Every card before
+#:   2026-10-23 was scored with it, including the run of record
+#:   `run_20260925_002631_bench_canonical-split_fixed_transparency_cull`.
+#: * ``v2`` -- the 80-d descriptor with `WALK_METRICS` (2026-10-23), plus the
+#:   `traversal` block and BlockScore pillar.
+#:
+#: `set_descriptor_version` switches the whole bench (this panel, the ladder
+#: key, the fast tier's traversal block and `composite`'s pillars) in-process.
+DESCRIPTOR_VERSIONS: Dict[str, Tuple[str, ...]] = {
+    "v1": BASE_METRICS,
+    "v2": BASE_METRICS + WALK_METRICS,
+}
+DEFAULT_DESCRIPTOR_VERSION = "v2"
+DESCRIPTOR_VERSION = DEFAULT_DESCRIPTOR_VERSION
+GEOMETRY_METRICS = DESCRIPTOR_VERSIONS[DESCRIPTOR_VERSION]
+
+
+def set_descriptor_version(version: str) -> Tuple[str, ...]:
+    """Select the pinned descriptor for this process; returns its scalar panel.
+
+    Rebinds the module globals, so every reader that goes through the module
+    (`geom.GEOMETRY_METRICS`, `ladder.geom_view_key`, `composite`) follows.
+    """
+    global DESCRIPTOR_VERSION, GEOMETRY_METRICS
+    if version not in DESCRIPTOR_VERSIONS:
+        raise ValueError(f"unknown descriptor version {version!r}; "
+                         f"have {sorted(DESCRIPTOR_VERSIONS)}")
+    DESCRIPTOR_VERSION = version
+    GEOMETRY_METRICS = DESCRIPTOR_VERSIONS[version]
+    return GEOMETRY_METRICS
+
+
+def has_traversal() -> bool:
+    """Does the active version carry the traversal block and pillar?"""
+    return DESCRIPTOR_VERSION != "v1"
 
 
 @dataclass
@@ -363,6 +411,9 @@ class GeometryStats:
     interior_ratio_sealed: float
     interior_ratio_open: float
     height_entropy: float
+    walk_standing: float
+    walk_floors: float
+    walk_headroom3: float
     pattern_hist: np.ndarray
     thickness_hist: np.ndarray
     height_hist: np.ndarray
@@ -370,9 +421,11 @@ class GeometryStats:
 
 def geometry_stats(s: Structure) -> GeometryStats:
     """Everything this module measures about one build, in a single pass."""
-    occ = s.crop_to_non_air().occupied_mask
+    c = s.crop_to_non_air()
+    occ = c.occupied_mask
     vol = float(np.prod(occ.shape)) if occ.size else 1.0
     t = thickness(occ)
+    walk = tv.walk_scalars(c)
     sealed, open_int = interior_volumes(occ)
     hp = height_profile(occ)
     nz = hp[hp > 0]
@@ -385,6 +438,9 @@ def geometry_stats(s: Structure) -> GeometryStats:
         interior_ratio_sealed=sealed / vol,
         interior_ratio_open=(sealed + open_int) / vol,
         height_entropy=float(-(nz * np.log(nz)).sum()) if nz.size else 0.0,
+        walk_standing=walk["walk_standing"],
+        walk_floors=walk["walk_floors"],
+        walk_headroom3=walk["walk_headroom3"],
         pattern_hist=pattern_histogram(occ),
         thickness_hist=thickness_histogram(occ),
         height_hist=hp,
@@ -437,7 +493,9 @@ def descriptor(structures: Sequence[Structure]) -> np.ndarray:
     Concatenates the three histograms with the scalar panel. `log1p(n_blocks)`
     is appended because every other component is deliberately size-free, and a
     benchmark that could not tell a cottage from a cathedral would be missing
-    the most basic fact about a build.
+    the most basic fact about a build. The panel's last three entries are the
+    player's room (2026-10-23): standing share, storeys and headroom, which is
+    what lets this metric see a doll's house, a room nobody can stand up in.
     """
     rows: List[np.ndarray] = []
     for s in structures:

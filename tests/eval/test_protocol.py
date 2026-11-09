@@ -22,7 +22,7 @@ from blockgen.eval.bench import protocol as proto
 
 def ctx(**over):
     base = {"corpus": "houses_32", "split_key": "houses_32.s0.70-15-15.v1",
-            "seed": 0, "n_ref_used": 399}
+            "seed": 0, "n_ref_used": 399, "geom_descriptor": "patch2_orb55_t5_h8_s12"}
     base.update(over)
     return base
 
@@ -138,3 +138,27 @@ def test_controls_carry_no_report_and_are_unaffected():
 def test_both_reasons_are_reported_together():
     why = proto.match_arm({"n": 64, "report": {"train_split": "trackd"}}, P)
     assert len(why) == 2
+
+
+# --- the descriptor is part of the ruler -----------------------------------
+def test_a_card_scored_with_the_legacy_descriptor_is_unranked_with_a_reason():
+    """Every card written before 2026-10-23: no stamp, no room scalars."""
+    legacy = ctx()
+    legacy.pop("geom_descriptor")
+    why = proto.match_run(legacy, run(), P, arms())
+    assert len(why) == 1 and "descriptor" in why[0] and "re-score" in why[0]
+
+
+def test_room_scalars_in_an_arm_identify_the_current_descriptor_without_a_stamp():
+    legacy = ctx()
+    legacy.pop("geom_descriptor")
+    a = arms()
+    a["real_test"]["geometry_scalars"] = {"walk_standing": {"w1_norm": 0.1}}
+    assert proto.match_run(legacy, run(), P, a) == []
+    assert proto.run_descriptor(legacy, a) == P.descriptor
+    assert proto.run_descriptor(legacy, arms()) == proto.LEGACY_DESCRIPTOR
+
+
+def test_the_stamp_wins_over_inference():
+    assert proto.run_descriptor({"geom_descriptor": "something_else"}, arms()) == "something_else"
+    assert "descriptor" in proto.match_run(ctx(geom_descriptor="something_else"), run(), P, arms())[0]
