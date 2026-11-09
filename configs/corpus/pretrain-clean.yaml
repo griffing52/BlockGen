@@ -1,0 +1,5 @@
+description: ablation of soft filtering; gate-passing, uncut builds only
+sources: [worldcrop, grabcraft, 3dcraft, text2mc, text2mc_schem, templates]
+filter: "n_blocks >= 20 and p_built >= 0.5 and not cut and kind in ['build', 'mixed']"
+dedup: true
+exclude: [eval-holdout]

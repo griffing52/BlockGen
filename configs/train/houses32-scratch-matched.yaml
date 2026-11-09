@@ -1,0 +1,13 @@
+description: >
+  matched-compute scratch baseline. 36,000 steps on houses_32 = the 20,000 pretraining steps plus the 16,000 SFT steps of its partner, at the same batch size, so both arms see the same number of tokens (docs/pipeline.md §9, M2). select=best early-stops it (T59: scratch bottoms out near step 15k and then overfits), same dropout (0) as the pretrain arm.
+extends: [base]
+name: houses32_scratch_matched_5m
+stage: sft
+train: [sft-houses32]
+val: [eval-holdout]
+steps: 36000
+warmup: 500
+eval_every: 1000
+ckpt_every: 9000
+dropout: 0.0
+bench_n: 256

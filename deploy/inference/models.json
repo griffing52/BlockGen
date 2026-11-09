@@ -159,6 +159,14 @@
    "billboard_size": 40,
    "vary_seed": true,
    "trace_dir": "outputs/deploy_traces"
+  },
+  "facade_rft": {
+   "kind": "trainer_run",
+   "description": "Facade model (six face images lifted to 3D), 20M D4, rejection-sampling fine-tuned on face solidity. Best learned facade arm: BlockScore 553 at temperature 0.7 (results T73; real-faces ceiling 493).",
+   "notes": "Run outputs/run_20261101_154120_rft_facades_joint_d4_20m_face_solidity_rsel_t07, select=reward kept best.pt (step 500). Served at temperature 0.7 when the client sends the default 1.0. Samples a whole build, then places it bottom layer first. Bounding box is drawn from real houses_32 builds, so builds are up to 32 wide.",
+   "checkpoint": "outputs/run_20261101_154120_rft_facades_joint_d4_20m_face_solidity_rsel_t07/best.pt",
+   "temperature": 0.7,
+   "train_split": "rft-houses32_facades_joint_d4_20m-face_solidity:1,sft-houses32:1"
   }
  }
 }

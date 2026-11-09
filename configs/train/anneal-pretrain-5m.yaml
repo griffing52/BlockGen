@@ -1,0 +1,13 @@
+description: first pretraining pilot. 5M model on the anneal shard (6.6B tokens available; this pass sees 655M), WSD, tags on. eval-holdout is excluded from anneal by world and cluster, so its NLL is a true held-out curve.
+extends: [base]
+name: anneal_pretrain_5m
+stage: pretrain
+train: [anneal]
+val: [eval-holdout]
+steps: 20000
+warmup: 500
+decay_frac: 0.2
+eval_every: 1000
+ckpt_every: 5000
+sample_every: 10000
+bench_n: 256

@@ -1,0 +1,15 @@
+description: >
+  Category-conditioned 5M from scratch on sft-cat (11 classes plus cat none, blockgen.corpus.labels), the voxels-cat tokenizer 116e68927d45 (class token in place of BOS). Matched partner of cat-sft-5m-pt: the same steps as the 20,000 pretraining plus 16,000 SFT steps of that arm would be 36k; this is the early-stopped scratch arm (select=best), dropout 0 like the pretrained arm. val[0] = eval-cat (class-balanced, selects best.pt); eval-holdout keeps the house NLL comparable with every houses32 run. The end-of-run bench samples cat:house on houses_32.
+extends: [base]
+name: cat_sft_5m_scratch
+stage: sft
+train: [sft-cat]
+val: [eval-cat, eval-holdout]
+tokenizer: 116e68927d45
+steps: 36000
+warmup: 500
+eval_every: 1000
+ckpt_every: 9000
+dropout: 0.0
+bench_n: 256
+sample_tags: {src: curated, q: "4", size: "32", win: whole, cat: house}

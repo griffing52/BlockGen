@@ -1,0 +1,4 @@
+description: the pinned houses_32 train split (v1, seed 0); the SFT target and the scratch baseline's data. Same builds every old houses32 arm trained on, so the new trainer's smoke test is comparable.
+holdout_split: data/minecraft/splits/houses_32.s0.70-15-15.v1.json
+holdout_parts: [train]
+dedup: false

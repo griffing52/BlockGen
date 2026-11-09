@@ -1,0 +1,14 @@
+description: a two-minute end-to-end check of the trainer; not a result
+extends: [base]
+name: smoke
+stage: sft
+train: [sft-houses32]
+val: [eval-holdout]
+steps: 60
+warmup: 10
+eval_every: 30
+eval_seqs: 32
+ckpt_every: 30
+n_samples: 4
+bench_n: 16
+sample_max_blocks: 256

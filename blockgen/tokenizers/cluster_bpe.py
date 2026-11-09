@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -205,7 +205,7 @@ def _forced_family_keys(labelings, base: BlockVocab):
 def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 120,
                    max_corpus: int = 400, min_count: int = 3, seed: int = 0,
                    force_families: bool = True, oriented: bool = False,
-                   verbose: bool = True) -> ClusterVocab:
+                   verbose: bool = True, base: Optional[BlockVocab] = None) -> ClusterVocab:
     """Learn a ClusterVocab by BPE-style greedy merging over a corpus.
 
     With ``force_families`` (default), multi-voxel objects (beds/doors/double-plants;
@@ -213,8 +213,12 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
     top-priority merges, before frequency-based BPE — so they always tokenize as one
     piece regardless of how often they occur. These are extra merges, not counted
     against ``n_merges``.
+
+    ``base`` fixes the atomic block classes (the corpus tokenizer passes its own
+    fixed vocabulary); by default they are the classes ``structs`` contain.
     """
-    base = build_block_vocab(structs, max_dim=max_dim, oriented=oriented)
+    if base is None:
+        base = build_block_vocab(structs, max_dim=max_dim, oriented=oriented)
     patterns: List[Pattern] = [((0, 0, 0, b),) for b in range(base.num_blocks)]
     merges: List[Tuple[int, int, Coord]] = []
 
@@ -277,10 +281,12 @@ def learn_clusters(structs: Sequence[Structure], max_dim: int, n_merges: int = 1
 # --------------------------------------------------------------------------- #
 def structure_to_cluster_tokens(s: Structure, cv: ClusterVocab) -> List[int]:
     """Tokenize by replaying the learned merges, then emit [BOS,(X,Y,Z,PIECE)*,EOS]."""
+    tok_to_id: Dict[str, int] = {}
+    for i, p in enumerate(cv.block_index_to_pair):   # first wins: a trailing <unk> shares stone's pair
+        tok_to_id.setdefault(_token_for(*p, oriented=cv.oriented), i)
     base = BlockVocab(
         max_dim=cv.max_dim,
-        block_token_to_id={_token_for(*p, oriented=cv.oriented): i
-                           for i, p in enumerate(cv.block_index_to_pair)},
+        block_token_to_id=tok_to_id,
         id_to_block_token=[_token_for(*p, oriented=cv.oriented)
                            for p in cv.block_index_to_pair],
         block_index_to_pair=cv.block_index_to_pair, oriented=cv.oriented)
@@ -288,8 +294,14 @@ def structure_to_cluster_tokens(s: Structure, cv: ClusterVocab) -> List[int]:
     if max(c.shape) > cv.max_dim:
         raise ValueError(f"structure max dim {max(c.shape)} exceeds max_dim {cv.max_dim}")
     inst, owner, nid = _atomic_labeling(c, base)
+    present = {d["piece"] for d in inst.values()}
     for pid_new, (pa, pb, delta) in enumerate(cv.merges, start=cv.num_blocks):
+        if pa not in present or pb not in present:
+            continue                      # a no-op merge: skip the O(instances) scan (same tokens, faster)
+        before = nid
         nid = _apply_merge(inst, owner, nid, pa, pb, delta, pid_new)
+        if nid != before:
+            present = {d["piece"] for d in inst.values()}
 
     order = sorted(inst.values(), key=lambda d: (d["anchor"][1], d["anchor"][2], d["anchor"][0]))
     tokens: List[int] = [BOS_TOKEN]

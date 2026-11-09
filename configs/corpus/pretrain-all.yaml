@@ -1,0 +1,5 @@
+description: every build we own, deduplicated; terrain and fragments kept and tagged, not removed
+sources: [worldcrop, grabcraft, 3dcraft, text2mc, text2mc_schem, templates]
+filter: "n_blocks >= 20"
+dedup: true
+exclude: [eval-holdout]

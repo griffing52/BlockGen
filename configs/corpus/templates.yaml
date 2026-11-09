@@ -1,0 +1,4 @@
+description: the game's own structure templates (client jar 1.21.1, blockgen/corpus/templates.py); complete labelled pieces from a lamp post to a mansion room. Internal training source only (Mojang assets), never a release or a benchmark reference.
+sources: [templates]
+filter: "n_blocks >= 20"
+dedup: true

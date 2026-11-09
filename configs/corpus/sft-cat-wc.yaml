@@ -1,0 +1,6 @@
+description: world crops labelled from their world's title (blockgen.corpus.labels, cat_split == 'wc_train'), only from worlds with at most three crops whose title is not a map, server or city; noisier than sft-cat (about two in three titles name the crop), meant as a low-weight mix next to it. Train only.
+aux: [gc_small_48]
+sources: [worldcrop]
+filter: "cat_split == 'wc_train'"
+dedup: true
+exclude: [eval-holdout, eval-cat]

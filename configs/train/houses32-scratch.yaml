@@ -1,0 +1,11 @@
+description: the scratch baseline on the pinned houses_32 train split, same data as every old houses32 AR arm (notes.md §48)
+extends: [base]
+name: houses32_scratch_5m
+stage: sft
+train: [sft-houses32]
+val: [eval-holdout]
+steps: 8000
+warmup: 200
+eval_every: 500
+ckpt_every: 2000
+dropout: 0.1

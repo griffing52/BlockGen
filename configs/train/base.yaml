@@ -1,0 +1,17 @@
+description: trainer defaults shared by every run (blockgen/train/config.py has the full list)
+preset: 5m
+pe: phase4
+max_seq_len: 8200
+batch_tokens: 32768
+grad_accum: 1
+lr: 3.0e-4
+min_lr_frac: 0.1
+warmup: 100
+decay_frac: 0.2
+weight_decay: 0.1
+eval_every: 500
+eval_seqs: 256
+ckpt_every: 1000
+n_samples: 16
+bench_n: 64
+bench_corpus: houses_32

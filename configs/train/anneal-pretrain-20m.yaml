@@ -1,0 +1,7 @@
+description: the M2 pretraining pass at the 20m preset, same shard, steps, schedule and seed as anneal-pretrain-5m so model size is the only change (M2 at 20M, docs/pipeline.md). Micro-batch halved with grad_accum 2 so it fits beside another GPU tenant; the effective batch is unchanged. sample_batch 16 because the end-of-run draw at the default 64 ran out of memory at 20M (results T78).
+extends: [anneal-pretrain-5m]
+name: anneal_pretrain_20m
+preset: 20m
+batch_tokens: 16384
+grad_accum: 2
+sample_batch: 16

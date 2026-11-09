@@ -1,0 +1,4 @@
+description: generated content the detector let through; one representative per cluster. village = recurrence (cluster in 5+ distinct worlds), mineshaft = composition (blockgen/corpus/kinds.py). A negative set for the gate and a tagged source for pretraining, not an anneal target.
+sources: [worldcrop]
+filter: "kind in ['village', 'mineshaft']"
+dedup: true

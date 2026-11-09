@@ -1,0 +1,4 @@
+description: val+test of the pinned houses_32 split; never trained on, and its source URLs and duplicate clusters are excluded from every other tier
+holdout_split: data/minecraft/splits/houses_32.s0.70-15-15.v1.json
+holdout_parts: [val, test]
+dedup: false

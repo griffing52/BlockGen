@@ -1,0 +1,14 @@
+description: >
+  SFT on the pinned houses_32 train split from a pretrained checkpoint (init_from on the command line); the matched partner of houses32-scratch-matched. Dropout stays at the pretraining value (0): switching it on at SFT time destroyed two of three pretrained models in T59. 16k steps with select=best, so the comparison is early-stopped on both arms.
+extends: [base]
+name: houses32_sft_5m
+stage: sft
+train: [sft-houses32]
+val: [eval-holdout]
+steps: 16000
+warmup: 200
+lr: 1.0e-4
+eval_every: 500
+ckpt_every: 4000
+dropout: 0.0
+bench_n: 256

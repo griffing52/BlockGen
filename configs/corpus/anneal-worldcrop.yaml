@@ -1,0 +1,5 @@
+description: the anneal tier's world crops only (no curated builds, no templates), with every cluster that also holds an SFT or holdout house dropped; the pretraining arm that isolates world-crop transfer from extra passes over the SFT houses (results T86 report, T87)
+sources: [worldcrop]
+filter: "p_built >= 0.9 and n_blocks >= 500 and not cut and kind == 'build'"
+dedup: true
+exclude: [eval-holdout, sft-houses32]

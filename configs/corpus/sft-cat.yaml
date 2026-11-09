@@ -1,0 +1,6 @@
+description: the category-conditioned SFT tier. Every curated build with a class or cat none and cat_split == 'train' (blockgen.corpus.labels); its house class is the houses_32 train split, the other classes are GrabCraft (all_32 and the 48 cache) and 3D-Craft builds. One row per build across caches (labels.build_key and canon_hash).
+aux: [gc_small_48]
+sources: [grabcraft, 3dcraft, text2mc, text2mc_schem]
+filter: "cat_split == 'train'"
+dedup: false
+exclude: [eval-holdout, eval-cat]

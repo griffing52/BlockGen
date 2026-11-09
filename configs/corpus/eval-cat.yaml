@@ -1,0 +1,5 @@
+description: the class-balanced category eval set (blockgen.corpus.labels, cat_split == 'eval'), 32 to 128 curated builds per class; never trained on. Its house class is drawn from eval-holdout, so it adds no house that the pinned split trains on. Excluded from every category training tier by url and duplicate cluster.
+aux: [gc_small_48]
+sources: [grabcraft, 3dcraft, text2mc, text2mc_schem]
+filter: "cat_split == 'eval'"
+dedup: false

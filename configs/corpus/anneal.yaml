@@ -1,0 +1,5 @@
+description: decay-phase mix; curated builds plus confident, substantial world crops
+sources: [worldcrop, grabcraft, 3dcraft, text2mc, text2mc_schem, templates]
+filter: "((source != 'worldcrop' and n_blocks >= 80) or (p_built >= 0.9 and n_blocks >= 500 and not cut)) and kind == 'build'"
+dedup: true
+exclude: [eval-holdout]

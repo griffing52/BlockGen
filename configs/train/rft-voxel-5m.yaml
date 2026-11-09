@@ -1,0 +1,20 @@
+description: >
+  Rejection-sampling fine-tuning of the voxel M2b 5M SFT model (parent dropout 0.0, tokenizer 60684456e598).
+  init_from and train are given on the command line, as python -m blockgen.posttrain.rft prints them:
+  init_from=<parent>/best.pt train=rft-<parent>-<reward>:1,sft-houses32:1 trained_on_signals=<reward>.
+  Honesty rule (blockgen/posttrain): the reward may only be a signal that is not a BlockScore pillar input;
+  it is reported as a method-internal metric, never as a BlockScore gain, and the arm is judged by the full
+  BlockScore at the control n under houses32-v1, claiming only pillars the reward did not touch. Dropout
+  stays at the parent's value (T59).
+extends: [base]
+name: rft_voxel_5m
+stage: posttrain
+kind: voxels
+tokenizer: 60684456e598
+val: [eval-holdout]
+steps: 4000
+warmup: 100
+lr: 5.0e-5
+select: best
+dropout: 0.0
+bench_n: 256

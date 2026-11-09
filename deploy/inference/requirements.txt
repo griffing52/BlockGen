@@ -5,6 +5,11 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 websockets>=12.0
 
+# Only needed for trainer_run models (python -m blockgen.train runs): the facade sampler
+# reads its training shard's meta for real bounding boxes.
+pandas>=2.0
+pyarrow>=14
+
 # Only needed for text-conditioned models (kind: cond_piece_ar), which embed the
 # prompt with the same CLIP ViT-B/32 encoder used to build the training conditions.
 # The unconditional models do not import this.

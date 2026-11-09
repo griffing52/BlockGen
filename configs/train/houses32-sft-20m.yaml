@@ -1,0 +1,7 @@
+description: SFT of the 20m pretrained checkpoint on the pinned houses_32 train split (init_from on the command line), same steps, lr, dropout (0) and select=best as houses32-sft-5m, the M2b recipe; micro-batch halved with grad_accum 2, sample_batch 16 (the default 64 ran out of memory at 20M, results T78).
+extends: [houses32-sft-5m]
+name: houses32_sft_20m
+preset: 20m
+batch_tokens: 16384
+grad_accum: 2
+sample_batch: 16

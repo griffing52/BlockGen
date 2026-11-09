@@ -13,6 +13,12 @@ Three kinds exist today:
   embedding. With no prompt it samples its learned *null* condition, which is the
   same unconditional branch classifier-free guidance uses, so one checkpoint serves
   both ``/gen`` and ``/gen <text>``.
+* ``trainer_run``   — any run of the standard trainer (``python -m blockgen.train``):
+  voxel or facade, loaded with ``blockgen.train.trainer.load_run`` and drawn with
+  ``blockgen.train.sample.sample_structures``, the same call the benchmark's arms come
+  from. ``checkpoint`` is the run's checkpoint file; the tokenizer travels with it.
+  A facade model has to see its six faces before the lift can place a block, so the
+  build is sampled whole and then replayed bottom layer first.
 * ``recipe``        — an agentic *recipe* (``configs/agentic/recipes``: dream,
   dream-caption, classic-matched, the local ones) run live. A group like
   ``agentic``, addressed as ``recipe:<name>``; see ``recipe_backend.py``.
@@ -45,8 +51,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, List, Optional
 
+import numpy as np
 import torch
 
+from blockgen_server.blockmap import AIR
 from blockgen_server.decode import Block, PieceDecoder, VoxelDecoder
 from blockgen_server.sampling import stream_cond_tokens, stream_tokens
 
@@ -255,6 +263,68 @@ class VoxelARBackend(Backend):
             blocks = dec.feed(tok)
             if blocks:
                 yield blocks
+
+
+class TrainerRunBackend(Backend):
+    """A run of the standard trainer, voxel or facade, served as its benchmark arm was drawn.
+
+    Extra entry keys: ``temperature`` is the model's served temperature, used when the
+    client sends the default 1.0 (the facade fine-tune was scored at 0.7, results T73);
+    a client that sets another value gets that value. ``retries`` bounds redraws of an
+    empty build.
+    """
+
+    def load(self) -> None:
+        import os
+        from blockgen.train.trainer import load_run_checkpoint
+        ckpt = self.path(self.spec.checkpoint)
+        self.model, self.tokenizer, self.cfg, self.ckpt_info = load_run_checkpoint(
+            str(ckpt.parent), ckpt.name, self._device())
+        self.oriented = bool(getattr(self.tokenizer.vocab, "oriented", False))
+        self._dims_cwd = os.getcwd()
+
+    def _temperature(self, req: GenerateRequest) -> float:
+        served = self.spec.extra.get("temperature")
+        return float(served) if served is not None and req.temperature == 1.0 else float(req.temperature)
+
+    def stream(self, req: GenerateRequest) -> Iterator[List[Block]]:
+        import os
+        from blockgen.train.sample import sample_structures
+        from blockgen_server.blockmap import modern_state
+        cfg = self.cfg
+        cfg.temperature = self._temperature(req)
+        if req.top_k is not None:
+            cfg.top_k = int(req.top_k)
+        cfg.sample_batch = 1
+        seed = 0 if req.seed is None else int(req.seed)
+        structs = []
+        cwd = os.getcwd()
+        os.chdir(self.root)                 # shard and tokenizer paths are repo-relative
+        try:
+            for attempt in range(int(self.spec.extra.get("retries", 3)) + 1):
+                if req.cancel is not None and req.cancel.is_set():
+                    return
+                with torch.no_grad():
+                    structs, _ = sample_structures(self.model, self.tokenizer, cfg, 1, seed + attempt)
+                if structs:
+                    break
+        finally:
+            os.chdir(cwd)
+        if not structs:
+            return
+        s = structs[0]
+        ids, data = s.block_ids, s.block_data
+        states = {}
+        for y in range(ids.shape[1]):       # Structure grids are (x, y, z), y up
+            layer = []
+            for x, z in zip(*np.nonzero(ids[:, y, :])):
+                key = (int(ids[x, y, z]), int(data[x, y, z]))
+                if key not in states:
+                    states[key] = modern_state(key[0], key[1], oriented=self.oriented)
+                if states[key] != AIR:
+                    layer.append(Block(int(x), int(y), int(z), states[key]))
+            if layer:
+                yield layer
 
 
 class CondPieceARBackend(Backend):
@@ -493,6 +563,7 @@ KINDS = {
     "voxel_ar": VoxelARBackend,
     "cond_piece_ar": CondPieceARBackend,
     "agentic": AgenticBackend,
+    "trainer_run": TrainerRunBackend,
 }
 
 
