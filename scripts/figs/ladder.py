@@ -52,10 +52,12 @@ from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import figstyle                                            # noqa: E402
+from armnames import display  # noqa: E402
 from figstyle import BLUE, ORANGE, INK_2, PAPER, RULE, SHADE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTDIR = ROOT / "outputs" / "figstage"
+OUT_NAME = None     #: set by --out
 
 #: The run of record. One run, one n: see the module docstring.
 BENCH = (ROOT / "outputs"
@@ -75,9 +77,9 @@ def _style() -> None:
     figstyle.apply(size=8, **{
         "axes.labelsize": 8,
         "axes.titlesize": 8.5,
-        "xtick.labelsize": 7.5,
-        "ytick.labelsize": 7.5,
-        "legend.fontsize": 7.2,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
     })
 
 
@@ -110,14 +112,14 @@ class Card:
 #: header row. The grouping is the argument: the metrics agree on the top five
 #: rungs and split on the bottom three.
 ROWS: List[Tuple[Optional[str], str]] = [
-    (None, "the metrics agree"),
-    ("real_test", "real held-out (the floor)"),
-    ("train_verbatim", "verbatim training copies"),
-    ("real@single_mode", "one build repeated $n$ times"),
-    (None, "the metrics disagree"),
-    ("real@solidify", "every sealed room filled"),
-    ("real_shuffled_materials", "block types shuffled in place"),
-    ("real@monochrome", "repainted in one material"),
+    (None, "metrics agree"),
+    ("real_test", display("real_test")),
+    ("train_verbatim", display("train_verbatim")),
+    ("real@single_mode", display("real@single_mode")),
+    (None, "metrics disagree"),
+    ("real@solidify", display("real@solidify")),
+    ("real_shuffled_materials", display("real_shuffled_materials")),
+    ("real@monochrome", display("real@monochrome")),
 ]
 
 #: Present in the scorecard and deliberately NOT drawn. `real@canon16` and
@@ -162,9 +164,10 @@ def main() -> None:
             continue
         rows.append((arm, label, card.sep(arm, REND), card.sep(arm, GEOM)))
 
-    fig = plt.figure(figsize=(5.2, 2.42))
-    gs = GridSpec(1, 2, width_ratios=[0.075, 1.0], wspace=0.045,
-                  left=0.30, right=0.985, top=0.902, bottom=0.167)
+    # CVPR single column (3.25 in): every size below prints at its own value.
+    fig = plt.figure(figsize=(figstyle.CVPR_COL, 2.25))
+    gs = GridSpec(1, 2, width_ratios=[0.085, 1.0], wspace=0.05,
+                  left=0.285, right=0.975, top=0.875, bottom=0.185)
     ax0 = fig.add_subplot(gs[0])    # the "exactly 0" gutter
     ax1 = fig.add_subplot(gs[1])    # the continuous axis, in noise floors
 
@@ -177,14 +180,14 @@ def main() -> None:
     ax0.set_xlim(-1, 1)
     ax0.set_xticks([])
     ax0.set_yticks([i for i, r in enumerate(rows) if r[0] is not None])
-    ax0.set_yticklabels([r[1] for r in rows if r[0] is not None], fontsize=7.4)
+    ax0.set_yticklabels([r[1] for r in rows if r[0] is not None], fontsize=7)
     ax0.tick_params(axis="y", length=0, pad=3)
     for side in ("top", "right"):
         ax0.spines[side].set_visible(False)
     ax0.spines["bottom"].set_visible(False)
     ax0.spines["left"].set_visible(False)
     ax0.text(0.5, -0.032, "= 0\nexactly", transform=ax0.transAxes,
-             ha="center", va="top", fontsize=6.8, color=INK_2,
+             ha="center", va="top", fontsize=7, color=INK_2,
              linespacing=1.25)
 
     # --- the continuous axis ------------------------------------------------
@@ -248,8 +251,8 @@ def main() -> None:
     for i, (arm, label, _, _) in enumerate(rows):
         if arm is not None:
             continue
-        ax1.text(1.35, i + 0.06, label, fontsize=6.9, color=INK_2,
-                 va="center", ha="left", style="italic")
+        ax1.text(1.35, i + 0.06, label, fontsize=7, color=INK_2,
+                 va="center", ha="left")
         if i:
             for ax in (ax0, ax1):
                 ax.axhline(i - 0.62, color=RULE, linewidth=0.7, zorder=1)
@@ -261,7 +264,7 @@ def main() -> None:
     at = {arm: i for i, (arm, _, _, _) in enumerate(rows) if arm}
 
     def tag(x, y, v, colour, dx=1.35):
-        ax1.text(x * dx, y, fmt(v), fontsize=6.8, color=colour, va="center",
+        ax1.text(x * dx, y, fmt(v), fontsize=7, color=colour, va="center",
                  ha="left", zorder=6)
 
     lut = {r[0]: r for r in rows if r[0]}
@@ -279,24 +282,27 @@ def main() -> None:
     # page still carries them: the band and its x tick at 1, the "= 0 exactly"
     # gutter, and the row labels. The figure now draws data and nothing else.
 
-    ax1.set_xlabel("distance from real, in each metric's own noise floors",
-                   labelpad=2.5, fontsize=7.2)
+    ax1.set_xlabel("distance from real (noise floors)",
+                   labelpad=2.5, fontsize=7)
 
     fig.legend(handles=[
         Line2D([], [], marker="o", color=ORANGE, linestyle="", markersize=5.6,
                markeredgecolor=PAPER, markeredgewidth=0.9,
-               label="MV-KID (render tier)"),
+               label="MV-KID"),
         Line2D([], [], marker="s", color=BLUE, linestyle="", markersize=4.9,
                markeredgecolor=PAPER, markeredgewidth=0.9,
-               label="V-KID (geometry tier)")],
-        loc="upper right", bbox_to_anchor=(0.995, 1.005), ncol=2,
+               label="V-KID")],
+        loc="upper right", bbox_to_anchor=(0.985, 1.01), ncol=2,
         handletextpad=0.35, columnspacing=1.4, borderpad=0.2,
         framealpha=0.0)
 
-    OUTDIR.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(OUTDIR / f"ladder.{ext}", bbox_inches="tight",
-                    pad_inches=0.02, dpi=300)
+    if OUT_NAME:
+        figstyle.save_all(fig, OUTDIR, OUT_NAME, dpi=300, pad=0.02)
+    else:
+        OUTDIR.mkdir(parents=True, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(OUTDIR / f"ladder.{ext}", bbox_inches="tight",
+                        pad_inches=0.02, dpi=300)
     plt.close(fig)
 
     print(f"scorecard: {card.path.relative_to(ROOT)}  n={card.n}")
@@ -306,11 +312,21 @@ def main() -> None:
             continue
         print(f"  {arm:<24} {label:<30} render={sr:10.4f}  geom={sg:10.4f}")
     for arm in NOT_A_QUALITY_RUNG:          # in the scorecard, not on the figure
+        if arm not in card.arms:
+            continue
         print(f"  [not drawn: not a quality rung] {arm:<16} "
               f"render={card.sep(arm, REND):8.2f}  geom={card.sep(arm, GEOM):8.2f}")
     print(f"absent from this run, omitted: {', '.join(ABSENT)}")
-    print(f"wrote {(OUTDIR / 'ladder.png').relative_to(ROOT)} (+ .pdf)")
+    print(f"wrote {OUTDIR / (OUT_NAME or 'ladder')}.png (+ .pdf)")
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=None,
+                    help="output directory; writes fig10_ladder.{pdf,svg,png} "
+                         "(default: outputs/figstage/ladder.{pdf,png})")
+    _a = ap.parse_args()
+    if _a.out:
+        OUTDIR, OUT_NAME = Path(_a.out), "fig10_ladder"
     main()

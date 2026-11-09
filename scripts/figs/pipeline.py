@@ -60,9 +60,9 @@ from figstyle import (BLUE, ORANGE, ORANGE_DEEP, INK, INK_2,  # noqa: E402
                       PAPER, RULE, VOID, SOLID)
 OUT = ROOT / "outputs" / "figstage"
 
-#: Rows 1 and 3: the bench run of record. One run, one n, one reference draw.
+#: Rows 1 and 3: the n=256 leaderboard of record. One run, one n, one reference draw.
 BENCH = (ROOT / "outputs"
-         / "run_20260925_002631_bench_canonical-split_fixed_transparency_cull")
+         / "run_20261103_090315_bench_n_256_leaderboard_of_record")
 #: Row 2: the view-protocol ablation. A different n, so its separations are
 #: never compared against BENCH's -- only against the exterior baseline measured
 #: inside that same file, which the figure prints beside them.
@@ -71,7 +71,7 @@ ABLATION = ROOT / "outputs" / "run_20260925_003516_view_protocol_ablation"
 #: separation, so it carries no noise-floor unit and no cross-run hazard; it is
 #: here because "the metric never had the information" is the wrong reading and
 #: this run measured that it did.
-HOLLOW = ROOT / "outputs" / "run_20260918_203947_bench_hollow"
+HOLLOW = ROOT / "outputs" / "run_20261104_131806_bench_hollow_v1_n256"
 
 #: The cutaway condition drawn in row 2: the strongest of the ablation's four.
 #: The figure reports the range over all four beside it.
@@ -637,5 +637,177 @@ def build() -> None:
           + ("" if not bad else f"  [{bad} layout warnings]"))
 
 
+# ---------------------------------------------------------------------------
+# CVPR variants: boxes and arrows only. No endpoint/results column, no camera
+# parameters, no residue annotation -- those numbers live in the caption and in
+# Table 1, which this figure no longer restates. Two layouts share one drawing
+# vocabulary: `full` (6.875 in, figure*) and `col` (3.25 in, one column).
+# ---------------------------------------------------------------------------
+
+def build_cvpr(variant: str, out_dir: Path) -> None:
+    """Draw the simplified schematic at CVPR width. Every string >= 7 pt."""
+    figstyle.apply(size=7.0)
+    idx, real, solid, _ = pick_build()
+    ext_pairs, cut_pairs, _ = render_rows(real, solid)
+    sec_real, sec_solid, _ = cross_sections(real, solid)
+
+    if variant == "full":
+        FW, FH = figstyle.CVPR_FULL, 1.95
+    else:
+        FW, FH = figstyle.CVPR_COL, 2.55
+    fig = plt.figure(figsize=(FW, FH))
+
+    def X(a, b):
+        return (a / FW, b / FW)
+
+    def Y(a, b):
+        return (a / FH, b / FH)
+
+    def c(span):
+        return 0.5 * (span[0] + span[1])
+
+    def box(x, y, ec=RULE, lw=0.8):
+        fig.patches.append(FancyBboxPatch(
+            (x[0], y[0]), x[1] - x[0], y[1] - y[0],
+            boxstyle="round,pad=0,rounding_size=0.008",
+            transform=fig.transFigure, facecolor="none", edgecolor=ec,
+            linewidth=lw, zorder=1))
+
+    def arrow(p0, p1, color=INK_2, lw=0.8):
+        fig.patches.append(FancyArrowPatch(
+            p0, p1, transform=fig.transFigure, shrinkA=0, shrinkB=0,
+            arrowstyle="-|>,head_length=3.0,head_width=1.8",
+            mutation_scale=1.6, color=color, linewidth=lw, zorder=4))
+
+    def line(p0, p1, color=INK_2, lw=0.8):
+        fig.add_artist(plt.Line2D([p0[0], p1[0]], [p0[1], p1[1]],
+                                  transform=fig.transFigure, color=color,
+                                  linewidth=lw, solid_capstyle="butt",
+                                  zorder=3))
+
+    def text(x, y, s_, size=7.0, color=INK, weight="normal", ha="center",
+             va="center", rotation=0):
+        fig.text(x, y, s_, fontsize=size, color=color, fontweight=weight,
+                 ha=ha, va=va, rotation=rotation, linespacing=1.15,
+                 zorder=6)
+
+    def thumb(img, x, y, ec=RULE):
+        ax = fig.add_axes([x[0], y[0], x[1] - x[0], y[1] - y[0]], zorder=5)
+        ax.imshow(img, interpolation="antialiased")
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_anchor("C")
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+
+    def strip(pairs, xs, y_real, y_solid):
+        n, gap = len(pairs), 0.03 / FW
+        w = (xs[1] - xs[0] - gap * (n - 1)) / n
+        for k, (r, s_) in enumerate(pairs):
+            x = (xs[0] + k * (w + gap), xs[0] + k * (w + gap) + w)
+            thumb(r, x, y_real)
+            thumb(s_, x, y_solid)
+
+    real_name, fill_name = display("real_test"), display("real@solidify")
+
+    if variant == "full":
+        # columns (inches)
+        X_IN, BUS = X(0.02, 0.78), 0.90 / FW
+        X_OP, X_TH = X(1.00, 2.10), X(2.20, 4.80)
+        X_EN, X_KID = X(5.00, 6.10), X(6.35, 6.85)
+        # rows (inches from the bottom)
+        R1, R2, R3 = Y(1.08, 1.78), Y(0.36, 1.03), Y(0.02, 0.28)
+        HEAD = 1.88 / FH
+        # input: the two sections of the voxel grid
+        text(c(X_IN), HEAD, "held-out build", weight="bold")
+        box(X_IN, Y(0.33, 1.78))
+        thumb(sec_real, X(0.12, 0.68), Y(1.17, 1.65))
+        text(c(X_IN), 1.08 / FH, real_name, color=INK_2)
+        thumb(sec_solid, X(0.12, 0.68), Y(0.52, 1.00))
+        text(c(X_IN), 0.43 / FH, fill_name, color=INK_2)
+        line((X_IN[1], c((R2[0], R1[1]))), (BUS, c((R2[0], R1[1]))))
+        line((BUS, c(R3)), (BUS, c(R1)))
+        for row in (R1, R2, R3):
+            arrow((BUS, c(row)), (X_OP[0] - 0.002, c(row)))
+        text(c(X_TH), HEAD, f"top: {real_name}   bottom: {fill_name}",
+             color=INK_2)
+    else:
+        # input band across the top, then three rows
+        X_OP, X_TH = X(0.16, 0.98), X(1.06, 2.36)
+        X_EN, X_KID = X(2.46, 2.82), X(2.92, 3.22)
+        R1, R2, R3 = Y(1.13, 1.71), Y(0.42, 1.00), Y(0.02, 0.30)
+        BUS = 0.07 / FW
+        top = Y(1.92, 2.53)
+        box(X(0.02, 3.22), top)
+        text(0.10 / FW, c(top), "held-out\nbuild", weight="bold", ha="left")
+        thumb(sec_real, X(0.80, 1.30), Y(1.97, 2.48))
+        text(1.36 / FW, c(top), real_name, color=INK_2, ha="left")
+        thumb(sec_solid, X(1.80, 2.30), Y(1.97, 2.48))
+        text(2.36 / FW, c(top), fill_name, color=INK_2, ha="left")
+        line((BUS, top[0]), (BUS, c(R3)))
+        for row in (R1, R2, R3):
+            arrow((BUS, c(row)), (X_OP[0] - 0.002, c(row)))
+        text(c(X_TH), 1.80 / FH, f"top {real_name}, bottom {fill_name}",
+             color=INK_2)
+
+    # row 1 and 2: the render tier, exterior and cut open
+    for row, ec, name, sub, pairs in (
+            (R1, ORANGE, "MV-KID", "4 exterior\nviews", ext_pairs),
+            (R2, ORANGE_DEEP, "MV-KID", "4 cutaway\nviews", cut_pairs)):
+        box(X_OP, row, ec=ec, lw=1.0)
+        text(c(X_OP), c(row) + 0.13 / FH, name, color=ec, weight="bold",
+             size=7.5)
+        text(c(X_OP), c(row) - 0.08 / FH, sub, color=INK_2)
+        h = (row[1] - row[0]) / 2
+        strip(pairs, X_TH, (row[0] + h, row[1]), (row[0], row[0] + h))
+        arrow((X_TH[1] + 0.003, c(row)), (X_EN[0] - 0.002, c(row)))
+
+    # row 3: the geometry tier, no renderer
+    x3 = (X_OP[0], X_TH[1])
+    box(x3, R3, ec=BLUE, lw=1.0)
+    if variant == "full":
+        text(X_OP[0] + 0.012, c(R3), "V-KID", color=BLUE, weight="bold",
+             size=7.5, ha="left")
+        text(X_OP[0] + 0.065, c(R3),
+             "D4-invariant occupancy descriptor, 77-d", color=INK_2, ha="left")
+    else:
+        text(X_OP[0] + 0.02, c(R3), "V-KID", color=BLUE, weight="bold",
+             size=7.5, ha="left")
+        text(X_OP[0] + 0.16, c(R3), "voxel descriptor, 77-d", color=INK_2,
+             ha="left")
+
+    # shared encoder (rows 1-2) and shared statistic (all rows)
+    enc_y = (R2[0], R1[1])
+    box(X_EN, enc_y)
+    if variant == "full":
+        text(c(X_EN), c(enc_y) + 0.08 / FH, "DINOv2-B", weight="bold",
+             size=7.5)
+        text(c(X_EN), c(enc_y) - 0.10 / FH, "4 views pooled", color=INK_2)
+    else:
+        text(c(X_EN), c(enc_y), "DINOv2-B", weight="bold", size=7.5,
+             rotation=90)
+    kid_y = (R3[0], R1[1])
+    box(X_KID, kid_y, ec=INK_2, lw=1.0)
+    text(c(X_KID), c(kid_y), "KID", weight="bold", size=7.5, rotation=90)
+    for row in (R1, R2):
+        arrow((X_EN[1] + 0.003, c(row)), (X_KID[0] - 0.002, c(row)))
+    arrow((x3[1] + 0.003, c(R3)), (X_KID[0] - 0.002, c(R3)), color=BLUE)
+
+    name = "fig_pipeline" if variant == "full" else "fig_pipeline_col"
+    figstyle.save_all(fig, out_dir, name, dpi=300, tight=False)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
-    build()
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--out", default=None,
+                    help="write the simplified CVPR variants "
+                         "(fig_pipeline.* full width, fig_pipeline_col.* "
+                         "column width) into this directory instead of the "
+                         "default ICLR figure in outputs/figstage")
+    _a = ap.parse_args()
+    if _a.out:
+        for _v in ("full", "col"):
+            build_cvpr(_v, Path(_a.out))
+    else:
+        build()

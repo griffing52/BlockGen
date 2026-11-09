@@ -43,6 +43,7 @@ import figstyle                        # noqa: E402
 from figstyle import ORANGE, ORANGE_DEEP, INK, INK_2, PAPER, RULE  # noqa: E402
 RUN = ROOT / "outputs" / "run_20260925_003516_view_protocol_ablation"
 OUTDIR = ROOT / "outputs" / "figstage"
+OUT_NAME = None     #: set by --out
 
 
 def _pin_hash_seed() -> None:
@@ -255,15 +256,17 @@ def main() -> None:
         print(f"  mean |pixel diff| real vs solidify, {name} view {j}: {d:.2f}/255")
 
     # --- layout --------------------------------------------------------------
-    # Laid out top down in figure fractions so nothing can collide: every band
-    # is placed relative to the one above it.
+    # Authored at CVPR single-column width (3.25 in), so every point size below
+    # prints at its own value; nothing is set under 7 pt. Laid out top down in
+    # figure fractions so nothing can collide.
     _style()
-    FW, FH = 5.5, 2.99
+    FW, FH = figstyle.CVPR_COL, 2.42
     fig = plt.figure(figsize=(FW, FH))
 
-    tw = 0.1655                      # tile width, figure fraction
+    x0, x1 = 0.075, 0.998
+    gap, group_gap = 0.012, 0.040
+    tw = (x1 - x0 - 3 * gap - group_gap) / 5
     th = tw * FW / FH * ASPECT       # matching tile height
-    gap, group_gap, x0 = 0.0125, 0.050, 0.068
     xs, x = [], x0
     for k in range(5):
         if k == 2:
@@ -272,61 +275,51 @@ def main() -> None:
         x += tw + gap
 
     def dy(inches: float) -> float:
-        """A vertical distance in inches, as a fraction of this figure.
-
-        Every band below the tiles is placed this way so that shortening the
-        figure moves the bands up together instead of squeezing the gaps
-        between them.
-        """
         return inches / FH
 
-    y_title, y_sub, y_rule = 0.970, 0.919, 0.890
-    y_top = 0.790 - th               # first image row, titles grow up from it
-    y_bot = y_top - dy(0.062) - th   # second image row
-    y_pix = y_bot - dy(0.103)        # measured pixel difference, per group
-    y_rule2 = y_bot - dy(0.213)
-    y_num, y_ci, y_note = (y_rule2 - dy(0.25), y_rule2 - dy(0.44),
-                           y_rule2 - dy(0.56))
+    y_title, y_rule = 1 - dy(0.07), 1 - dy(0.15)
+    y_top = y_rule - dy(0.30) - th   # first image row; titles grow up from it
+    y_bot = y_top - dy(0.04) - th    # second image row
+    y_pix = y_bot - dy(0.09)         # measured pixel difference, per group
+    y_rule2 = y_pix - dy(0.09)
+    y_num, y_ci = y_rule2 - dy(0.13), y_rule2 - dy(0.29)
+    y_note = y_ci - dy(0.13)
 
-    for k, ((a, b), (name, j, title)) in enumerate(zip(tiles, cols)):
+    titles = ["view 1", "view 2", "facing\nquadrant", "roof\noff",
+              "floor\nplan"]
+    for k, ((a, b), title) in enumerate(zip(tiles, titles)):
         for y, img in ((y_top, a), (y_bot, b)):
             ax = fig.add_axes([xs[k], y, tw, th])
             ax.imshow(img, interpolation="antialiased")
             ax.set_xticks([]); ax.set_yticks([])
             for sp in ax.spines.values():
                 sp.set_color(RULE); sp.set_linewidth(0.5)
-        # anchored to the tile top and growing upward, so a two-line title
-        # never pushes into the images
-        fig.text(xs[k] + tw / 2, y_top + th + 0.013, title, ha="center",
-                 va="bottom", fontsize=7.2, linespacing=1.35,
+        fig.text(xs[k] + tw / 2, y_top + th + dy(0.03), title, ha="center",
+                 va="bottom", fontsize=7, linespacing=1.1,
                  color=INK_2 if k < 2 else INK)
 
     # row labels
     for y, lab, weight in ((y_top, display("real_test"), "normal"),
                            (y_bot, display("real@solidify"), "bold")):
-        fig.text(x0 - 0.014, y + th / 2, lab, ha="right", va="center",
-                 fontsize=8, rotation=90, color=INK, fontweight=weight)
+        fig.text(x0 - 0.012, y + th / 2, lab, ha="right", va="center",
+                 fontsize=7, rotation=90, color=INK, fontweight=weight)
 
     # --- group headers -------------------------------------------------------
     gl0, gl1 = xs[0], xs[1] + tw
     gr0, gr1 = xs[2], xs[4] + tw
     fig.text((gl0 + gl1) / 2, y_title, "exterior views", ha="center",
-             va="center", fontsize=9.5, color=ORANGE, fontweight="bold")
-    fig.text((gl0 + gl1) / 2, y_sub, "the published protocol", ha="center",
-             va="center", fontsize=7.4, color=INK_2, style="italic")
+             va="center", fontsize=8, color=ORANGE, fontweight="bold")
     fig.text((gr0 + gr1) / 2, y_title, "cutaway views", ha="center",
-             va="center", fontsize=9.5, color=ORANGE_DEEP, fontweight="bold")
-    for x_a, x_b, c, w in ((gl0, gl1, ORANGE, 1.1), (gr0, gr1, ORANGE_DEEP, 1.3)):
+             va="center", fontsize=8, color=ORANGE_DEEP, fontweight="bold")
+    for x_a, x_b, c, w in ((gl0, gl1, ORANGE, 1.0), (gr0, gr1, ORANGE_DEEP, 1.2)):
         fig.add_artist(plt.Line2D([x_a, x_b], [y_rule, y_rule], color=c, lw=w))
 
-    # measured pixel difference of each pair, under its group
-    fig.text((gl0 + gl1) / 2, y_pix,
-             f"pixel difference {pixdiff[0]:.2f}/255", ha="center",
-             va="center", fontsize=6.9, color=INK_2)
-    fig.text((gr0 + gr1) / 2, y_pix,
-             "pixel difference "
-             + " / ".join(f"{d:.1f}" for d in pixdiff[2:]) + " /255",
-             ha="center", va="center", fontsize=6.9, color=INK_2)
+    # measured mean pixel difference of each pair (full frame, /255)
+    fig.text((gl0 + gl1) / 2, y_pix, f"\u0394px {pixdiff[0]:.2f}",
+             ha="center", va="center", fontsize=7, color=INK_2)
+    for k in (2, 3, 4):
+        fig.text(xs[k] + tw / 2, y_pix, f"\u0394px {pixdiff[k]:.1f}",
+                 ha="center", va="center", fontsize=7, color=INK_2)
 
     # --- the numbers ---------------------------------------------------------
     def sep(name: str) -> Tuple[float, float, float]:
@@ -335,39 +328,42 @@ def main() -> None:
 
     v, lo, hi = sep("dinov2b / 4 ortho (paper)")
     fig.text((gl0 + gl1) / 2, y_num, f"+{v:.1f}", ha="center", va="center",
-             fontsize=16, color=ORANGE, fontweight="bold")
+             fontsize=11, color=ORANGE, fontweight="bold")
     fig.text((gl0 + gl1) / 2, y_ci, f"[{lo:.1f}, {hi:.1f}]",
-             ha="center", va="center", fontsize=7.2, color=INK_2)
-    fig.text((gl0 + gl1) / 2, y_note, "noise floors",
-             ha="center", va="center", fontsize=7.6, color=INK_2,
-             style="italic")
-
+             ha="center", va="center", fontsize=7, color=INK_2)
     for k in (2, 3, 4):
         v, lo, hi = sep(cols[k][0])
         fig.text(xs[k] + tw / 2, y_num, f"+{v:.1f}", ha="center", va="center",
-                 fontsize=16, color=ORANGE_DEEP, fontweight="bold")
+                 fontsize=11, color=ORANGE_DEEP, fontweight="bold")
         fig.text(xs[k] + tw / 2, y_ci, f"[{lo:.1f}, {hi:.1f}]", ha="center",
-                 va="center", fontsize=7.2, color=INK_2)
-    fig.text((gr0 + gr1) / 2, y_note, "noise floors", ha="center",
-             va="center", fontsize=7.6, color=INK_2, style="italic")
+                 va="center", fontsize=7, color=INK_2)
+    fig.text((gl0 + gr1) / 2, y_note, "separation (noise floors)",
+             ha="center", va="center", fontsize=7, color=INK_2)
 
-    # a hairline linking the numbers to their group
     for x_a, x_b, c in ((gl0, gl1, ORANGE), (gr0, gr1, ORANGE_DEEP)):
         fig.add_artist(plt.Line2D([x_a, x_b], [y_rule2, y_rule2], color=c,
                                   lw=0.8, alpha=0.6))
 
-    # The setup line (encoder, statistic, n) and the reading of the
-    # pixel-difference numbers both live in the caption, so neither is repeated
-    # here; the figure keeps only the measurements themselves.
-
-    OUTDIR.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(OUTDIR / f"cutaway.{ext}", dpi=300, bbox_inches="tight",
-                    pad_inches=0.02)
+    if OUT_NAME:
+        figstyle.save_all(fig, OUTDIR, OUT_NAME, dpi=300, pad=0.02)
+    else:
+        OUTDIR.mkdir(parents=True, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(OUTDIR / f"cutaway.{ext}", dpi=300, bbox_inches="tight",
+                        pad_inches=0.02)
+        print(f"  wrote {OUTDIR}/cutaway.pdf (+ .png)")
     plt.close(fig)
-    print(f"  wrote {OUTDIR.relative_to(ROOT)}/cutaway.pdf (+ .png)")
 
 
 if __name__ == "__main__":
     _pin_hash_seed()
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--out", default=None,
+                    help="output directory; writes fig9_cutaway.{pdf,svg,png} "
+                         "(default: outputs/figstage/cutaway.{pdf,png})")
+    _args = ap.parse_args()
+    if _args.out:
+        OUTDIR = Path(_args.out)
+        OUT_NAME = "fig9_cutaway"
     main()

@@ -49,6 +49,9 @@ import figstyle                      # noqa: E402
 from figstyle import BLUE, INK, INK_2, PAPER, RULE  # noqa: E402
 from armnames import display          # noqa: E402
 OUTDIR = ROOT / "outputs" / "figstage"
+#: `--out` target and canvas width; the defaults reproduce the ICLR staging.
+OUT_DIR = None
+FIG_W = 5.5
 BENCH_RUN = (ROOT / "outputs"
              / "run_20260925_002631_bench_canonical-split_fixed_transparency_cull")
 
@@ -314,6 +317,21 @@ def gather() -> dict:
     raw_sd = ((d_sol.mean(0) - d_real.mean(0))
               / np.where(np.isfinite(std.scale), std.scale, np.inf))
 
+    # The paper's descriptor is the 77-d one the run of record scored with.
+    # geometry.py has since appended three `walk_*` scalars (2026-10-23). The
+    # standardiser is per-dimension, so dropping those columns reproduces the
+    # 77-d shift exactly; set BLOCKGEN_DESCRIPTOR_FULL=1 to draw the new one.
+    import os
+    layout = list(G.descriptor_layout())
+    metrics = list(G.GEOMETRY_METRICS)
+    if os.environ.get("BLOCKGEN_DESCRIPTOR_FULL") != "1":
+        sc0 = sum(w for name, w in layout if name != "scalars")
+        drop = [sc0 + i for i, m in enumerate(metrics) if m.startswith("walk_")]
+        keep = np.array([i for i in range(len(shift)) if i not in set(drop)])
+        shift, raw_sd = shift[keep], raw_sd[keep]
+        metrics = [m for m in metrics if not m.startswith("walk_")]
+        layout = [(n, w - len(drop) if n == "scalars" else w) for n, w in layout]
+
     # Block colours for the build, from the flat (texture-free) library.
     lib = flat_textures()
     colors: Dict[Tuple[int, int, int], tuple] = {}
@@ -332,9 +350,9 @@ def gather() -> dict:
                 n_blocks=int(occ.sum()), window=window, wpos=(x0, y0, z0),
                 code=code, canon=canon, orbit=orbit, images=images,
                 orbit_freq=float(pooled[orbit]), n_orbits=int(G.N_ORBITS),
-                layout=G.descriptor_layout(), shift=shift, raw_sd=raw_sd,
+                layout=layout, shift=shift, raw_sd=raw_sd,
                 solid_ratio=solid_ratio,
-                metrics=list(G.GEOMETRY_METRICS),
+                metrics=metrics,
                 thickness_bins=list(G.THICKNESS_BINS), card=card,
                 n_val=len(val), n_test=len(test))
 
@@ -344,7 +362,7 @@ def gather() -> dict:
 # ---------------------------------------------------------------------------
 def _panel_title(fig, x, y, n, text):
     fig.text(x, y, n, fontsize=9, weight="bold", color=INK, va="baseline")
-    fig.text(x + 0.020, y, text, fontsize=8.5, color=INK, va="baseline")
+    fig.text(x + 0.018, y, text, fontsize=8.5, color=INK, va="baseline")
 
 
 def panel_build(ax, D) -> None:
@@ -371,7 +389,7 @@ def panel_build(ax, D) -> None:
     bb[2] = min(bb[2], py)
     bb[3] = max(bb[3], ty + 2.5)
     _fit(ax, bb, padx=1.0, pady=0.6)
-    ax.annotate(f"a real 3D-Craft house\n{D['n_blocks']} blocks",
+    ax.annotate(f"3D-Craft house, {D['n_blocks']} blocks",
                 (0.5, 0.0), xycoords="axes fraction", xytext=(0, -2),
                 textcoords="offset points", ha="center", va="top",
                 fontsize=7.0, color=INK_2, linespacing=1.2)
@@ -382,7 +400,7 @@ def panel_window(ax, D) -> None:
     cols = {tuple(c): _hex(BLUE) for c in np.argwhere(w)}
     bb = draw_voxels(ax, w, cols, edge=PAPER, lw=0.55, ghost=True)
     _fit(ax, bb, padx=0.25, pady=0.25)
-    ax.annotate(f"8 cells, occupancy only\n(materials discarded)\ncode {D['code']}",
+    ax.annotate(f"occupancy only\ncode {D['code']}",
                 (0.5, 0.0), xycoords="axes fraction", xytext=(0, -2),
                 textcoords="offset points", ha="center", va="top",
                 fontsize=7.0, color=INK_2, linespacing=1.2)
@@ -409,7 +427,7 @@ def panel_orbit(ax, D) -> None:
                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color=INK_2,
                                 shrinkA=0, shrinkB=0, mutation_scale=7))
     ax.annotate("min", ((bx - 2.5 + 7 * step + 2.15) / 2, 2.25), ha="center",
-                va="bottom", fontsize=6.8, color=INK_2)
+                va="bottom", fontsize=7.0, color=INK_2)
     canon_g = next(g for _, g, c in D["images"] if c == D["canon"])
     cols = {tuple(c): _hex(BLUE) for c in np.argwhere(canon_g)}
     bbs.append(draw_voxels(ax, canon_g, cols, offset=(bx, 0.0), edge=PAPER,
@@ -455,9 +473,9 @@ def panel_descriptor(ax, D) -> None:
     ix = {m: sc + D["metrics"].index(m) for m in D["metrics"]}
     calls = [
         (D["orbit"], (11.0, 2.9),
-         f"bin {D['orbit']}: the window in panel 2", BLUE),
-        (54, (38.0, 3.4),
-         f"bin 54, the all-solid window:\n{D['solid_ratio']:.1f}× as common",
+         f"bin {D['orbit']} (panel 2)", BLUE),
+        (54, (42.0, 3.6),
+         f"bin 54 (all solid): {D['solid_ratio']:.1f}×",
          INK),
         (ix["thickness_mean"], (66.0, 5.9), "thickness mean, p90", INK),
     ]
@@ -475,8 +493,9 @@ def panel_descriptor(ax, D) -> None:
     ax.set_ylabel(f"{display('real@solidify')}\n− {display('real_test')}"
                   "\n(reference SD)", labelpad=0)
     ax.tick_params(axis="x", length=0, pad=1.5)
-    ax.set_xticks([0, 54, 59, 67, 76])
-    ax.set_xticklabels(["1", "55", "60", "68", "77"])
+    ends = [b for _, _, b in edges]
+    ax.set_xticks([0] + [b - 1 for b in ends])
+    ax.set_xticklabels(["1"] + [str(b) for b in ends])
     ax.set_yticks([-4, 0, 4])
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
@@ -513,16 +532,20 @@ def build_figure() -> None:
         return 1.0 - down / H
 
     def rect(x, w, down, h):
-        return [x, fy(down + h), w, h / H]
+        # x and w are authored as fractions of the old 5.5in canvas; keep the
+        # panels' inch geometry and centre it on the wider CVPR canvas, except
+        # the descriptor axes, which take the full width.
+        k = 5.5 / FIG_W
+        return [x * k + (1 - k) / 2, fy(down + h), w * k, h / H]
 
-    fig = plt.figure(figsize=(5.5, H))
+    fig = plt.figure(figsize=(FIG_W, H))
 
     # Panel 1 spans the full column, like panels 2 and 3: the house on the
     # left, the window it feeds on the right, the arrow carrying the frequency.
     ax_b = fig.add_axes(rect(0.100, 0.245, 0.35, 1.00))
     ax_w = fig.add_axes(rect(0.730, 0.135, 0.37, 0.96))
     ax_o = fig.add_axes(rect(0.020, 0.960, 1.87, 0.78))
-    ax_d = fig.add_axes(rect(0.115, 0.865, TOP_D, h_d))
+    ax_d = fig.add_axes([0.085, fy(TOP_D + h_d), 0.905, h_d / H])
     for ax in (ax_b, ax_w, ax_o):
         ax.set_axis_off()
         ax.set_aspect("equal")
@@ -532,10 +555,10 @@ def build_figure() -> None:
     panel_orbit(ax_o, D)
     panel_descriptor(ax_d, D)
 
-    _panel_title(fig, 0.02, fy(0.20), "1",
-                 "a local window, taken from a real build")
-    _panel_title(fig, 0.02, fy(1.72), "2", "its D4 orbit: eight images, one bin")
-    _panel_title(fig, 0.02, fy(2.79), "3", "the 77-d descriptor")
+    _panel_title(fig, 0.02, fy(0.20), "1", "Local 2×2×2 window")
+    _panel_title(fig, 0.02, fy(1.72), "2", "D4 orbit")
+    _panel_title(fig, 0.02, fy(2.79), "3",
+                 f"{len(D['shift'])}-d descriptor shift")
 
     # Arrow and label placed against the *drawn* edge of the house, not the
     # axes box: an equal-aspect axes letterboxes its content.
@@ -561,9 +584,12 @@ def build_figure() -> None:
         r = arms["real_test"]["realism"][metric]["value"]
         return (v - r) / sd[f"realism.{metric}"]
 
-    OUTDIR.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(OUTDIR / f"descriptor.{ext}", dpi=300)
+    if OUT_DIR is None:
+        OUTDIR.mkdir(parents=True, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(OUTDIR / f"descriptor.{ext}", dpi=300)
+    else:
+        figstyle.save_all(fig, OUT_DIR, "fig_descriptor", tight=False)
     plt.close(fig)
 
     print(f"build index {D['build_index']} (3dcraft), {D['n_blocks']} blocks, "
@@ -578,9 +604,18 @@ def build_figure() -> None:
         o += w
     print(f"  geom_kid sep {sep('geom_kid'):.1f} floors; "
           f"mv_dino_kid sep {sep('mv_dino_kid'):.2f} floors")
-    print(f"canvas 5.5 x {H:.3f} in; bars {h_d:.3f} in")
+    print(f"canvas {FIG_W} x {H:.3f} in; bars {h_d:.3f} in")
     print(f"wrote {OUTDIR}/descriptor.png (+ .pdf)")
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--out", default=None,
+                    help="write fig_descriptor.{pdf,svg,png} here (CVPR full "
+                         "width) instead of outputs/figstage/descriptor.*")
+    args = ap.parse_args()
+    if args.out:
+        OUT_DIR = Path(args.out)
+        FIG_W = figstyle.CVPR_FULL
     build_figure()

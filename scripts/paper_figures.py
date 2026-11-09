@@ -83,6 +83,8 @@ def flat_textures():
     return load_face_textures()
 sys.path.insert(0, str(ROOT / "scripts" / "figs"))
 from armnames import display          # noqa: E402
+import cpu_render                     # noqa: E402
+cpu_render.install()                  # BLOCKGEN_FIG_RENDER=cpu: OSMesa, no GPU
 import figstyle                       # noqa: E402
 from figstyle import (BLUE, ORANGE, ORANGE_DEEP, INK, INK_2, PAPER, RULE,
                       SOLID, VOID)  # noqa: E402
@@ -94,10 +96,16 @@ from figstyle import (BLUE, ORANGE, ORANGE_DEEP, INK, INK_2, PAPER, RULE,
 FIGDIR = Path(os.environ.get("BLOCKGEN_FIGDIR")
               or ROOT / "deliverables" / "paper" / "iclr" / "figures")
 
-#: The bench run every quantitative figure reads. One run, so every number in
-#: the paper's figures shares a protocol, a reference set and a seed.
+#: The bench run the probe and case-study figures read: the 0925 protocol run
+#: of record (audit_claims.RUNS["0925"]).
 BENCH_RUN = ROOT / "outputs" / "run_20260925_002631_bench_canonical-split_fixed_transparency_cull"
-DOSE_RUN = ROOT / "outputs" / "run_20260831_224723_doseresponse"
+#: The leaderboard of record (audit_claims.RUNS["1103_n256"]): the same
+#: protocol at n=256, no LLM arms, plus the external Dream-Cubed arms. Every
+#: figure that draws the leaderboard reads this run and no other.
+LEADERBOARD_RUN = ROOT / "outputs" / "run_20261103_090315_bench_n_256_leaderboard_of_record"
+#: The registered dose run (audit_claims.DOSE). The 2026-08-31 run built its
+#: mixture axis from decimated real data and is superseded.
+DOSE_RUN = ROOT / "outputs" / "run_20260925_010828_doseresponse_uniform_random-shell_box"
 
 # Colours and font are figstyle's. The local SURFACE (a near-white page fill
 # painted over the LaTeX page), MUTED and GRID (two more greys for structure) and
@@ -106,8 +114,8 @@ DOSE_RUN = ROOT / "outputs" / "run_20260831_224723_doseresponse"
 # to read at 6 pt.
 
 METRIC_COLOR = {"geom_kid": BLUE, "mv_dino_kid": ORANGE}
-METRIC_LABEL = {"geom_kid": "geom-kid (geometry tier)",
-                "mv_dino_kid": "mv-dino-kid (render tier)"}
+METRIC_LABEL = {"geom_kid": "V-KID (geometry tier)",
+                "mv_dino_kid": "MV-KID (render tier)"}
 
 
 def _style() -> None:
@@ -119,20 +127,16 @@ def _style() -> None:
     """
     figstyle.apply(size=8, **{
         "axes.labelsize": 8,
-        "axes.titlesize": 8.5,
-        "xtick.labelsize": 7.5,
-        "ytick.labelsize": 7.5,
-        "legend.fontsize": 7.5,
+        "axes.titlesize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
     })
 
 
 def _save(fig: plt.Figure, name: str) -> None:
-    FIGDIR.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(FIGDIR / f"{name}.{ext}", bbox_inches="tight",
-                    pad_inches=0.02)
+    figstyle.save_all(fig, FIGDIR, name, dpi=300, pad=0.02)
     plt.close(fig)
-    print(f"  wrote {FIGDIR.relative_to(ROOT)}/{name}.pdf (+ .png)")
 
 
 def _scorecard() -> Dict:
@@ -425,9 +429,10 @@ def fig1_teaser(build_index: int | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 AXIS_TITLES = {
-    "solidify": "Interiors filled",
+    "solidify": "Fill-Interior",
     "occ_noise": "Occupancy noise",
-    "mixture": "Fraction of arm bad",
+    "mixture": "Mixture",
+    "mixture_uniform_random": "Mixture",
 }
 
 #: The decimation axis is deliberately not plotted. Changing a build's
@@ -450,14 +455,18 @@ def fig2_dose() -> None:
         dose = json.load(fh)
 
     axes_data = dose["axes"]
-    order = [k for k in ("solidify", "occ_noise", "mixture")
+    # The registered run keys its mixture axis by bad pool; the paper's is the
+    # procedural `uniform_random` pool (audit_claims registers that one).
+    order = [k for k in ("solidify", "occ_noise", "mixture_uniform_random")
              if k in axes_data and k not in SKIP_AXES]
 
     # Canvas sized to the width the paper includes this figure at (0.95
     # of a 5.5 in line), so a point of type here is a point of type on the
     # page. Authored at 6.8 in wide, it was rescaled on include and its
     # smallest labels printed below 6 pt.
-    fig, axs = plt.subplots(1, len(order), figsize=(6.19, 2.05), sharey=False)
+    # CVPR full text width (figure*), so type prints at its own size.
+    fig, axs = plt.subplots(1, len(order), figsize=(figstyle.CVPR_FULL, 2.0),
+                            sharey=False)
     if len(order) == 1:
         axs = [axs]
 
@@ -486,20 +495,13 @@ def fig2_dose() -> None:
             ax.set_ylabel("signal (noise floors)", labelpad=3)
         if is_solidify:
             # The panel that carries the paper. Mark the flat curve directly.
-            mv = block["mv_dino_kid"]
-            ax.annotate(
-                f"flat: {mv['range_sd']:.1f} noise floors end to end\n"
-                f"$\\rho={mv['spearman']:+.2f}$, not monotone",
-                xy=(0.62, 0.02), xycoords="axes fraction",
-                xytext=(0.05, 0.22), textcoords="axes fraction",
-                fontsize=6.8, color=INK, linespacing=1.3,
-                arrowprops=dict(arrowstyle="-", color=INK_2, linewidth=0.7,
-                                shrinkA=0, shrinkB=2))
+            # (The "flat: ... not monotone" annotation on the MV-KID curve was
+            # interpretation; it now lives in the caption.)
             gk = block["geom_kid"]
             ax.annotate(f"{gk['range_sd']:.0f} noise floors",
                         xy=(1.0, gk["value"][-1] / gk["noise_sd"]),
-                        xytext=(-6, -16), textcoords="offset points",
-                        ha="right", va="top", fontsize=7, color=INK)
+                        xytext=(-9, 0), textcoords="offset points",
+                        ha="right", va="center", fontsize=7, color=INK)
             for sp in ("left", "bottom"):
                 ax.spines[sp].set_color(INK_2)
                 ax.spines[sp].set_linewidth(0.9)
@@ -518,15 +520,11 @@ def fig2_dose() -> None:
 
 def fig3_pillars() -> None:
     """Appearance vs geometry, per arm. Each tier is fooled by its own probe."""
-    arms = _scorecard()
-    with open(BENCH_RUN / "scorecard.json") as fh:
-        card = json.load(fh)
-
-    # Pillar values live in the composite block when present; fall back to the
-    # rendered leaderboard table in scorecard.md, which is what the paper cites.
-    rows = _pillars_from_md(BENCH_RUN / "scorecard.md")
+    # The pillars are the leaderboard's, so this reads the leaderboard of
+    # record's own rendered table (scorecard.md), which is what the paper cites.
+    rows = _pillars_from_md(LEADERBOARD_RUN / "scorecard.md")
     keep = ["real_test", "real@solidify", "real_shuffled_materials",
-            "patchwork", "canon_oriented", "llm_control"]
+            "patchwork", "dreamcubed", "canon_oriented"]
     rows = [r for r in rows if r["arm"] in keep]
     rows.sort(key=lambda r: keep.index(r["arm"]))
 
@@ -542,16 +540,19 @@ def fig3_pillars() -> None:
     # of a 5.5 in line), so a point of type here is a point of type on the
     # page. Authored at 6.6 in wide, it was rescaled on include and its
     # smallest labels printed below 6 pt.
-    fig, ax = plt.subplots(figsize=(5.34, 2.43))
+    # CVPR single column: canvas narrowed so the TIGHT box (tick labels
+    # included) is <= 3.25 in and nothing prints below 7 pt at \linewidth.
+    fig, ax = plt.subplots(figsize=(figstyle.CVPR_COL - 0.22, 2.35))
     ax.barh(y + (h + gap) / 2, app, height=h, color=ORANGE,
-            label="appearance pillar (render tier)", zorder=3)
+            label="appearance (MV-KID)", zorder=3)
     ax.barh(y - (h + gap) / 2, geo, height=h, color=BLUE,
-            label="geometry pillar", zorder=3)
+            label="geometry (V-KID)", zorder=3)
 
     for yi, (a, g) in enumerate(zip(app, geo)):
-        ax.text(a + 4, yi + (h + gap) / 2, f"{a:.1f}", va="center",
+        off = 0.011 * max(max(app), max(geo))
+        ax.text(a + off, yi + (h + gap) / 2, f"{a:.1f}", va="center",
                 ha="left", fontsize=7, color=INK)
-        ax.text(g + 4, yi - (h + gap) / 2, f"{g:.1f}", va="center",
+        ax.text(g + off, yi - (h + gap) / 2, f"{g:.1f}", va="center",
                 ha="left", fontsize=7, color=INK)
         # A hairline per arm, so which two bars belong together is unambiguous.
         ax.axhline(yi + 0.5, color=RULE, linewidth=0.5, zorder=1)
@@ -559,38 +560,15 @@ def fig3_pillars() -> None:
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
-    ax.set_xlabel("distance from held-out real (noise floors)", labelpad=3)
+    ax.set_xlabel("distance from real (noise floors)", labelpad=3)
     ax.grid(axis="x", zorder=0)
     ax.set_axisbelow(True)
-    ax.set_xlim(0, max(max(app), max(geo)) * 1.16)
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.30), ncol=2,
-              handlelength=1.4, columnspacing=2.0)
+    ax.set_xlim(0, max(max(app), max(geo)) * 1.22)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.38, -0.36), ncol=2,
+              handlelength=1.2, columnspacing=1.2, handletextpad=0.4)
 
-    # Call out the mirror pair without adding a second encoding to the bars.
-    #
-    # The leader is a dogleg, not a straight line. Both arms called out here are
-    # at or near zero, so their value label sits a few points to the right of
-    # the axis -- exactly where a horizontal leader would run, and it struck the
-    # label out. The leader instead runs along a line offset from the bar's own
-    # centre, then drops into the bar tip inboard of the label. The offset goes
-    # outward, away from the row's other bar, which in both rows is long.
-    names = [r["arm"] for r in rows]
-    for arm, note in (
-            ("real@solidify", "render tier sees nothing"),
-            ("real_shuffled_materials", "geometry tier sees nothing")):
-        if arm not in names:
-            continue
-        i = names.index(arm)
-        which = (h + gap) / 2 if arm == "real@solidify" else -(h + gap) / 2
-        y_bar = i + which
-        y_lead = y_bar + (0.215 if which > 0 else -0.215)
-        ax.annotate("", xy=(2.0, y_bar), xytext=(31.0, y_lead),
-                    arrowprops=dict(arrowstyle="->", color=INK_2,
-                                    linewidth=0.8, shrinkA=0, shrinkB=0,
-                                    connectionstyle="angle,angleA=0,angleB=90,"
-                                                    "rad=2"))
-        ax.text(33.0, y_bar, note, fontsize=7, color=INK, va="center",
-                ha="left", style="italic")
+    # The "render tier sees nothing" / "geometry tier sees nothing" callouts
+    # were interpretation and moved to the caption.
     _save(fig, "fig3_pillars")
 
 
@@ -637,13 +615,48 @@ CASE_ARMS = [
     ("patchwork",       "context"),
 ]
 CASE_SUFFIX = {"canon_oriented": " (clean)"}
-GROUPS = {"real_test": "a", "native_oriented": "d", "canon_oriented": "e",
-          "llm_control": "e", "llm_bias": "e", "patchwork": "f"}
+
+
+def holm_groups(run: Path, metric: str = "geom_kid") -> Dict[str, str]:
+    """arm -> compact letter display, read from the run's head-to-head table.
+
+    The letters were hard-coded here once and drifted from the run they were
+    drawn next to (the contaminated arm was shown holding group (d) alone,
+    while the run puts it in (c) together with the clean retrain). They are
+    now parsed from `scorecard.md`'s `### <metric>` head-to-head block, the
+    paired permutation test with Holm correction the bench itself writes.
+    """
+    lines = (run / "scorecard.md").read_text().splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines)
+                     if l.strip().startswith(f"### {metric}"))
+    except StopIteration:
+        raise SystemExit(f"no head-to-head block for {metric} in {run.name}")
+    out: Dict[str, str] = {}
+    for line in lines[start + 1:]:
+        if line.startswith("#"):
+            break
+        if not line.startswith("|") or "---" in line:
+            if out and not line.strip():
+                break
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) >= 4 and cells[0].isdigit():
+            out[cells[1]] = cells[3]
+    return out
 
 
 def fig4_casestudy() -> None:
-    """One arm moves a whole significance group when its split is cleaned."""
+    """One arm moves a whole significance group when its split is cleaned.
+
+    Reads the 0925 run of record: the case study compares the contaminated and
+    clean token models with the two language-model baselines, which that run
+    scores and the n=256 leaderboard run does not.
+    """
     arms = _scorecard()
+    GROUPS = holm_groups(BENCH_RUN, "geom_kid")
+    print("  fig4 Holm groups (geom_kid):",
+          {k: GROUPS.get(k) for k, _ in CASE_ARMS})
     pts = []
     for key, role in CASE_ARMS:
         if key not in arms:
@@ -657,7 +670,9 @@ def fig4_casestudy() -> None:
     # of a 5.5 in line), so a point of type here is a point of type on the
     # page. Authored at 6.4 in wide, it was rescaled on include and its
     # smallest labels printed below 6 pt.
-    fig, ax = plt.subplots(figsize=(5.06, 1.62))
+    # CVPR single column: canvas narrowed so the TIGHT box (tick labels
+    # included) is <= 3.25 in and nothing prints below 7 pt at \linewidth.
+    fig, ax = plt.subplots(figsize=(figstyle.CVPR_COL - 0.68, 1.75))
     for i, (key, label, role, v, lo, hi) in enumerate(pts):
         # Every value on this chart is geom-kid, so every mark is the geometry
         # tier's BLUE. The contaminated arm and its cleaned self are told apart
@@ -674,23 +689,23 @@ def fig4_casestudy() -> None:
                 markerfacecolor=PAPER if hollow else color,
                 markeredgecolor=color if hollow else PAPER,
                 markeredgewidth=1.3 if hollow else 1.0, zorder=3)
-        ax.text(hi + 0.7, i, f"{v:.2f}", va="center", ha="left", fontsize=7,
+        ax.text(hi + 0.5, i, f"{v:.2f}", va="center", ha="left", fontsize=7,
                 color=INK if emph else INK_2)
         g = GROUPS.get(key)
         if g:
-            ax.text(-1.6, i, g, va="center", ha="center", fontsize=7.5,
-                    color=INK_2, family="monospace")
+            ax.text(-1.6, i, g, va="center", ha="center", fontsize=7,
+                    color=INK_2)
 
     ax.set_yticks(range(len(pts)))
     ax.set_yticklabels([p[1] for p in pts])
     for tick, p in zip(ax.get_yticklabels(), pts):
         tick.set_color(INK if p[2] in ("dirty", "clean") else INK_2)
-    ax.set_xlabel("geom-kid (lower is better), 95% CI", labelpad=3)
-    ax.set_xlim(-3.0, max(p[5] for p in pts) * 1.14)
+    ax.set_xlabel("V-KID (lower is better), 95% CI", labelpad=3)
+    ax.set_xlim(-3.0, max(p[5] for p in pts) * 1.20)
     ax.grid(axis="x", zorder=0)
     ax.set_axisbelow(True)
     ax.text(-1.6, len(pts) - 0.35, "Holm\ngroup", ha="center", va="bottom",
-            fontsize=6.5, color=INK_2, family="monospace", linespacing=1.15)
+            fontsize=7, color=INK_2, linespacing=1.1)
 
     # The move itself, drawn: an arc from the contaminated arm to the clean
     # one. What the move means is the caption's job, not the axes'.
@@ -714,9 +729,15 @@ def main() -> None:
     ap.add_argument("which", nargs="*", choices=sorted(FIGS),
                     help="figures to build (default: all)")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--out", default=None,
+                    help="output directory (default: BLOCKGEN_FIGDIR or the "
+                         "ICLR paper's figures/)")
     ap.add_argument("--build-index", type=int, default=None,
                     help="fig1: which test build to use (default: most interior)")
     args = ap.parse_args()
+    if args.out:
+        global FIGDIR
+        FIGDIR = Path(args.out)
 
     _style()
     which = args.which if args.which and not args.all else sorted(FIGS)
@@ -737,6 +758,29 @@ def main() -> None:
 
 ABLATION = ROOT / "outputs" / "run_20260925_003516_view_protocol_ablation"
 LEGO = ROOT / "outputs" / "run_20260925_005517_bench_lego_interior_blindness_replication"
+#: The LEGO render-tier ladder fig6 and Table tab:seven read (see fig6).
+LEGO_LADDER = (ROOT / "outputs"
+               / "run_20261104_212706_bench_lego_ladder_postfix"
+               / "ladder" / "dinov2b__v4_az45-135-225-315_el30-30-30-30_px224_ortho.json")
+
+
+#: Ablation condition ids -> the names Table (tab:ablation) prints.
+ABLATION_LABEL = {
+    "dinov2b / 4 ortho (paper)": "DINOv2-B, 4 views",
+    "dinov2b / 4 ortho, single view 2 (no pooling)": "1 view, no pooling",
+    "clipB16 / 4 ortho": "CLIP ViT-B/16",
+    "clipB / 4 ortho": "CLIP ViT-B/32",
+    "resnet50 / 4 ortho": "ResNet-50",
+    "inceptionv3 / 4 ortho": "Inception-v3",
+    "dinov2b / 8 ortho": "8 orthographic",
+    "dinov2b / 16 ortho": "16 orthographic",
+    "dinov2b / 4 perspective": "perspective",
+    "cut: facing quadrant": "cut: facing quadrant",
+    "cut: roof off (top half)": "cut: roof removed",
+    "cut: floorplan slabs": "cut: floorplan",
+    "cut: vertical sections": "cut: vertical sections",
+}
+XMIN5 = 0.03
 
 
 def fig5_ablation() -> None:
@@ -760,8 +804,7 @@ def fig5_ablation() -> None:
     rows = [r for r in rows if r["family"] != "reference metric"]
     rows.sort(key=lambda r: r["separation_sd"])
 
-    labels = [r["condition"].replace(" (paper)", "").replace("dinov2b / ", "")
-              for r in rows]
+    labels = [ABLATION_LABEL.get(r["condition"], r["condition"]) for r in rows]
     vals = [r["separation_sd"] for r in rows]
     cis = [r["separation_ci"] for r in rows]
     sees = [r["sees_interior"] for r in rows]
@@ -770,7 +813,9 @@ def fig5_ablation() -> None:
     # of a 5.5 in line), so a point of type here is a point of type on the
     # page. Authored at 6.4 in wide, it was rescaled on include and its
     # smallest labels printed below 6 pt.
-    fig, ax = plt.subplots(figsize=(4.76, 2.27))
+    # CVPR single column: canvas narrowed so the TIGHT box (tick labels
+    # included) is <= 3.25 in and nothing prints below 7 pt at \linewidth.
+    fig, ax = plt.subplots(figsize=(figstyle.CVPR_COL - 0.36, 2.45))
     y = np.arange(len(rows))
     for i, (v, ci, s) in enumerate(zip(vals, cis, sees)):
         c = ORANGE_DEEP if s else INK_2
@@ -778,20 +823,22 @@ def fig5_ablation() -> None:
                 solid_capstyle="round", zorder=2)
         ax.plot([v], [i], "o", color=c, markersize=5.5,
                 markeredgecolor=PAPER, markeredgewidth=1.0, zorder=3)
-        ax.text(ci[1] * 1.12, i, f"{v:.1f}", va="center", ha="left", fontsize=7,
-                color=INK if s else INK_2)
+        # Exterior conditions sit far left of the 2-floor line; their value
+        # labels start at the plot's left edge so they never run into the
+        # tick labels.
+        ax.text(max(ci[1], XMIN5) * 1.15, i, f"{v:.1f}", va="center",
+                ha="left", fontsize=7, color=INK if s else INK_2)
 
     ax.axvline(2.0, color=INK_2, linewidth=1.2, linestyle=(0, (4, 2)), zorder=1)
     ax.text(2.15, len(rows) - 0.4, "2 noise floors", fontsize=7, color=INK_2,
             va="top")
     ax.set_xscale("log")
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=7.5)
+    ax.set_yticklabels(labels, fontsize=7)
     for tick, s in zip(ax.get_yticklabels(), sees):
         tick.set_color(INK if s else INK_2)
-    ax.set_xlabel("separation of the interior-fill probe (noise floors, log scale)",
-                  labelpad=3)
-    ax.set_xlim(0.3, 200)
+    ax.set_xlabel("Fill-Interior separation (noise floors)", labelpad=3)
+    ax.set_xlim(XMIN5, 200)
     ax.grid(axis="x", zorder=0)
     ax.set_axisbelow(True)
     _save(fig, "fig5_ablation")
@@ -807,9 +854,20 @@ def fig6_seven_statistics() -> None:
     a symlog tail; the question was never "what is each value", it was "is the
     interior dot always on the wrong side of the bar".
     """
-    lad = json.loads(
-        (LEGO / "ladder" /
-         "dinov2b__v4_az45-135-225-315_el30-30-30-30_px224_ortho.json").read_text())
+    # Read LEGO_LADDER explicitly: the post-fix rerun (2026-11-04) of the 09-18
+    # ladder, identical to it within 5e-6 relative (notes §75). Neither LEGO bench run computes a ladder in
+    # run (both gate on the Minecraft ladder in outputs/analysis/ladder); the
+    # LEGO-domain ladder was written into the 2026-09-18 run's ladder/ only,
+    # and the 2026-09-25 re-score has none. It is the file Table tab:seven
+    # transcribes. The 09-25 change was the renderer's transparency cull; LEGO
+    # builds are wool only (`bench/lego.py`), which is opaque, so that change
+    # cannot move a LEGO render. The old code tried 09-25 and fell back
+    # silently; it now names its one source.
+    ladder_path = LEGO_LADDER
+    if not ladder_path.exists():
+        raise SystemExit(f"fig6: no LEGO ladder at {ladder_path}")
+    print(f"  fig6 reads {ladder_path.relative_to(ROOT)}")
+    lad = json.loads(ladder_path.read_text())
     names = {"kid": "KID", "mmd_rbf": "MMD-RBF", "fd": "Fr\u00e9chet",
              "one_minus_coverage": "1\u2212coverage",
              "one_minus_density": "1\u2212density",
@@ -835,7 +893,8 @@ def fig6_seven_statistics() -> None:
     # of a 5.5 in line), so a point of type here is a point of type on the
     # page. Authored at 6.0 in wide, it was rescaled on include and its
     # smallest labels printed below 6 pt.
-    fig, ax = plt.subplots(figsize=(5.29, 2.64))
+    # CVPR single column.
+    fig, ax = plt.subplots(figsize=(figstyle.CVPR_COL, 2.3))
     y = np.arange(len(rows))
     for i, (lbl, interior, weakest) in enumerate(rows):
         ax.plot([max(interior, 0.05), weakest], [i, i], color=RULE,
@@ -847,17 +906,17 @@ def fig6_seven_statistics() -> None:
                 markeredgecolor=INK_2, markeredgewidth=1.2, zorder=3)
         ax.plot([max(interior, 0.05)], [i], "o", color=ORANGE, markersize=6.5,
                 markeredgecolor=PAPER, markeredgewidth=1.0, zorder=4)
-        ax.text(weakest * 1.15, i, f"{weakest:.1f}", va="center", ha="left",
+        ax.text(weakest * 1.45, i, f"{weakest:.1f}", va="center", ha="left",
                 fontsize=7, color=INK_2)
 
     ax.axvline(3.0, color=INK_2, linewidth=1.0, linestyle=(0, (4, 2)), zorder=2)
-    ax.text(3.2, len(rows) - 0.35, "resolution bar (3 floors)", fontsize=7,
+    ax.text(3.3, len(rows) - 0.35, "3 noise floors", fontsize=7,
             color=INK_2, va="top")
     ax.set_xscale("log")
     ax.set_yticks(y)
-    ax.set_yticklabels([r[0] for r in rows], fontsize=8)
+    ax.set_yticklabels([r[0] for r in rows], fontsize=7)
     ax.set_xlim(0.05, 400)
-    ax.set_xlabel("separation from real (noise floors, log scale)", labelpad=3)
+    ax.set_xlabel("separation from real (noise floors)", labelpad=3)
     ax.grid(axis="x", zorder=0)
     ax.set_axisbelow(True)
 
@@ -867,13 +926,13 @@ def fig6_seven_statistics() -> None:
     # and every corner of a dumbbell chart this dense belongs to some row.
     fig.legend(handles=[
         Line2D([], [], marker="o", color=ORANGE, linestyle="", markersize=6,
-               label="interior filled"),
+               label="Fill-Interior"),
         Line2D([], [], marker="o", linestyle="", markersize=6,
                markerfacecolor=PAPER, markeredgecolor=INK_2,
                markeredgewidth=1.2,
-               label="weakest of three stronger corruptions")],
-        loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.10),
-        handletextpad=0.4, columnspacing=1.8)
+               label="weakest other corruption")],
+        loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.12),
+        handletextpad=0.3, columnspacing=1.2)
     _save(fig, "fig6_seven_statistics")
 
 
@@ -905,8 +964,14 @@ def fig7_probe_gallery() -> None:
             occ, structure=ndimage.generate_binary_structure(3, 1))
         return int((f & ~occ).sum())
 
-    # the three most-interior held-out builds: the probes have most to do there
-    picks = sorted(range(80), key=lambda i: -interior(test[i]))[:3]
+    # The three most-interior held-out 3D-Craft builds in the test split (the
+    # probes have most to do there). Only 3D-Craft builds may be published as
+    # images (`_corpus_mask`); the earlier version ranked the first 80 rows,
+    # which are all GrabCraft, and drew GrabCraft builds.
+    pub = _corpus_mask(len(test))
+    picks = sorted((i for i in range(len(test)) if pub[i]),
+                   key=lambda i: -interior(test[i]))[:3]
+    print(f"  fig7 test-split rows {picks} (3dcraft)")
 
     def shot(s, px=300):
         img = render_structure(s, px=px, azim_deg=45, elev_deg=25, ortho=True,
@@ -932,7 +997,8 @@ def fig7_probe_gallery() -> None:
              ("Fill-Interior", probes.solidify),
              ("Hollow-Shell", probes.hollow)]
 
-    fig, axs = plt.subplots(6, 3, figsize=(5.4, 6.2),
+    # CVPR single column.
+    fig, axs = plt.subplots(6, 3, figsize=(figstyle.CVPR_COL, 3.75),
                             gridspec_kw={"height_ratios": [1, 0.58] * 3,
                                          "hspace": 0.04, "wspace": 0.03})
     for r, bi in enumerate(picks):
@@ -944,16 +1010,20 @@ def fig7_probe_gallery() -> None:
             for sp in ax.spines.values():
                 sp.set_visible(False)
             if r == 0:
-                sub = {0: "", 1: "$+33\\%$ blocks", 2: "$-13\\%$ blocks"}[c]
+                # plain text, not mathtext: mathtext set the
+                # numerals in DejaVu, a second font family on the page
+                sub = {0: "", 1: "+33% blocks", 2: "\u221213% blocks"}[c]
                 ax.set_title(f"{name}\n{sub}" if sub else f"{name}\n",
-                             fontsize=8, color=INK if c else INK_2,
+                             fontsize=7.5, color=INK if c else INK_2,
                              fontweight="bold" if c else "normal", pad=3,
                              linespacing=1.25)
             ax2 = axs[2 * r + 1, c]
             ax2.imshow(slab(st), interpolation="nearest", origin="lower")
             ax2.set_xticks([]); ax2.set_yticks([])
+            # figstyle hides top/right spines, so a RULE box drew only two
+            # sides; show the slab unframed instead.
             for sp in ax2.spines.values():
-                sp.set_color(RULE); sp.set_linewidth(0.5)
+                sp.set_visible(False)
     _save(fig, "fig7_probe_gallery")
 
 

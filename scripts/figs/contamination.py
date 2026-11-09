@@ -56,6 +56,7 @@ from matplotlib.patches import Rectangle
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from armnames import display          # noqa: E402
+import figstyle                        # noqa: E402
 OUT = ROOT / "outputs" / "figstage"
 NAME = "contamination"
 
@@ -71,57 +72,37 @@ SPLIT_JSON = (ROOT / "data" / "minecraft" / "splits"
 #: The contaminated arm's samples, for the "is anything actually copied" check.
 DIRTY_NPZ = ROOT / "outputs" / "bench_arms" / "native_oriented_32.npz"
 
-# --- palette (the paper's, unchanged: CVD-validated, no red/green pair) -----
-BLUE = "#2a78d6"      # the clean retrain
-ORANGE = "#eb6834"    # contamination -- the leak, and the arm that carries it
-INK = "#0b0b0b"
-INK_2 = "#52514e"
-MUTED = "#8a8985"
-GRID = "#e4e4e0"
-SURFACE = "#fcfcfb"
-DEEMPH = "#c3c2bd"
-CELL_BG = "#e8e7e3"   # a held-out test build
+# --- palette: figstyle's, nothing local ------------------------------------
+BLUE = figstyle.BLUE        # the clean retrain
+ORANGE = figstyle.ORANGE    # contamination -- the leak, and the arm that carries it
+INK = figstyle.INK
+INK_2 = figstyle.INK_2
+MUTED = figstyle.INK_2
+GRID = figstyle.RULE
+SURFACE = figstyle.PAPER
+DEEMPH = figstyle.INK_2     # context arms (matches fig4's grey)
+CELL_BG = figstyle.SHADE    # a held-out test build
 
 
 def _style() -> None:
-    plt.rcParams.update({
-        "figure.facecolor": SURFACE,
-        "axes.facecolor": SURFACE,
-        "savefig.facecolor": SURFACE,
-        "font.family": "serif",
-        # Keep the $p_{holm}$ / Delta glyphs in the body face rather than
-        # matplotlib's sans-serif mathtext default.
-        "mathtext.fontset": "dejavuserif",
-        "font.serif": ["Times New Roman", "Nimbus Roman", "DejaVu Serif"],
-        "font.size": 8,
-        "axes.labelsize": 8,
-        "axes.titlesize": 8.5,
-        "xtick.labelsize": 7.5,
-        "ytick.labelsize": 7.5,
-        "axes.edgecolor": MUTED,
-        "axes.linewidth": 0.6,
-        "axes.labelcolor": INK_2,
-        "text.color": INK,
-        "xtick.color": INK_2,
-        "ytick.color": INK_2,
-        "xtick.major.width": 0.6,
-        "ytick.major.width": 0.6,
-        "grid.color": GRID,
-        "grid.linewidth": 0.6,
-        "legend.frameon": False,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "figure.dpi": 200,
-    })
+    figstyle.apply(size=7.5, **{"axes.labelsize": 7.5, "xtick.labelsize": 7.5,
+                                "ytick.labelsize": 7.5})
+
+
+#: Output directory; `--out` overrides it.
+OUT_DIR = None
 
 
 def _save(fig: plt.Figure) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"{NAME}.{ext}", bbox_inches="tight", pad_inches=0.02,
-                    dpi=300)
+    if OUT_DIR is None:
+        OUT.mkdir(parents=True, exist_ok=True)
+        for ext in ("pdf", "png"):
+            fig.savefig(OUT / f"{NAME}.{ext}", bbox_inches="tight",
+                        pad_inches=0.02, dpi=300)
+        print(f"  wrote {(OUT / NAME).relative_to(ROOT)}.pdf (+ .png)")
+    else:
+        figstyle.save_all(fig, OUT_DIR, "fig_contamination")
     plt.close(fig)
-    print(f"  wrote {(OUT / NAME).relative_to(ROOT)}.pdf (+ .png)")
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +252,9 @@ PITCH, CELL = 1.0, 0.80      # a surface gap between cells, per mark spec
 #: arms in a row leave 125 pt per quadrant, so every offset in the quadrant is
 #: measured in points and converted into the waffle's data units. Type size then
 #: stops depending on how many cells the waffle happens to have.
-FIG_W = 5.30
+FIG_W = figstyle.CVPR_FULL
 QUAD_PT = 0.98 * FIG_W * 72.0 / 3.0
-GAP_PT, TEXT_PT = 6.0, 72.0
+GAP_PT, TEXT_PT = 8.0, 80.0
 WAFFLE_PT = QUAD_PT - GAP_PT - TEXT_PT
 W_UNITS = (COLS - 1) * PITCH + CELL     # waffle width, data units
 H_UNITS = (ROWS - 1) * PITCH + CELL     # waffle height, data units
@@ -286,7 +267,7 @@ PANEL_W = X0 + QUAD_PT / UNIT
 #: `TITLE_LINES` lines whether it needs them or not, so the three big
 #: percentages land on one baseline and the eye reads across the row instead of
 #: down it.
-F_ARM, F_SPLIT, F_PCT, F_COUNT, LS = 7.4, 7.0, 14.0, 6.9, 1.3
+F_ARM, F_SPLIT, F_PCT, F_COUNT, LS = 8.0, 7.5, 14.0, 7.5, 1.3
 TITLE_LINES, LS_TITLE = 2, 1.16
 Y_ARM = 0.0
 Y_SPLIT = F_ARM * LS_TITLE * TITLE_LINES + 1.0
@@ -366,7 +347,7 @@ def panel_b(ax: plt.Axes, card: Dict) -> dict:
     # reference floor rather than a submission, and "Real" alone would not say
     # so. The keys are the scorecard's and never change.
     arms = [
-        ("real_test", "real held-out builds (the floor)", "context"),
+        ("real_test", display("real_test"), "context"),
         ("native_oriented", display("native_oriented"), "dirty"),
         ("canon_oriented", display("canon_oriented") + " (clean)", "clean"),
         ("llm_control", display("llm_control"), "context"),
@@ -395,16 +376,16 @@ def panel_b(ax: plt.Axes, card: Dict) -> dict:
                 markeredgewidth=1.4 if role == "dirty" else 1.0, zorder=3)
         lab = f"{v:.3f}" if role in ("dirty", "clean") else f"{v:.2f}"
         ax.text(hi + 0.5, y, lab, va="center", ha="left",
-                fontsize=7.5 if role in ("dirty", "clean") else 7,
+                fontsize=7.5,
                 color=INK if role in ("dirty", "clean") else INK_2)
-        ax.text(GCOL, y, groups[key], va="center", ha="center", fontsize=7,
-                color=INK_2, family="monospace")
+        ax.text(GCOL, y, groups[key], va="center", ha="center", fontsize=7.5,
+                color=INK_2)
 
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([r[1] for r in reversed(rows)])
     for tick, r in zip(ax.get_yticklabels(), reversed(rows)):
         tick.set_color(INK if r[2] in ("dirty", "clean") else INK_2)
-        tick.set_fontsize(7.6 if r[2] in ("dirty", "clean") else 7.2)
+        tick.set_fontsize(8.0 if r[2] in ("dirty", "clean") else 7.5)
     ax.tick_params(axis="y", length=0, pad=2)
 
     # The tie bracket: one Holm group, drawn as a brace beside the three rows.
@@ -413,29 +394,31 @@ def panel_b(ax: plt.Axes, card: Dict) -> dict:
             [ys[0] - 0.28, ys[0] - 0.28, ys[-1] + 0.28, ys[-1] + 0.28],
             color=MUTED, linewidth=0.7, clip_on=False, zorder=3)
     ax.text(BRACKET + 0.8, sum(ys) / len(ys), "not\nseparated",
-            ha="left", va="center", fontsize=6.9, color=INK_2, linespacing=1.25)
+            ha="left", va="center", fontsize=7.5, color=INK_2, linespacing=1.25)
 
     # The provenance verdict: a badge on the row, its reason in the empty
     # lower-left, and a dashed arrow for where cleaning the split moves the arm.
     yd, yc = y_of["native_oriented"], y_of["canon_oriented"]
     d = pair(card, "canon_oriented", "native_oriented")
+    # Leaves the hollow marker from below, so the arc never crosses the value
+    # label printed to the right of the dirty row.
+    step = 0.22 if yc > yd else -0.22
     ax.annotate("", xy=(scores["canon_oriented"] - 0.55, yc),
-                xytext=(scores["native_oriented"] + 0.45, yd),
+                xytext=(scores["native_oriented"], yd + step),
                 arrowprops=dict(arrowstyle="->", color=MUTED, linewidth=0.9,
                                 linestyle=(0, (3, 2)),
-                                connectionstyle="arc3,rad=-0.5"))
+                                connectionstyle="arc3,rad=0.35"))
     # "UNRANKED", not "DQ": in this suite a DQ is a fired metric gate
     # (memorization, mode collapse), while a training-provenance failure makes an
     # arm unrankable under the protocol -- `protocol.match_arm`. The arm's
     # memorization gates did not fire, and saying DQ here would imply they did.
-    ax.text(17.9, yd, "UNRANKED", ha="left", va="center", fontsize=7.2,
+    ax.text(17.9, yd, "UNRANKED", ha="left", va="center", fontsize=7.5,
             color=ORANGE)
     # Both paired contrasts stay computed -- they are what `--dump` reports and
     # what the caption and the prose quote -- but neither is drawn in the axes.
     t = pair(card, "canon_oriented", "llm_control")
 
-    ax.set_xlabel("raw V-KID, lower is better (95% CI, n=128, one bench run)",
-                  labelpad=2)
+    ax.set_xlabel("V-KID, lower is better (95% CI)", labelpad=2)
     ax.set_xlim(-1.8, XMAX)
     ax.set_ylim(-0.75, len(rows) - 0.35)
     for side in ("left", "top", "right"):
@@ -444,7 +427,7 @@ def panel_b(ax: plt.Axes, card: Dict) -> dict:
     ax.set_xticks([0, 5, 10, 15, 20])
     ax.set_axisbelow(True)
     ax.text(GCOL, len(rows) - 0.55, "Holm\ngroup", ha="center", va="bottom",
-            fontsize=6.8, color=MUTED, family="monospace", linespacing=1.15)
+            fontsize=7.5, color=MUTED, linespacing=1.15)
     return {"tie": tie, "delta": d, "tie_pair": t,
             "scores": {k: scores[k] for k, _, _, _, _, _ in rows},
             "groups": {k: groups[k] for k, _, _, _, _, _ in rows}}
@@ -530,23 +513,23 @@ def build(dump: bool = False) -> None:
     panel_a(axes, rows)
 
     fig.text(0.01, _f(0.03), "A   Training-set overlap",
-             ha="left", va="top", fontsize=8.5, color=INK)
-    fig.text(0.99, _f(0.03), f"one cell = one of the {n_test} test builds",
-             ha="right", va="top", fontsize=7, color=MUTED)
+             ha="left", va="top", fontsize=8.5, color=INK, fontweight="bold")
+    fig.text(0.99, _f(0.03), f"one cell = one of {n_test} test builds",
+             ha="right", va="top", fontsize=7.5, color=MUTED)
     # The legend, stated once, in ink with coloured marks beside it. Its x
     # positions are points from the left edge, so they hold if the figure is
     # ever re-proportioned.
     x0, ly = _fx(0.01 * FIG_W * 72.0), _f(0.205)
     sw, sh = _fx(6.0), 0.055 / FIG_H
-    for x, label, fill in ((x0, "in that model's training data", ORANGE),
-                           (x0 + _fx(128.0), "genuinely held out", CELL_BG)):
+    for x, label, fill in ((x0, "in training data", ORANGE),
+                           (x0 + _fx(90.0), "held out", CELL_BG)):
         fig.patches.append(Rectangle((x, ly - sh / 2), sw, sh,
                                      transform=fig.transFigure,
                                      facecolor=fill, edgecolor="none"))
         fig.text(x + sw + _fx(3.5), ly, label, ha="left", va="center",
-                 fontsize=7, color=INK_2)
+                 fontsize=7.5, color=INK_2)
 
-    gsb = fig.add_gridspec(1, 1, left=0.325, right=0.99,
+    gsb = fig.add_gridspec(1, 1, left=0.20, right=0.99,
                            top=_f(TOP_BAND + QUAD_H + B_TITLE),
                            bottom=_f(FIG_H - B_FOOT))
     axb = fig.add_subplot(gsb[0, 0])
@@ -555,7 +538,7 @@ def build(dump: bool = False) -> None:
     # than above the arm names.
     fig.text(0.01, _f(TOP_BAND + QUAD_H + 0.06),
              "B   Score after cleaning the split",
-             ha="left", va="top", fontsize=8.5, color=INK)
+             ha="left", va="top", fontsize=8.5, color=INK, fontweight="bold")
 
     _strike(fig, axb, display("native_oriented"))
     _save(fig)
@@ -594,7 +577,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dump", action="store_true",
                     help="print every drawn number as JSON")
-    build(dump=ap.parse_args().dump)
+    ap.add_argument("--out", default=None,
+                    help="write fig_contamination.{pdf,svg,png} here instead "
+                         "of outputs/figstage/contamination.{pdf,png}")
+    args = ap.parse_args()
+    global OUT_DIR
+    if args.out:
+        OUT_DIR = Path(args.out)
+    build(dump=args.dump)
 
 
 if __name__ == "__main__":

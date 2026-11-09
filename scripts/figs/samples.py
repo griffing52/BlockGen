@@ -15,8 +15,8 @@ the leaderboard are the same object.
 
 Where every pixel and every number comes from
 ---------------------------------------------
-* The builds are the run of record's own recorded example strip,
-  `examples_251.npz` + `examples_251_manifest.json`, written by
+* The builds are the leaderboard run's own recorded example strip,
+  `examples_*.npz` + `examples_*_manifest.json`, written by
   `blockgen.eval.bench.examples` at scoring time. Nothing is regenerated here
   and nothing is re-sampled: a *different* draw would be a different figure from
   the one the scorecard describes.
@@ -81,12 +81,20 @@ from matplotlib.patches import Rectangle
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from armnames import display          # noqa: E402
+from armnames import display, metric as metric_name  # noqa: E402
 OUTDIR = ROOT / "outputs" / "figstage"
 
-#: The one bench run every figure in the paper reads.
+#: The leaderboard of record (audit_claims.RUNS["1103_n256"]): the 0925
+#: protocol at n=256, no LLM arms, plus the external Dream-Cubed arms. The
+#: gallery and the leaderboard are the same object, so it reads that run.
 BENCH_RUN = (ROOT / "outputs"
-             / "run_20260925_002631_bench_canonical-split_fixed_transparency_cull")
+             / "run_20261103_090315_bench_n_256_leaderboard_of_record")
+#: The board the paper prints (Table tab:leaderboard): the same arms and
+#: features re-scored with the within-set near-twin gate, plus its rank
+#: intervals. The builds still come from BENCH_RUN's example strip (the rescore
+#: records none); the scores, DQ verdicts and ranks come from here, so the
+#: gallery cannot disagree with the table.
+SCORE_RUN = (ROOT / "outputs" / "run_20261104_214146_bench_twin_gate_rescore")
 
 #: The metric's own texture pack. See paper_figures.flat_textures.
 _FLAT_DIR = tempfile.mkdtemp(prefix="blockgen-flat-")
@@ -107,6 +115,8 @@ _FLAT_DIR = tempfile.mkdtemp(prefix="blockgen-flat-")
 # The arm categories those chips carried are still on the page, and now say so
 # in words: every row is labelled with its kind, which is strictly more than a
 # colour swatch plus a legend lookup was. See ROW_KIND / KIND_LABEL below.
+import cpu_render                     # noqa: E402
+cpu_render.install()                  # BLOCKGEN_FIG_RENDER=cpu: OSMesa, no GPU
 import figstyle                       # noqa: E402
 from figstyle import BLUE, INK, INK_2, ORANGE, PAPER, RULE  # noqa: E402
 
@@ -124,22 +134,31 @@ PX = 300              # render resolution per thumbnail
 #: value and nothing is set below 6.2 pt. (The comment this replaces said
 #: 0.9\linewidth and budgeted for a tenth of shrink that does not happen; the
 #: DQ badge was set at 5.8 pt on the strength of it.)
-PT_TITLE, PT_KIND, PT_RANK = 8.4, 6.4, 7.2
-PT_NAME, PT_HEAD, PT_FINE, PT_FOOT = 8.4, 6.9, 6.4, 6.4
-PT_DQ = 6.2
+#: CVPR pass (2026-11): nothing below 7 pt at printed size (figstyle.MIN_PT).
+PT_TITLE, PT_KIND, PT_RANK = 8.4, 7.0, 7.5
+PT_NAME, PT_HEAD, PT_FINE, PT_FOOT = 8.4, 7.2, 7.0, 7.0
+PT_DQ = 7.0
+
+#: Printed width and the tallest the gallery may be. 5.5 in is the ICLR column
+#: (the default output); `--out` authors at CVPR full text width for a figure*,
+#: capped below the 8.875 in CVPR text height so it fits a float page.
+FIG_W = 5.5
+MAX_H = None
 
 #: Which kind of thing an arm is. Printed on the row; never the ordering, which
 #: is the leaderboard's.
 KIND_LABEL = OrderedDict([
     ("real", "real held-out"),
     ("model", "learned model"),
-    ("llm", "fine-tuned LLM"),
+    ("ext", "published model"),
     ("corrupt", "corrupted real / degenerate"),
     ("proc", "procedural baseline"),
 ])
 
-#: The rows, and why each is here. Twelve of the run's eighteen arms: all five
-#: submissions (so no model is hidden, including the one that is disqualified),
+#: The rows, and why each is here. Eleven of the run's sixteen arms: every
+#: ranked submission (the two token models and the external Dream-Cubed, plus
+#: Dream-Cubed's whole-chunk arm, which the mode-collapse gate disqualifies, so
+#: the cost of the extraction rule is on the page),
 #: the real reference, the three corruption controls the paper's claims name,
 #: the two degenerate controls the suite disqualifies, one procedural baseline
 #: and the bottom-ranked arm. Order on the page is the leaderboard's, read from
@@ -159,9 +178,8 @@ KIND_LABEL = OrderedDict([
 #: standing it is not entitled to. The case-study figure is where it belongs.
 ROW_KIND = OrderedDict([
     ("real_test", "real"),
+    ("dreamcubed", "ext"),
     ("canon_oriented", "model"),
-    ("llm_control", "llm"),
-    ("llm_bias", "llm"),
     ("real@solidify", "corrupt"),
     ("real_shuffled_materials", "corrupt"),
     ("gabled_house", "proc"),
@@ -169,6 +187,7 @@ ROW_KIND = OrderedDict([
     ("real@single_mode", "corrupt"),
     ("train_verbatim", "corrupt"),
     ("canon_unoriented", "model"),
+    ("dreamcubed_raw", "ext"),
 ])
 
 #: Arms whose voxels ARE real corpus builds (possibly damaged). These are the
@@ -242,6 +261,12 @@ def leaderboard(run_dir: Path = BENCH_RUN) -> "OrderedDict[str, Dict]":
         }
     if not out:
         raise SystemExit(f"no leaderboard table found in {run_dir}/scorecard.md")
+    ri = run_dir / "rank_intervals.json"
+    if ri.exists():
+        for r in json.loads(ri.read_text())["rows"]:
+            if r["arm"] in out and not out[r["arm"]]["dq"]:
+                lo, hi = r["rank_ci"]
+                out[r["arm"]]["rank_label"] = f"{lo}" if lo == hi else f"{lo}\u2013{hi}"
     return out
 
 
@@ -254,7 +279,8 @@ def dq_reason(worst: str) -> Tuple[str, str]:
     metric, _, rest = worst.partition(":")
     headline, _, prose = rest.strip().partition(":")
     spreads = re.search(r"\(([+-][\d.]+)\s+spreads\)", prose or rest)
-    tail = f"{metric.strip()}, {spreads.group(1)} spreads" if spreads else metric.strip()
+    name = metric_name(metric.strip())
+    tail = f"{name}, {spreads.group(1)} spreads" if spreads else name
     return headline.strip() or "disqualified", tail
 
 
@@ -428,7 +454,11 @@ def choose(strips, ids, data, memo) -> "OrderedDict[str, Dict]":
 def _topup(arm: str, need: int) -> list:
     """`need` further non-degenerate builds from the arm's full scored sample."""
     import numpy as np
-    path = ROOT / "outputs" / "bench_arms" / f"{arm}_32.npz"
+    # The file the run actually scored, from its scorecard (the n=256 arms are
+    # `*_n256_32.npz`, not the n=128 `*_32.npz`).
+    card = json.loads((BENCH_RUN / "scorecard.json").read_text())
+    src = card["arms"].get(arm, {}).get("meta", {}).get("source", "")
+    path = ROOT / src if src.endswith(".npz") else ROOT / "outputs" / "bench_arms" / f"{arm}_32.npz"
     if not path.exists():
         return []
     z = np.load(path, allow_pickle=True)
@@ -579,7 +609,7 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
     _style()
     rows = sorted(ROW_KIND, key=lambda a: (board[a]["order"]))
 
-    fig_w = 5.5
+    fig_w = FIG_W
     # The label column is as wide as its widest label, MEASURED. Guessing this
     # put "appearance" on top of the first thumbnail; a 20% error in a
     # characters-per-inch constant is invisible until it is a collision.
@@ -587,7 +617,7 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
     need = 0.0
     for arm in rows:
         info = board[arm]
-        need = max(need, _width(arm, PT_NAME))
+        need = max(need, _width(display(arm), PT_NAME))
         if info["dq"]:
             head_txt, tail = dq_reason(info["worst"])
             need = max(need, dq_w + _width(head_txt, PT_HEAD),
@@ -603,11 +633,18 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
     label_w = name_x + need + 0.07
     gutter = 0.05
     cell = (fig_w - label_w - 0.04 - gutter * (NCOL - 1)) / NCOL
+    # No title: the ordering rule and the units belong in the caption (labels
+    # only on the image). What is left is the margin above the first rule.
+    head = 0.06
+    foot_m = 0.03
+    if MAX_H is not None:
+        capped = (MAX_H - head - foot_m) / len(rows) - 0.045
+        if capped < cell:
+            # Height-bound: keep the page width exact and spread the slack
+            # into the gutters, so `\textwidth` prints every size as drawn.
+            cell = capped
+            gutter = (fig_w - label_w - 0.04 - NCOL * cell) / (NCOL - 1)
     pitch = cell + 0.045
-    # Title only. The colour legend that used to sit under it is gone with the
-    # category chips: each row now names its own kind, so there is nothing left
-    # to look up.
-    head = 0.30
     # No small print under the grid: the gate, the selection rule and the
     # framing all belong in the caption, where they are set in the document's
     # type. `_footer` still assembles that text and `main` prints it. What is
@@ -623,11 +660,6 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
         return v / fig_h
 
     tex = flat_textures()
-
-    # --- header ------------------------------------------------------------
-    fig.text(X(0.02), Y(fig_h - 0.155), "Ordered by BlockScore: each arm's worst "
-             "pillar, in real-sample spreads (0 = held-out real)",
-             fontsize=PT_TITLE, va="center", color=INK)
 
     # --- rows --------------------------------------------------------------
     for r, arm in enumerate(rows):
@@ -650,7 +682,8 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
                                               for f in (0.80, 0.545, 0.31, 0.09))
         else:
             name_y, head_y, kind_y = (y + cell * f for f in (0.74, 0.44, 0.16))
-        rank = f"{info['rank']}." if info["rank"] else "—"
+        rank = (f"{info.get('rank_label', info['rank'])}." if info["rank"]
+                and not info["dq"] else "—")
         fig.text(X(name_x - 0.05), Y(name_y), rank, fontsize=PT_RANK,
                  va="center", ha="right", color=INK_2)
         fig.text(X(name_x), Y(name_y), display(arm), fontsize=PT_NAME,
@@ -722,7 +755,17 @@ def build_figure(picks, board, memo, strips, ids, data) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    board = leaderboard()
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--out", default=None,
+                    help="output directory; writes fig_samples.{pdf,svg,png} at "
+                         "CVPR full width (default: outputs/figstage/samples.*)")
+    args = ap.parse_args()
+    global FIG_W, MAX_H
+    if args.out:
+        FIG_W, MAX_H = figstyle.CVPR_FULL, 8.6
+
+    board = leaderboard(SCORE_RUN)
     strips, ids, data, manifest = load_examples()
     missing = [a for a in ROW_KIND if a not in board]
     if missing:
@@ -755,6 +798,11 @@ def main() -> None:
     print("\n--- caption text for the LaTeX figure ---")
     print(" ".join(_footer(any(len(picks[a]["shown"]) < NCOL for a in picks),
                            max((m["iou"] for m in memo.values()), default=float("nan")), _sticks(picks), 9.9)))
+    if args.out:
+        figstyle.save_all(fig, args.out, "fig_samples", tight=False)
+        print(f"  {fig.get_size_inches()[0]:.2f} x {fig.get_size_inches()[1]:.2f} in")
+        plt.close(fig)
+        return
     OUTDIR.mkdir(parents=True, exist_ok=True)
     for ext in ("pdf", "png"):
         fig.savefig(OUTDIR / f"samples.{ext}", dpi=300, bbox_inches="tight",

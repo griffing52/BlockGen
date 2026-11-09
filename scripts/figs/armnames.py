@@ -37,6 +37,10 @@ DISPLAY = {
     "native_oriented":          "Voxel-AR (contaminated)",
     "llm_control":              "LLM-FT",
     "llm_bias":                 "LLM-FT-Geo",
+    # external, published generator (notes §66): the extracted largest
+    # constructed component is the ranked arm; the whole chunk is a DQ control
+    "dreamcubed":               "Dream-Cubed",
+    "dreamcubed_raw":           "Dream-Cubed (raw chunk)",
     # decimated arms: present in old scorecards, never shown (see fast.py)
     "real@canon16":             "Decimated 16",
     "real@canon8":              "Decimated 8",
@@ -51,3 +55,20 @@ def display(arm: str) -> str:
     version of its identifier.
     """
     return DISPLAY.get(arm, arm)
+
+
+#: Metric and gate identifiers -> the names the paper prints. Same fallback rule
+#: as `display`: an unnamed identifier shows up raw so someone notices.
+METRIC = {
+    "geom_kid":            "V-KID",
+    "mv_dino_kid":         "MV-KID",
+    "voxel_diversity":     "voxel diversity",
+    "dino_nn_percentile":  "retrieval percentile",
+    "voxel_twin_rate":     "near-twin rate",
+    "solidify":            "Fill-Interior",
+}
+
+
+def metric(key: str) -> str:
+    """Display name for a metric / gate identifier, or the id itself."""
+    return METRIC.get(key, key)

@@ -114,6 +114,10 @@ SECTION_ASPECT = 8.0 / 20.0
 #: drawn at 5.5 in and shrunk to 0.72 on the page, which put the row labels at
 #: 4.6 pt and the CC BY credit line at 4.0 pt.
 FIG_W = 0.72 * 5.5
+#: `--out` target; when set the figure is drawn at CVPR column width with every
+#: label at >= 7 pt and written as fig8_lego_omr.{pdf,svg,png}.
+OUT_DIR: Optional[Path] = None
+PT = {"title": 6.8, "row": 6.4, "xl": 6.4, "key": 6.4, "credit": 6.2}
 
 #: The three models drawn, by OMR file name. Chosen from the models that have a
 #: sealed interior at all (`--audit`). An earlier version used a car as the
@@ -443,7 +447,7 @@ def make_figure(skip_render: bool = False, dump: bool = False) -> None:
     # The CC BY credit: the licence asks for the model, its author and the
     # repository, so it stays on the image and not only in the caption. At
     # 6.2 pt across a 3.96 in page it is two lines; it is wrapped, never cut.
-    PT_CREDIT = 6.2
+    PT_CREDIT = PT["credit"]
     names = [f"{c['title']} ({c['author'].split(' [')[0]})" for c in creds]
     credit_atoms = (["Models:"]
                     + [n + (" ·" if i < len(names) - 1 else "")
@@ -452,7 +456,7 @@ def make_figure(skip_render: bool = False, dump: bool = False) -> None:
     credit_lines = _wrap(credit_atoms, PT_CREDIT, FIG_W - 0.10)
     credit_lead = 0.100                       # inches between credit baselines
 
-    top_in = 0.28
+    top_in = 0.40 if OUT_DIR is not None else 0.28
     bot_in = 0.48 + credit_lead * len(credit_lines)
     fig_h = block + top_in + bot_in
     fig = plt.figure(figsize=(FIG_W, fig_h))
@@ -487,17 +491,23 @@ def make_figure(skip_render: bool = False, dump: bool = False) -> None:
             if r == 0:
                 cr = creds[c_i]
                 st = col["stats"]
-                ax.set_title(f"{cr['title']}\n{st['parts']} parts, "
+                sep = "\n" if OUT_DIR is not None else ", "
+                ax.set_title(f"{cr['title']}\n{st['parts']} parts{sep}"
                              f"{st['nx']}×{st['ny']}×{st['nz']} cells",
-                             fontsize=6.8, color=INK, pad=2.0, linespacing=1.3)
+                             fontsize=PT["title"], color=INK, pad=2.0,
+                             linespacing=1.3)
             if c_i == 0:
-                ax.set_ylabel(row_labels[r], fontsize=6.4, color=INK_2,
+                ax.set_ylabel(row_labels[r], fontsize=PT["row"], color=INK_2,
                               labelpad=2.5, linespacing=1.25)
             if r == 2:
                 st = col["stats"]
-                ax.set_xlabel(f"sealed interior:\n{st['enclosed_void']} cells, "
-                              f"{st['void_frac_of_mass']:.0%} of mass",
-                              fontsize=6.4, color=INK_2, labelpad=2.0,
+                lab = (f"sealed: {st['enclosed_void']} cells\n"
+                       f"{st['void_frac_of_mass']:.0%} of mass"
+                       if OUT_DIR is not None else
+                       f"sealed interior:\n{st['enclosed_void']} cells, "
+                       f"{st['void_frac_of_mass']:.0%} of mass")
+                ax.set_xlabel(lab,
+                              fontsize=PT["xl"], color=INK_2, labelpad=2.0,
                               linespacing=1.25)
 
     # Key for the two colors in the section that are not LEGO colors, set just
@@ -507,17 +517,21 @@ def make_figure(skip_render: bool = False, dump: bool = False) -> None:
     key_y = bot_in - 0.34
     swatch_w, swatch_h = 0.014 * 5.5 / FIG_W, 0.128
     key_x = 0.078
-    for face, label in ((INTERIOR,
-                         f"sealed interior, the mass {display('real@solidify')} fills"),
-                        (SECTION_BG, "outside the model")):
+    keys = (((INTERIOR, f"sealed interior ({display('real@solidify')})"),
+             (SECTION_BG, "outside model"))
+            if OUT_DIR is not None else
+            ((INTERIOR,
+              f"sealed interior, the mass {display('real@solidify')} fills"),
+             (SECTION_BG, "outside the model")))
+    for face, label in keys:
         fig.patches.append(plt.Rectangle((key_x, Y(key_y - swatch_h / 2)),
                                          swatch_w, Y(swatch_h),
                                          transform=fig.transFigure,
                                          facecolor=face, edgecolor=INK_2,
                                          linewidth=0.4))
         fig.text(key_x + swatch_w + 0.007, Y(key_y), label,
-                 fontsize=6.4, color=INK_2, va="center")
-        key_x += swatch_w + 0.007 + _width(label, 6.4) / FIG_W + 0.030
+                 fontsize=PT["key"], color=INK_2, va="center")
+        key_x += swatch_w + 0.007 + _width(label, PT["key"]) / FIG_W + 0.030
     # CC BY: wrapped, bottom line last, so the block sits on the page edge the
     # way the single line used to.
     for i, line in enumerate(credit_lines):
@@ -525,6 +539,10 @@ def make_figure(skip_render: bool = False, dump: bool = False) -> None:
                  line, ha="center", fontsize=PT_CREDIT, color=INK_2,
                  va="center")
 
+    if OUT_DIR is not None:
+        figstyle.save_all(fig, OUT_DIR, "fig8_lego_omr")
+        plt.close(fig)
+        return
     STAGE.mkdir(parents=True, exist_ok=True)
     for ext in ("png", "pdf"):
         fig.savefig(STAGE / f"lego_ldraw.{ext}", dpi=300, bbox_inches="tight",
@@ -721,7 +739,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="render N models and their voxel round-trips, "
                          "compare silhouettes")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out", default=None,
+                    help="write fig8_lego_omr.{pdf,svg,png} here at CVPR "
+                         "column width instead of outputs/figstage/lego_ldraw.*")
     args = ap.parse_args(argv)
+    if args.out:
+        global OUT_DIR, FIG_W
+        OUT_DIR = Path(args.out)
+        FIG_W = figstyle.CVPR_COL
+        PT.update(title=7.0, row=7.0, xl=7.0, key=7.0, credit=7.0)
 
     if args.audit:
         audit(args.audit, args.seed)

@@ -14,6 +14,7 @@ filtered.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import tempfile
@@ -46,6 +47,15 @@ K = 6
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--out", default=None,
+                    help="output directory; writes fig11_influence.{pdf,svg,png,json} "
+                         "there (default: outputs/figstage/influence_pair.*)")
+    ap.add_argument("--batch", type=int, default=16,
+                    help="DINOv2 embedding batch (small: the GPU is shared)")
+    ap.add_argument("--feat-cache", default=None,
+                    help="npz to load/save the pooled DINOv2 features (debug)")
+    args = ap.parse_args()
     figstyle.apply(size=8)
     from scipy import stats, ndimage
     from blockgen.eval.bench import splits, features as ft, geometry as geom
@@ -65,11 +75,35 @@ def main() -> int:
                     for b in idx])
 
     print("features ...", flush=True)
-    fa = ft.pooled(ft.embed_views(arm, ft.ViewConfig(), verbose=False))
-    fr = ft.pooled(ft.embed_views(ref, ft.ViewConfig(), verbose=False))
+    cache = Path(args.feat_cache) if args.feat_cache else None
+    if cache is not None and cache.exists():
+        z = np.load(cache); fa, fr = z["fa"], z["fr"]
+        print(f"  render features from cache {cache}")
+    else:
+        fa = ft.pooled(ft.embed_views(arm, ft.ViewConfig(), batch=args.batch,
+                                      verbose=False))
+        fr = ft.pooled(ft.embed_views(ref, ft.ViewConfig(), batch=args.batch,
+                                      verbose=False))
+        if cache is not None:
+            np.savez(cache, fa=fa, fr=fr)
     c_r = influence(fa, fr)
-    std = geom.Standardizer.fit(geom.descriptor(ref))
-    c_g = influence(geom.geom_features(arm, std), geom.geom_features(ref, std))
+    # The published figure used the 77-d descriptor of the run of record.
+    # geometry.py has since appended three `walk_*` scalars (2026-10-23); drop
+    # their raw columns before whitening so the standardiser and the unit-norm
+    # match the 77-d features exactly (as scripts/figs/descriptor.py does).
+    # BLOCKGEN_DESCRIPTOR_FULL=1 keeps the new 80-d descriptor.
+    import os
+    d_arm, d_ref = geom.descriptor(arm), geom.descriptor(ref)
+    if os.environ.get("BLOCKGEN_DESCRIPTOR_FULL") != "1":
+        layout = geom.descriptor_layout()
+        sc0 = sum(w for name, w in layout if name != "scalars")
+        drop = {sc0 + i for i, m in enumerate(geom.GEOMETRY_METRICS)
+                if m.startswith("walk_")}
+        keep = np.array([i for i in range(d_arm.shape[1]) if i not in drop])
+        d_arm, d_ref = d_arm[:, keep], d_ref[:, keep]
+    print(f"  geometry descriptor: {d_arm.shape[1]}-d", flush=True)
+    std = geom.Standardizer.fit(d_ref)
+    c_g = influence(std(d_arm), std(d_ref))
 
     sealed = np.array([
         int((ndimage.binary_fill_holes(
@@ -100,31 +134,69 @@ def main() -> int:
                       max(xs.min() - 2, 0):xs.max() + 3]
         return img
 
-    fig = plt.figure(figsize=(5.5, 2.80))
-    gs = fig.add_gridspec(2, K, hspace=0.60, wspace=0.06,
-                          left=0.055, right=0.995, top=0.845, bottom=0.035)
+    # Authored at the CVPR full text width, so every size prints at its value.
+    FW = figstyle.CVPR_FULL if args.out else 5.5
+    fig = plt.figure(figsize=(FW, 3.05))
+    gs = fig.add_gridspec(2, K, hspace=0.55, wspace=0.06,
+                          left=0.01, right=0.99, top=0.865, bottom=0.04)
 
+    rank_r = {int(j): k for k, j in enumerate(np.argsort(c_r)[::-1])}
+    rank_g = {int(j): k for k, j in enumerate(np.argsort(c_g)[::-1])}
+    shown = {}
     for r, (c, colour, name, rho, pv) in enumerate((
-            (c_r, ORANGE, "render metric", rho_r, p_r),
-            (c_g, BLUE, "geometric metric", rho_g, p_g))):
-        cand = [j for j in np.argsort(c)[::-1] if pub[j]][:K]
+            (c_r, ORANGE, "MV-KID", rho_r, p_r),
+            (c_g, BLUE, "V-KID", rho_g, p_g))):
+        cand = [int(j) for j in np.argsort(c)[::-1] if pub[j]][:K]
+        shown[name] = [{"j": j, "test_row": int(idx[j]),
+                        "split_row": int(rows[int(idx[j])]),
+                        "infl_render": float(c_r[j] - c_r.mean()),
+                        "infl_geom": float(c_g[j] - c_g.mean()),
+                        "rank_render": rank_r[j], "rank_geom": rank_g[j],
+                        "sealed": int(sealed[j])} for j in cand]
         for n_i, j in enumerate(cand):
             ax = fig.add_subplot(gs[r, n_i])
             ax.imshow(shot(arm[j]))
             ax.set_xticks([]); ax.set_yticks([])
             for spn in ax.spines.values():
                 spn.set_visible(False)
-            ax.set_title(f"{c[j]-c.mean():+.2f}", fontsize=7,
+            ax.set_title(f"{c[j]-c.mean():+.2f}", fontsize=7.5,
                          color=colour, fontweight="bold", pad=1.5)
-            ax.set_xlabel(f"{sealed[j]} cells", fontsize=6.4, color=INK_2,
+            ax.set_xlabel(f"{sealed[j]} cells", fontsize=7, color=INK_2,
                           labelpad=1.5)
-        fig.text(0.055, 0.900 - r * 0.468,
-                 f"worst {K} by the {name}", fontsize=8.2,
+        y_head = 0.935 - r * 0.475
+        fig.text(0.01, y_head, f"{name}: worst {K}", fontsize=8.5,
                  color=colour, fontweight="bold", ha="left")
-        fig.text(0.995, 0.900 - r * 0.468,
-                 r"$\rho$ with sealed interior volume = "
-                 f"{rho:+.3f}" + ("  (n.s.)" if pv > 0.05 else "  (p < 0.001)"),
-                 fontsize=7.4, color=colour, ha="right")
+        fig.text(0.99, y_head,
+                 "ρ vs sealed volume = "
+                 f"{rho:+.3f}" + (" (n.s.)" if pv > 0.05 else " (p < 0.001)"),
+                 fontsize=7.5, color=colour, ha="right")
+
+    for name, items in shown.items():
+        print(f"  {name} row:")
+        for d in items:
+            print("   ", d)
+    both = sorted({d["j"] for d in shown["MV-KID"]}
+                  & {d["j"] for d in shown["V-KID"]})
+    print(f"  builds in both rows (arm index j): {both}")
+    # identical-occupancy check among all shown builds (duplicate builds in split)
+    allj = sorted({d["j"] for v in shown.values() for d in v})
+    dups = [(a, b) for ai, a in enumerate(allj) for b in allj[ai + 1:]
+            if arm[a].occupied_mask.shape == arm[b].occupied_mask.shape
+            and (arm[a].occupied_mask == arm[b].occupied_mask).all()]
+    print(f"  distinct-j pairs with identical occupancy: {dups}")
+
+    stats_json = {"rho_render_geom": float(rho_pair),
+                  "rho_render_sealed": float(rho_r), "p_render_sealed": float(p_r),
+                  "rho_geom_sealed": float(rho_g), "p_geom_sealed": float(p_g),
+                  "n": int(len(arm))}
+    if args.out:
+        out = Path(args.out)
+        figstyle.save_all(fig, out, "fig11_influence", tight=True)
+        plt.close(fig)
+        (out / "fig11_influence.json").write_text(json.dumps(
+            {**stats_json, "n_publishable": int(pub.sum()), "shown": shown,
+             "in_both_rows": both, "identical_occupancy_pairs": dups}, indent=1))
+        return 0
 
     OUTDIR.mkdir(parents=True, exist_ok=True)
     for ext in ("pdf", "png"):
@@ -132,11 +204,7 @@ def main() -> int:
                     bbox_inches="tight", facecolor=PAPER)
     plt.close(fig)
     print(f"wrote {OUTDIR}/influence_pair.{{pdf,png}}")
-    (OUTDIR / "influence_pair.json").write_text(json.dumps(
-        {"rho_render_geom": float(rho_pair),
-         "rho_render_sealed": float(rho_r), "p_render_sealed": float(p_r),
-         "rho_geom_sealed": float(rho_g), "p_geom_sealed": float(p_g),
-         "n": int(len(arm))}, indent=1))
+    (OUTDIR / "influence_pair.json").write_text(json.dumps(stats_json, indent=1))
     return 0
 
 

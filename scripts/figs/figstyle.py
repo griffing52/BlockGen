@@ -137,8 +137,40 @@ def apply(size: float = 8.0, **overrides) -> None:
         # checker objects.
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
+        # SVG keeps text as <text> elements (Illustrator-editable), not paths.
+        "svg.fonttype": "none",
         **overrides,
     })
+
+
+# --- CVPR 2027 page geometry -------------------------------------------------
+
+#: CVPR two-column page: one column and the full text width, in inches. A figure
+#: authored at exactly one of these widths and included at `\linewidth` (or
+#: `\textwidth` in a `figure*`) prints every point size at its own value.
+CVPR_COL = 3.25
+CVPR_FULL = 6.875
+#: Smallest type allowed at printed size.
+MIN_PT = 7.0
+
+
+def save_all(fig, out_dir, name: str, *, dpi: int = 300, tight: bool = True,
+             pad: float = 0.02, exts=("pdf", "svg", "png")) -> None:
+    """Write `name`.{pdf,svg,png} into `out_dir`.
+
+    PDF: TrueType-embedded live text (fonttype 42). SVG: live <text> elements
+    (svg.fonttype none) and raster tiles embedded as data-URI <image> elements.
+    PNG: preview only.
+    """
+    from pathlib import Path
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    kw = {"dpi": dpi, "facecolor": PAPER}
+    if tight:
+        kw.update(bbox_inches="tight", pad_inches=pad)
+    for ext in exts:
+        fig.savefig(out_dir / f"{name}.{ext}", **kw)
+    print(f"  wrote {out_dir}/{name}.{{{','.join(exts)}}}")
 
 
 if __name__ == "__main__":
