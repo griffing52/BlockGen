@@ -1,0 +1,7 @@
+description: the joint facade layout on the D4-augmented houses shard, eight symmetries of every house, at 5M (notes.md §59)
+extends: [houses32-facades-joint]
+name: houses32_facades_joint_d4_5m
+augment: d4
+steps: 16000
+warmup: 300
+ckpt_every: 4000

@@ -1,0 +1,4 @@
+description: the joint facade layout on the D4-augmented houses shard at the 20m preset (notes.md §59)
+extends: [houses32-facades-joint-20m]
+name: houses32_facades_joint_d4_20m
+augment: d4

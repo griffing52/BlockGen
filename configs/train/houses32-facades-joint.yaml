@@ -1,0 +1,5 @@
+description: the facade kind with every face of a house in one sequence, each face conditioned on the ones before it (notes.md §56)
+extends: [houses32-facades]
+name: houses32_facades_joint_5m
+tokenizer: a4ca45ac1fe5        # the joint-layout facade shard
+max_seq_len: 8200

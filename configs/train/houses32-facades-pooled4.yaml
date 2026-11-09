@@ -1,0 +1,5 @@
+description: the per-face facade model with its own level f=4 as a prefix (the cascade-and-AR hybrid of notes §74); the f=4 oracle test forces the real coarse level
+extends: [houses32-facades]
+name: houses32_facades_pooled4_5m
+tokenizer: 4c4fd9c6cb48        # facades, layout pooled4 (per face: pooled level f=4, then the face)
+max_seq_len: 2400

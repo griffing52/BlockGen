@@ -1,0 +1,24 @@
+description: >
+  Rejection-sampling fine-tuning of the joint facade D4 20m model (parent dropout 0.1, tokenizer a4ca45ac1fe5).
+  The derived rft tier is written unaugmented, so augment is empty here and the SFT tier it is mixed with is the
+  plain joint shard. init_from and train are given on the command line, as python -m blockgen.posttrain.rft
+  prints them: init_from=<parent>/best.pt train=rft-<parent>-<reward>:1,sft-houses32:1 trained_on_signals=<reward>.
+  Honesty rule (blockgen/posttrain): the reward may only be a signal that is not a BlockScore pillar input;
+  it is reported as a method-internal metric, never as a BlockScore gain, and the arm is judged by the full
+  BlockScore at the control n under houses32-v1, claiming only pillars the reward did not touch. Dropout
+  stays at the parent's value (T59).
+extends: [base]
+name: rft_facades_joint_d4_20m
+stage: posttrain
+preset: 20m
+kind: facades
+tokenizer: a4ca45ac1fe5
+augment: ""
+max_seq_len: 8200
+val: [eval-holdout]
+steps: 4000
+warmup: 100
+lr: 5.0e-5
+select: best
+dropout: 0.1
+bench_n: 256

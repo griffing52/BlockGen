@@ -1,0 +1,5 @@
+description: a two-minute end-to-end check of the facade kind; not a result
+extends: [smoke]
+name: smoke_facades
+kind: facades
+max_seq_len: 2200

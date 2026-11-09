@@ -1,0 +1,7 @@
+description: the joint facade layout at the 20m preset, three times the steps of the 5m run, whose holdout NLL was still falling at step 8000 (notes.md §56)
+extends: [houses32-facades-joint]
+name: houses32_facades_joint_20m
+preset: 20m
+steps: 24000
+warmup: 400
+ckpt_every: 4000
