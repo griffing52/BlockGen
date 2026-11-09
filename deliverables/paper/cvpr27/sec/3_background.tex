@@ -1,0 +1,49 @@
+\section{Background and Problem Setting}
+\label{sec:background}
+
+%TL;DR of paragraph: notation for a structure and an arm, and the two assumptions that separate this setting from image generation.
+A \emph{structure} here is a map $x : \{1,\dots,d\}^3 \to \mathcal{V}$ from a voxel grid to a
+categorical block vocabulary $\mathcal{V}$, with one symbol reserved for air. An
+\emph{arm} is a finite set of structures with a name and a provenance record: a
+generative model's samples, a procedural generator's output, or real data under a known
+corruption. Evaluation compares an arm's empirical distribution $Q$ against a fixed
+reference $P$ of real structures. Two features of this setting differ from image
+generation. Sample sizes are in the hundreds rather than the tens of thousands, and arms
+may differ in size, so a statistic whose null depends on $n$ ranks by sample size.
+
+%TL;DR of paragraph: define MMD, the unbiased estimator, and how KID and FID instantiate it on features.
+Both metrics we report are kernel two-sample distances. For a feature map $\phi$ and a
+kernel $k$,
+\begin{equation}
+\begin{split}
+\mathrm{MMD}^2(P,Q) ={}& \mathbb{E}\,k(\phi(x),\phi(x')) + \mathbb{E}\,k(\phi(y),\phi(y'))\\
+  &- 2\,\mathbb{E}\,k(\phi(x),\phi(y)),
+\end{split}
+\label{eq:mmd}
+\end{equation}
+with $x,x' \sim P$ and $y,y' \sim Q$ \citep{gretton2012mmd}. The unbiased estimator of
+Eq.~\ref{eq:mmd} omits the diagonal terms $k(\phi(x_i),\phi(x_i))$ from the within-set
+means. The biased estimator keeps them, so its null on two disjoint real halves decays
+with $n$. KID \citep{binkowski2018kid} is the unbiased estimator with a polynomial
+kernel on encoder features, and FID \citep{heusel2017fid} fits a Gaussian to each feature
+set instead. A \emph{render-and-embed} metric is any of these with $\phi =
+(\text{encoder}) \circ (\text{render})$, so the structure reaches the statistic only as a
+set of images. 
+
+%TL;DR of paragraph: define the noise floor, the unit that makes metrics on different features commensurable.
+Raw distances across features can differ by orders of magnitude, so we report all distances in \emph{noise floors}. For each feature and sample size $n$, the noise floor is defined as the standard deviation of the distance obtained from repeated real-vs-reference draws under the same experimental run. Thus, a value of $1.0$ indicates that the observed distance is one standard deviation of the metric's sampling variability. Because the sampling variability changes with $n$, the noise-floor unit is $n$-dependent (\suppsec{app:nscale}). \com{check all appendix refs}
+
+%TL;DR of paragraph: define the three validity properties a metric must have, which we later apply as blocking gates.
+We treat a metric as \emph{valid} for ranking when it has three properties.
+\begin{enumerate}
+    \item 
+\textbf{Ordering}: its value rises monotonically with the severity of a known corruption.
+% its value rises monotonically with the severity of a corruption known to reduce quality. 
+    \item \textbf{Invariance}: its value does not move under a transformation
+that leaves quality unchanged. 
+\item \textbf{$n$-stability}: its null on real-vs-real draws
+does not drift with $n$. 
+\end{enumerate}
+Sensitivity, how \emph{much} damage a metric
+resolves at a given $n$, is statistical power rather than measuring the right quantity, so
+we record it alongside the three rather than as a fourth.

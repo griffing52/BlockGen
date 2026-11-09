@@ -1,0 +1,91 @@
+%% Shared preamble for main.tex and supp.tex (CVPR 2027 kit).
+%% Loaded by both documents BEFORE hyperref (the kit loads hyperref after this).
+%% cvpr.sty already provides: times, xspace, xcolor[dvipsnames], graphicx,
+%% amsmath, amssymb, booktabs, natbib[numbers], caption, subcaption, url,
+%% enumitem, and (at end of preamble) cleveref.
+
+\usepackage{amsthm}
+\newtheorem{lemma}{Lemma}
+\usepackage{multirow}
+\usepackage{csquotes}   % \enquote{...}
+\usepackage{xr-hyper}   % cross-document refs main <-> supp; must precede hyperref
+
+% A little slack for lines TeX cannot break well (long \texttt identifiers).
+\emergencystretch=1.5em
+
+% Float packing (standard loosenings; no kit layout rule is changed).
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.75}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.80}
+\renewcommand{\dbltopfraction}{0.92}
+\renewcommand{\dblfloatpagefraction}{0.80}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\setcounter{dbltopnumber}{2}
+
+% ---------------------------------------------------------------------------
+% Draft switch. Default build = draft: \TODO, \UNMEASURED and \com render in
+% colour. Submission build (`make submit`, which defines \submission) turns
+% draft off, and then every leftover \TODO / \UNMEASURED / \com is a hard error.
+% ---------------------------------------------------------------------------
+\newif\ifdraft\drafttrue
+\ifdefined\submission\draftfalse\fi
+\ifdraft
+  \newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+  \newcommand{\UNMEASURED}[1]{\textcolor{red}{\textbf{[UNMEASURED: #1]}}}
+  \newcommand{\com}[1]{\textcolor{blue}{Comment: #1}}
+\else
+  \newcommand{\TODO}[1]{\PackageError{paper}{Unresolved TODO: #1}{}}
+  \newcommand{\UNMEASURED}[1]{\PackageError{paper}{Unmeasured claim: #1}{}}
+  \newcommand{\com}[1]{\PackageError{paper}{Unaddressed comment: #1}{}}
+\fi
+
+% ---------------------------------------------------------------------------
+% Cross-document references. The supplementary is a separate PDF; labels are
+% imported with xr-hyper under a prefix (main imports supp as S-*, supp imports
+% main as M-*; the prefix also keeps the two bibliographies' numbers apart).
+% Always go through these macros, never \ref{S-...} by hand.
+%   main  -> supp : \suppsec \suppfig \supptab
+%   supp  -> main : \mainsec \mainfig \maintab \maineq
+% ---------------------------------------------------------------------------
+\newcommand{\suppsec}[1]{Supp.~Sec.~\ref{S-#1}}
+\newcommand{\suppfig}[1]{Supp.~Fig.~\ref{S-#1}}
+\newcommand{\supptab}[1]{Supp.~Tab.~\ref{S-#1}}
+\newcommand{\mainsec}[1]{main paper \S\ref{M-#1}}
+\newcommand{\mainfig}[1]{main paper Fig.~\ref{M-#1}}
+\newcommand{\maintab}[1]{main paper Tab.~\ref{M-#1}}
+\newcommand{\maineq}[1]{main paper Eq.~\ref{M-#1}}
+
+% ---------------------------------------------------------------------------
+% Names (ported from iclr/main.tex). Every name in \mbox so it never breaks at
+% its internal hyphen; arms/probes/baselines in \textsc, metrics roman.
+% ---------------------------------------------------------------------------
+% -- the two realism metrics
+\newcommand{\mvkid}{\mbox{MV-KID}}      % multi-view render KID (DINOv2, 4 views)
+\newcommand{\vkid}{\mbox{V-KID}}        % voxel-descriptor KID
+\newcommand{\blockscore}{\mbox{BlockScore}}
+
+% -- probes (real data, corrupted in a known way)
+\newcommand{\solidify}{\mbox{\textsc{Fill-Interior}}}
+\newcommand{\matshuffle}{\mbox{\textsc{Material-Shuffle}}}
+\newcommand{\monochrome}{\mbox{\textsc{Monochrome}}}
+\newcommand{\singlemode}{\mbox{\textsc{Single-Mode}}}
+\newcommand{\traincopy}{\mbox{\textsc{Train-Copy}}}
+\newcommand{\realheld}{\mbox{\textsc{Real}}}
+\newcommand{\hollow}{\mbox{\textsc{Hollow-Shell}}}
+\newcommand{\growshell}{\mbox{\textsc{Grow-Shell}}}
+
+% -- procedural baselines
+\newcommand{\patchstitch}{\mbox{\textsc{Patch-Stitch}}}
+\newcommand{\gabled}{\mbox{\textsc{Gabled-House}}}
+\newcommand{\hollowbox}{\mbox{\textsc{Hollow-Box}}}
+\newcommand{\randomvox}{\mbox{\textsc{Random-Voxels}}}
+\newcommand{\copynoise}{\mbox{\textsc{Train-Copy+Noise}}}
+
+% -- generative arms
+\newcommand{\voxar}{\mbox{\textsc{Voxel-AR}}}
+\newcommand{\voxarun}{\mbox{\textsc{Voxel-AR-U}}}
+\newcommand{\llmft}{\mbox{\textsc{LLM-FT}}}
+\newcommand{\llmgeo}{\mbox{\textsc{LLM-FT-Geo}}}

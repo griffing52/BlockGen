@@ -1,0 +1,50 @@
+% Active abstract: version A of STRUCTURE_ABSTRACT.md (user decision 2026-11-04).
+% Headline numbers are from the n=256 leaderboard of record
+% (run_20261103_090315_bench_n_256_leaderboard_of_record): 0.35 and 444.36.
+% "Five image encoders" = DINOv2-B plus the four others of Supp. Tab. tab:ablation.
+% Older drafts are kept commented below for reference.
+\begin{abstract}
+Generative models of 3D structure are ranked by metrics that observe only part of what they score: rendered exterior views, points sampled from visible surfaces, or a judge shown images. A metric cannot rank what its observations discard, and for buildings, LEGO models and indoor scenes the discarded part is often the interior, which decides whether a structure can be entered, assembled or navigated. We make this limit measurable with complement probes that alter a structure while keeping every exterior-visible face identical. Filling the sealed rooms of real Minecraft houses adds a median 33\% more blocks, yet a multi-view DINOv2 kernel distance places the filled corpus 0.35 noise floors (units of the metric's own real-versus-real sampling spread) from real data, in the same significance group. The blindness holds for seven render statistics, five image encoders and up to sixteen views, for Uni3D and ULIP-2 point-cloud encoders and Chamfer and earth mover's distances on visible-surface points, and for a GPT-4o judge, across Minecraft, LEGO and Objaverse meshes. Changing only the observation, by cutting the views open or sampling interior faces, recovers the signal. We introduce V-KID, a CPU-only voxel metric that separates the probe by 444 noise floors and is blind exactly where render metrics see, and a protocol that admits a metric to a leaderboard only after it passes gates on ordering, invariance and sample-size stability, which Fr\'echet distance fails. Applied to the published generator BrickGPT, the protocol finds a geometric gap 2.2 times its render gap in effect size.
+\end{abstract}
+
+% Previous active draft (2026-11-02, 0925 protocol numbers 0.14 / 202):
+% \begin{abstract}
+% Generative models of 3D structure are evaluated by rendering a few exterior views, embedding them with a pretrained encoder, and measuring a distribution distance to real data. This protocol cannot see whether a structure has an inside, yet interiors are what make a building walkable, a LEGO model buildable, and a game asset usable. We measure the gap with a controlled corruption: filling every sealed room of real Minecraft buildings with their own material adds a median 33\% more blocks and leaves the silhouette unchanged. A DINOv2 kernel distance on four views moves 0.14 noise floors, inside the spread of real data, while a kernel distance on voxel descriptors moves 202. Seven render-space statistics, five encoders, up to sixteen views and a LEGO corpus all miss the corruption, while resolving every corruption that reaches the exterior. Cutaway views recover it with the same encoder, placing the failure in the view protocol, and under opaque rendering we prove no exterior-view metric can detect it. We therefore introduce V-KID, a CPU-only geometric metric with the complementary blind spot, and a validation protocol that admits a metric to a leaderboard only after it passes gates on ordering, invariance and sample-size stability. Fr\'echet distance and the biased MMD fail these gates.
+% \end{abstract}
+
+% \begin{abstract}
+% Many existing evaluation protocols for 3D generative models assess realism by rendering generated structures from a limited set of viewpoints and comparing pretrained visual features of these renderings against those of real data. While effective for measuring visual similarity and distributional realism, such protocols provide limited guarantees about properties that are intrinsically three-dimensional or functional. In particular, exterior-view evaluation may fail to detect missing or incoherent interior geometry, inaccessible spaces, collisions, or invalid spatial layouts. For structures intended to be inhabited, assembled, or navigated—such as Minecraft buildings, LEGO models, or game environments—these properties are central to usability rather than merely appearance.   We measure this failure with a controlled corruption. Filling every sealed void in a corpus of real buildings adds a median of $33\%$ more blocks and leaves the exterior silhouette untouched. A multi-view DINOv2 kernel distance places the corrupted corpus at just $0.38$ noise floors from real data, while our proposed geometric metric on voxel descriptors (V-KID) successfully separates it by over $200$ noise floors. Seven render-space statistics, five encoders, view budgets up to sixteen views, and a second domain all miss this corruption while resolving every other one we apply. Under an opaque renderer, filling sealed voids cannot change any exterior view, meaning no exterior-view statistic can separate it at any sample size.   To close this blind spot, we introduce a validation protocol that requires metrics to pass strict gates for monotonicity, invariance, and sample-size stability before they can rank models. Measuring geometry directly alongside renders provides a complete evaluation. Applying this protocol to our own models demonstrated its practical necessity by exposing an $87\%$ train-test contamination in a generator we had treated as a top result, proving the danger of deploying unvalidated metrics.
+% \end{abstract}
+
+% \begin{abstract}
+% %TL;DR of paragraph: the field renders exterior views to evaluate 3D structure, and that protocol cannot see interiors, which is the property that makes a structure usable.
+% Many existing evaluation protocols for 3D generative models assess realism by rendering generated structures from a limited set of viewpoints and comparing pretrained visual features of these renderings against those of real data. While effective for measuring visual similarity and distributional realism, such protocols provide limited guarantees about properties that are intrinsically three-dimensional or functional. In particular, exterior-view evaluation may fail to detect missing or incoherent interior geometry, inaccessible spaces, collisions, or invalid spatial layouts. For structures intended to be inhabited, assembled, or navigated—such as Minecraft buildings, LEGO models, or game environments--these properties are central to usability rather than merely appearance.
+
+% % Generative models of discrete {3D} structure are evaluated by rendering a few
+% % exterior views, embedding them with a pretrained encoder, and measuring a
+% % distribution distance to real data. This protocol cannot see whether a structure
+% % has an inside. Interior layout is what makes a generated structure usable rather than decorative: a Minecraft build someone walks through, a LEGO model someone assembles, a game asset that needs navigable space and collision volumes.
+
+% %TL;DR of paragraph: the measurement, its scope across statistics and encoders, and the impossibility result that explains it.
+% We measure the failure with a controlled corruption. Filling every sealed void in
+% a corpus of real buildings adds a median of $33\%$ more blocks and leaves the
+% exterior silhouette untouched. A multi-view DINOv2 kernel distance places the
+% corrupted corpus $0.38$ \com{what does that number mean? Should we immediately know what these mean? There is not really a baseline to give them meaning?} of its own sampling noise from real data, while a kernel
+% distance on voxel descriptors places it beyond $200$. Seven render-space
+% statistics, five encoders, view budgets up to sixteen views, and a second domain
+% all miss this corruption while resolving every other one we apply. Cutaway views
+% recover the signal with the same encoder and the same statistic, which locates
+% the failure in the view protocol rather than in the features. Under an opaque
+% renderer the invisibility is exact: filling sealed voids cannot change any
+% exterior view, so no encoder and no statistic can separate it at any sample size.
+
+% %TL;DR of paragraph: the prescription is to validate a metric before ranking with it, and applying it cost us our own headline result.
+% \com{We might want to word it as we introduce this because it makes it seem like our only contribution is noticing the problem, not giving a potential solution} We therefore require a metric to pass a validation protocol before it ranks
+% models. Candidates are scored against corruptions of known severity and must
+% satisfy monotonicity, invariance, and sample-size stability, with separate
+% disqualification gates for memorization and mode collapse. Measuring geometry
+% directly alongside the renders closes the blind spot. Applying the protocol to
+% our own models \com{What? Why talk about this? This just makes it seems like we were just dumb and didn't use splits well enough} exposed $87\%$ train-test contamination in the generator we had
+% treated as this project's best result, which lost its advantage over the
+% baselines once retrained on a clean split.
+% \end{abstract}

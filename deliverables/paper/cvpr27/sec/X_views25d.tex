@@ -1,0 +1,75 @@
+% Source: outputs/run_20261104_213620_view_facade_section (notes §76, results T90).
+\subsection{Facade and cross-section views}
+\label{app:views25d}
+
+The corner views of \mvkid{} are one choice of exterior observation. We test two others,
+holding the builds, the reference and the encoder of the $n{=}256$ leaderboard fixed
+(every arm reproduces the leaderboard's build hashes). The \vkid{} column uses the
+leaderboard's own noise floor. Each view condition draws its own floor from $48$ fresh real
+draws, and for the corner views that draw comes out $1.22$ times the leaderboard's, so from
+identical raw distances the corner column reads \matshuffle{} at $+346$ where the
+leaderboard reads $+422.43$; on the leaderboard's floor the corner column reads \solidify{}
+at $+0.35$, \hollow{} at $+0.04$ and \monochrome{} at $+535.36$. \emph{Facade
+views} are the views an architect draws: four side elevations at zero elevation, alone
+(A-sides) and with a roof plan (A-render), and the 2.5D facade representation itself,
+five images of the first block along each axis shaded by its depth, drawn without a
+renderer (A-2.5D). \emph{Cross-section views} open the build: one-voxel sections through
+the middle of $x$, $z$ and $y$ seen face-on (B-mid), sections at $25$, $50$ and $75\%$ of
+each axis (B-9), and the build with half removed along each axis, seen at the cut
+(B-cut). Table~\ref{tab:views25d} reports every condition in its own noise floors above
+the held-out real draw.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+ & corner & A-sides & A-render & A-2.5D & B-mid & B-9 & B-cut & \vkid{} \\
+\midrule
+\solidify{}   & $+0.3$   & $+4.4$   & $+3.6$   & $0$      & $+71.1$  & $+67.5$  & $+14.3$  & $+444.4$ \\
+\hollow{}     & $+0.0$   & $+0.8$   & $+0.6$   & $0$      & $+39.7$  & $+42.8$  & $+5.3$   & $+265.4$ \\
+\matshuffle{} & $+346$   & $+548$   & $+610$   & $+355$   & $+226$   & $+292$   & $+415$   & $0$ \\
+\monochrome{} & $+439$   & $+1146$  & $+1309$  & $+314$   & $+1080$  & $+1314$  & $+925$   & $0$ \\
+yaw $90^\circ$ & $-0.2$  & $+0.0$   & $+0.1$   & $+0.1$   & $+0.4$   & $+0.5$   & $-0.2$   & $0$ \\
+mirror        & $-0.2$   & $+0.1$   & $+0.1$   & $+0.0$   & $-0.4$   & $-0.3$   & $+0.0$   & $0$ \\
+\midrule
+$\rho$ vs corner & $1$   & $0.97$   & $0.97$   & $0.96$   & $0.93$   & $0.93$   & $0.95$   & $0.27$ \\
+$\rho$ vs \vkid{} & $0.27$ & $0.10$  & $0.10$   & $0.28$   & $0.07$   & $0.07$   & $0.05$   & $1$ \\
+\bottomrule
+\end{tabular}}
+\caption{\textbf{Facade and cross-section views ($n{=}256$).} Separation in noise floors
+above held-out real data. $\rho$: Spearman correlation of the ordering of eleven arms
+(four probes, three procedural baselines, three autoregressive arms, Dream-Cubed) with
+corner-view \mvkid{} and with \vkid{}. The A-2.5D images of \solidify{} and \hollow{} are
+bit-identical to the real images for all $256$ builds.}
+\label{tab:views25d}
+\end{table}
+
+\paragraph{Facade views do not see the interior.} The 2.5D facade images of \solidify{}
+and \hollow{} are bit-identical to those of the real builds for all $256$ houses, so the
+separation is exactly zero. The representation records the first block along each axis
+and counts glass as a block, and a probe that keeps the exterior air region fixed keeps
+every first block fixed. This is Lemma~\ref{lem:surface} with no
+renderer involved. Rendered elevations read \solidify{} at $+4.4$ noise floors, above the
+corner views' $+0.3$, because a face-on camera looks straight through windows into the
+filled rooms; at $n{=}128$ the same condition reads $+2.3$. The signal is a window
+leak, a hundred times smaller than the $444$ of \vkid{}, and \hollow{} stays below one
+noise floor.
+
+\paragraph{Cross-sections see the interior through appearance.} A one-voxel section shows
+rooms as background and filled rooms as material, and B-mid separates \solidify{} by
+$+71$ and \hollow{} by $+40$ noise floors. Removing half of the build (B-cut) leaves the
+far walls in view and reaches $+14$. Both are far below \vkid{}, and the ordering of the
+other arms barely moves: every view condition ranks the eleven arms as the corner views
+do ($\rho \ge 0.93$) and unlike \vkid{} ($\rho \le 0.28$), with \monochrome{} and the
+procedural baselines furthest from real. Showing the inside to an image encoder recovers
+the interior signal without turning the metric into a structural one, which is the
+complementary blindness that motivates scoring each pillar separately
+(\mainsec{sec:complementary}).
+
+\paragraph{Invariance.} Axis-aligned views are not invariant to the heading of a build
+unless the pooled set is. Under a $90^\circ$ yaw and a mirror of the held-out real builds,
+every condition moves by at most $0.5$ noise floors, so mean-pooling over the sides is
+invariant in practice.

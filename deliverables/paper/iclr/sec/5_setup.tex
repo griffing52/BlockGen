@@ -2,22 +2,21 @@
 \label{sec:setting}
 
 %TL;DR of paragraph: the corpus is Minecraft houses pooled from three public sources onto a shared vocabulary, and the split matters more than the pooling.
-Our testbed is Minecraft houses: discrete {3D} structures over a categorical block
+Our test medium is Minecraft houses as they represent discrete {3D} structures over a categorical block
 vocabulary, at a scale where a real corpus exists and interiors are semantically
 meaningful. We pool three public sources onto a shared vocabulary: a GrabCraft scrape,
 the 3D-Craft house traces \citep{chen2019voxelcnn,gray2019craftassist} and the text2mc
 dump. A quality gate and variant-aware deduplication leave \textbf{2{,}661} houses in a
-$32^3$ box (Appendix~\ref{app:corpus}). How that corpus is divided matters more than how
-it was assembled.
+$32^3$ box (Appendix~\ref{app:corpus}).
 
 %TL;DR of paragraph: the split must be group-aware because public corpora ship sibling builds, and we measure the leakage a random split causes.
 Public build corpora ship sibling structures, such as ``American Middle Class House 10 /
 22 / 9'', and a random row split scatters a family across train and validation. Over $20$
 seeds, a mean of \textbf{28.7\%} of validation items share a build family with training
-(s.d.\ $2.7$, range $23.1$--$35.8$). Leakage at that rate inflates the held-out floor and
+(s.d.\ $2.7$, range $23.1$-$35.8$). Leakage at that rate inflates the held-out floor and
 deflates every memorization statistic at once. Our canonical split is group-aware over
 $2{,}054$ families at $0\%$ cross-split family overlap, pinned and released: train
-$1{,}863$ / validation $399$ / test $399$. The calibration draw needs the same care, since
+$1{,}863$ / validation $399$ / test $399$. \com{what is this next line?} The calibration draw needs the same care, since
 taking the first $n$ test builds rather than a shuffled sample inflates the measured noise
 floor by $\mathbf{10.4\times}$ (Appendix~\ref{app:repro}).
 
@@ -42,8 +41,10 @@ only, since one that had seen validation or test would hold an unearned advantag
 \hollow{}       & interior blocks removed      & \gabled{}      & box, pitched roof, door, windows \\
 \matshuffle{}   & blocks permuted, shape kept  & \patchstitch{} & $8^3$ patches, different builds \\
 \monochrome{}   & one material, shape kept     & \copynoise{}   & a training build, $10\%$ displaced \\
-\traincopy{}    & verbatim training copies     & \multicolumn{2}{l}{\textbf{submissions} \voxar{}, \voxarun{}, \llmft{}, \llmgeo{}} \\
-\singlemode{}   & one build repeated $n$ times & \multicolumn{2}{l}{(two token models, two language models)} \\
+\traincopy{}    & verbatim training copies     & \voxar{} & a native token-based model \\
+\singlemode{}   & one build repeated $n$ times & \llmft{} & a finetuned language model \\
+% \traincopy{}    & verbatim training copies     & \multicolumn{2}{l}{\textbf{submissions} \voxar{}, \voxarun{}, \llmft{}, \llmgeo{}} \\
+% \singlemode{}   & one build repeated $n$ times & \multicolumn{2}{l}{(two token models, two language models)} \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -545,35 +545,6 @@ procedural baselines are \emph{too} hollow, with aperture-aware interior ratios 
 ``higher is better'' would therefore rank a hollow box above a house, which is why every
 coherence measure is reported as distance to real.
 
-\section{Human Study Protocol}
-\label{app:study}
-
-\paragraph{Protocol.} Nine arms give $36$ pairs; $288$ trials, $40$ per session,
-sides randomized per trial, and arm labels stripped from the page, all enforced by an
-automated check, not merely intended, because a condition visible in the DOM is
-a condition the rater can read. Catch trials (real vs.\ uniform noise) are
-interleaved.
-
-\paragraph{Analysis, fixed in advance and in this order.}
-\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
-\item Exclude any session scoring below $75\%$ on catch trials. A rater who
-  cannot distinguish a real house from uniform noise is not doing the task, and
-  the threshold is fixed here rather than tuned after seeing which exclusion
-  helps a metric.
-\item Fit \textbf{Bradley--Terry} arm strengths \citep{bradley1952rank} rather
-  than raw win rate. Win rate depends on which opponents an arm happened to be
-  drawn against, and with a random subset shown per session, coverage is always
-  uneven.
-\item Report (a) pairwise agreement on humanly-decided pairs and (b) Spearman
-  $\rho$ against the Bradley--Terry scores. Pairs where humans are near chance
-  are reported but excluded from the agreement statistic: counting them scores a
-  metric on coin flips, and with enough of them any metric converges to $50\%$.
-\end{enumerate}
-
-The pipeline is validated end to end on $14$ simulated rater sessions, two of
-them answering at random. It excluded exactly those two on catch
-trials and recovered the injected quality ordering.
-
 \section{Extended Related Work}
 \label{app:related}
 
@@ -607,8 +578,8 @@ pipeline, neither of whose fixes reaches the interior.
 
 \paragraph{\citet{herve2021pcgmetrics}.} Correlates eighteen procedural-content
 metrics against GDMC jury scores. The only prior meta-evaluation of metrics in
-this domain, and the precedent for validating a metric against human judgment
-here rather than assuming it transfers.
+this domain, and the route by which a human-validated version of this suite
+would proceed.
 
 \section{Full View-Protocol Ablation}
 
@@ -1179,8 +1150,7 @@ third-party content. The four things the paper promises, namely the suite, the
 probes, the baselines and the split, contain no upstream content.
 
 %TL;DR of paragraph: published images are restricted by source, and the texture assets they use are permitted for non-commercial images but not redistributed.
-Every build shown in this paper, and every stimulus shown to a human rater,
-comes from \textbf{3D-Craft only}. GrabCraft's terms name pictures of blueprints
+Every build shown in this paper comes from \textbf{3D-Craft only}. GrabCraft's terms name pictures of blueprints
 as a prohibited form of distribution; 3D-Craft's builds were commissioned as a
 research corpus and carry no prohibition on depiction. Their license needs
 stating precisely, because it is not the one the CraftAssist code carries. The
@@ -1211,9 +1181,9 @@ record that as a limitation rather than an omission. Our LEGO evaluation corpus
 is StableText2Brick \citep{pun2025brickgpt}, loaded from HuggingFace and not
 redistributed; it derives from ShapeNetCore, whose terms restrict use to
 non-commercial research.
-\TODO{Insert the institutional determination for the corpus release and the
-human-subjects review before submission. Both are open questions for the
-university's research-compliance office, not settled by the authors.}
+\TODO{Insert the institutional determination for the corpus release before
+submission. It is an open question for the university's research-compliance
+office, not settled by the authors.}
 
 \begin{figure}[t]
 \centering

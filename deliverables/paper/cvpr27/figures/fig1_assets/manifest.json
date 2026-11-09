@@ -1,0 +1,36 @@
+{
+  "build_index": 249,
+  "section_z": 6,
+  "plan_y": 6,
+  "files": {
+    "exterior/<arm>_az045_el30.png": "paper's metric view, azimuth 45, elevation 30, orthographic",
+    "exterior/<arm>_az135_el30.png": "paper's metric view, azimuth 135, elevation 30, orthographic",
+    "exterior/<arm>_az225_el30.png": "paper's metric view, azimuth 225, elevation 30, orthographic",
+    "exterior/<arm>_az315_el30.png": "paper's metric view, azimuth 315, elevation 30, orthographic",
+    "hero/<arm>_az030_el25.png": "isometric hero shot, azimuth 30, elevation 25",
+    "hero/<arm>_az060_el25.png": "isometric hero shot, azimuth 60, elevation 25",
+    "hero/<arm>_az045_el35.png": "isometric hero shot, azimuth 45, elevation 35",
+    "cutaway_roofoff/<arm>_az045_el60.png": "lower half kept (roof off), azimuth 45, elevation 60",
+    "cutaway_roofoff/<arm>_az225_el60.png": "lower half kept (roof off), azimuth 225, elevation 60",
+    "cutaway_quadrant/<arm>_az045_el30.png": "facing quadrant removed, azimuth 45, elevation 30",
+    "cutaway_quadrant/<arm>_az225_el30.png": "facing quadrant removed, azimuth 225, elevation 30",
+    "floor_slabs/<arm>_slab20.png": "one-voxel floor slab at slab20, azimuth 45, elevation 75",
+    "floor_slabs/<arm>_slab40.png": "one-voxel floor slab at slab40, azimuth 45, elevation 75",
+    "floor_slabs/<arm>_slab60.png": "one-voxel floor slab at slab60, azimuth 45, elevation 75",
+    "floor_slabs/<arm>_slab80.png": "one-voxel floor slab at slab80, azimuth 45, elevation 75",
+    "sections/<arm>_vertical_z6.svg": "vertical section (vector): layer 'blocks' and layer 'interior_air'",
+    "sections/<arm>_plan_y6.svg": "horizontal floor plan from above (vector), same layers",
+    "plan_masks/<arm>_footprint_plan_y6.png": "top-down footprint (grey) with the sealed air of floor y as peach, 24 px per block",
+    "metric_strip.{svg,pdf,png}": "the metric strip alone; SVG text is live <text>"
+  },
+  "numbers": {
+    "mv": 0.35366821503914364,
+    "vkid": 444.36489865188247,
+    "uni3d": -0.1,
+    "uni3d_s1": 0.4,
+    "vlm": 0.52734375,
+    "vlm_lo": 0.49609375,
+    "vlm_hi": 0.55859375,
+    "vlm_pairs": 128
+  }
+}

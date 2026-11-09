@@ -1,0 +1,19 @@
+\section{Conclusion}
+
+%TL;DR of paragraph: what we found: the inherited render-and-embed protocol measures a structure's surface, so interior damage passes it untouched.
+Evaluation for {3D} structure generation was inherited from image generation, and the
+inheritance carries a specific defect. Rendering a structure and embedding the renders
+measures its surface, and a building is not its surface. Filling every interior in a corpus
+of real buildings is invisible to a multi-view kernel distance that resolves every
+corruption reaching the exterior. That invisibility survives every encoder, view
+budget and statistic we try, point-cloud metrics on visible surfaces and an image judge,
+and a cutaway view removes it: what the render metric misses is not the quantity of the
+change but its location.
+
+%TL;DR of paragraph: the general lesson, that a metric inherits the blind spots of the observation it is built on, and what follows for practice.
+A metric therefore earns the right to rank models by first resolving damage of known
+severity. The price is a handful of corruption arms scored beside the real reference in
+every run, and what it buys is that a result resting on a blind metric fails in the lab
+rather than in the literature. Structure that decides whether a generated
+object is usable, and that no camera can photograph, has to be measured directly,\label{endofmain} and the
+same audit is owed to mesh and implicit {3D} generation.

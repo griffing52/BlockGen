@@ -1,0 +1,34 @@
+% ---------------------------------------------------------------------------
+% CVPR 2027 requires an LLM Usage Statement (desk reject if missing). It does
+% NOT count against the 8-page limit; it sits after the main text and before
+% the references. It must be truthful: it is the authors' attestation.
+% Keep this accurate as the paper changes.
+% ---------------------------------------------------------------------------
+\section*{LLM Usage Statement}
+
+%TL;DR of paragraph: we disclose AI assistance by dividing the labor rather than with a blanket statement.
+We used a generative AI coding assistant substantially in preparing this work,
+and describe the division of labor rather than a blanket disclosure.
+
+%TL;DR of paragraph: the assistant drafted text, figure code, parts of the suite and the literature search.
+\textbf{Where it was used.} Drafting and editing the text of this paper;
+implementing the figure-generation code; implementing parts of the evaluation
+suite and the probes; and conducting literature
+searches, including the prior-art check that identified
+\citet{binkowski2018kid}'s Appendix~B.2 as the source of the mixture identity in
+\suppsec{app:failrate} and the limitation already stated by
+\citet{merino2026dreamcubed}.
+
+%TL;DR of paragraph: the research questions, design and interpretation are the authors', and no number came from a language model.
+\textbf{Where it was not.} The research questions, the experimental design, the
+decision of what to measure, and the interpretation of results are the authors'.
+No experimental result, numerical value or table entry in this paper was
+produced by a language model: every number is emitted by the released code from
+a recorded run, and the figures read those runs directly rather than
+transcribing them.
+
+%TL;DR of paragraph: citations and arithmetic were checked, which found and fixed several errors.
+\textbf{Verification.} Every citation was checked against arXiv or the official
+proceedings, and every numeral in the paper is re-derived from a recorded run by a
+registered check in the released code. The authors take full responsibility for the
+contents of the paper, including any remaining errors.

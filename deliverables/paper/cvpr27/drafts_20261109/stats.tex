@@ -1,0 +1,173 @@
+% =====================================================================
+% stats.tex: supplement text for effect size, detection-n, equivalence, the
+% noise-floor audit and the kernel analysis. Five blocks, each headed by
+% the place it goes in sec/X_appendix.tex. Source runs:
+%   outputs/run_20261108_205428_stats_fixes  (results.json: effects, effects2,
+%     floor_sim, floor_audit, kernel, gates_recheck; notes §88, results T115)
+%   outputs/run_20261109_152704_rankflips_functional_rebase/fig_detection.py
+%     (the figure, from the same effects.detection_n block)
+% =====================================================================
+
+
+% =====================================================================
+% BLOCK A. Effect size.
+% EXTENDS \subsection{Reading a squared statistic over a population of prompts}
+% (\label{app:failrate}): append after its last paragraph ("One caution on the
+% readout ..."). Nothing in that subsection is replaced.
+% =====================================================================
+\paragraph{An effect size for comparing metrics.} A separation in noise floors is a test
+statistic: it grows linearly in $n$ (Sec.~\ref{app:nscale}) and at a different rate per
+metric, so a ratio of two metrics' separations is not a ratio of what they see. The readout
+above gives a quantity that does not grow with $n$,
+$e = \sqrt{\mathrm{MMD}^2_{\text{arm}}}\,/\,\sqrt{\mathrm{MMD}^2_{\randomvox{}}}$ under the
+same metric, which reads $0$ for real data and $1$ for the anchor whatever the metric.
+Table~\ref{tab:effect} gives it for every probe at $n{=}256$. The two interior probes sit at
+$0.03$ and $0.02$ of the anchor on appearance, inside the $95$th percentile of fresh real
+draws ($0.031$), and at $0.78$ and $0.60$ on geometry. \matshuffle{} and \monochrome{} are
+the converse. \patchstitch{} sits as far from real on geometry as on appearance, so its
+near-real local statistics buy it no geometric advantage. Read between a probe and its own
+source builds, the render features of \solidify{} do move, by $0.018$ $[0.014, 0.024]$ of the
+anchor against a paired null of $0.005$: that is the glass leak of Sec.~\ref{app:hull}, $44$
+times smaller than \vkid{}'s $0.80$ on the same pairs.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\caption{\textbf{Effect size} $e$, $\sqrt{\mathrm{MMD}^2}$ over that of \randomvox{} under
+the same metric, $n{=}256$ against the $399$-build reference, with half-sampling $95\%$
+intervals. The $95$th percentile of fresh real draws is $0.031$ (\mvkid{}) and $0$
+(\vkid{}). BrickGPT is scored on the LEGO suite, where the anchor is \singlemode{}.}
+\label{tab:effect}
+\begin{tabular}{lccr}
+\toprule
+arm & \mvkid{} & \vkid{} & ratio \\
+\midrule
+\solidify{}     & $0.03$ {\scriptsize$[0.00, 0.08]$} & $0.78$ {\scriptsize$[0.74, 0.83]$} & $27$ \\
+\hollow{}       & $0.02$ {\scriptsize$[0.00, 0.08]$} & $0.60$ {\scriptsize$[0.57, 0.63]$} & $26$ \\
+\growshell{}    & $0.47$ {\scriptsize$[0.44, 0.50]$} & $0.80$ {\scriptsize$[0.77, 0.84]$} & $1.7$ \\
+\matshuffle{}   & $0.62$ {\scriptsize$[0.60, 0.65]$} & $0$                                & $0$ \\
+\monochrome{}   & $0.70$ {\scriptsize$[0.68, 0.73]$} & $0$                                & $0$ \\
+\patchstitch{}  & $0.63$ {\scriptsize$[0.61, 0.66]$} & $0.71$ {\scriptsize$[0.69, 0.73]$} & $1.1$ \\
+BrickGPT        & $0.17$                             & $0.37$                             & $2.2$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% =====================================================================
+% BLOCK B. Detection-n and equivalence.
+% EXTENDS \subsection{The head-to-head test} (\label{app:significance}): append
+% after its second paragraph ("Recomputing the run of record ..."). Nothing in
+% that subsection is replaced; its p from 0.61 to 0.77 is the n=128 protocol
+% run, the 0.87 below is the n=256 leaderboard draw.
+% Figure file: drafts_20261109/fig_detection.pdf -> figures/fig_detection.pdf
+% =====================================================================
+\paragraph{Non-detection, and equivalence.} Every probe is built from the same builds as the
+real arm it is compared with. The label-permutation test treats the two arms as independent,
+which is exact under its null but discards the pairing, so on a probe it is conservative:
+\solidify{} against real reads $p{=}0.87$ at $n{=}256$. A paired test that swaps labels
+within each build and its probe reads $p{=}0.055$ for the same $+0.35$ floors, and $0.82$ for
+\hollow{}. Across $n$ from $8$ to $256$ the paired test never reaches $80\%$ power on either
+interior probe under \mvkid{} (at most $0.20$), while \vkid{} detects both at $n{=}8$
+(Fig.~\ref{fig:detection}). Non-rejection is not equivalence, so we also test equivalence
+against a margin fixed in advance, two noise floors, with two one-sided tests whose standard
+error is that of a fresh draw of $256$ builds and of the reference, from the Hoeffding
+decomposition of the paired difference. \solidify{} reads $+0.35$ floors with $90\%$
+interval $[-0.28, +0.98]$ and \hollow{} $+0.04$ with $[-0.25, +0.33]$, both equivalent to real
+($p{<}0.001$); the same holds for a margin of $0.05$ in effect size ($\pm 2.7$ floors). Under
+\vkid{} neither is equivalent, at $444$ and $265$ floors.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_detection}
+\caption{\textbf{Detection as a function of $n$.} Power of the paired permutation test
+($\alpha{=}0.05$, $999$ permutations) of each probe against its own source builds, over $40$
+random subsets per $n$ below $256$ and the full set at $n{=}256$; dashed line, $80\%$.
+\vkid{} detects \solidify{}, \hollow{} and \growshell{} at $n{=}8$. \mvkid{} detects
+\growshell{}, \matshuffle{} and \monochrome{} at $n{=}8$ and never reaches $80\%$ power on
+\solidify{} or \hollow{}.}
+\label{fig:detection}
+\end{figure*}
+
+
+% =====================================================================
+% BLOCK C. Noise-floor audit.
+% REPLACES the last four sentences of \subsection{The $n{=}256$ leaderboard and
+% the $n{=}128$ protocol run} (\label{app:n256}), from "The noise floor at
+% $n{=}256$ is estimated from $256$ of the $399$ test builds per draw" to
+% "The ranks do not depend on it." The rank-interval sentences before them stay.
+% Also EXTENDS \paragraph{The unit is itself estimated.} in app:nscale: no edit
+% needed there, the last two sentences below cite its 10% figure.
+% =====================================================================
+\paragraph{Calibrating the finite-population correction.} The floor at $n{=}256$ draws
+$256$ of the $399$ test builds per replicate and divides the spread of those overlapping
+draws by $\sqrt{1-n/N}$. For a degenerate U-statistic the leading variance term carries
+$(1-f)^2$ rather than $(1-f)$, which would make this correction too small, but the pool's own
+kernel matrix adds a first-order term of order $\zeta_2/N$ that more than offsets it. We
+measure the net effect against non-overlapping draws: a reference of $399$ and a population
+of $1{,}464$ real builds, both drawn from the training split so that the statistic sits in the
+same near-degenerate regime, with the true spread read off disjoint $n$-sets of the
+population. The true spread is $0.88$ to $0.95$ of the bench floor at $n{=}256$ and $0.89$ to
+$0.93$ at $n{=}128$, for both metrics, so the floor is slightly conservative; a $(1-f)$
+correction would overstate it by a factor near $1.8$. On the leaderboard's own pool an
+unbiased Hoeffding estimate, accurate to $5\%$ in the simulation, puts the stored \vkid{}
+floor $11\%$ above the true one and the stored \mvkid{} floor $2.5\%$ below it. The larger
+term is the Monte-Carlo error of Sec.~\ref{app:nscale}: $48$ draws pin the \vkid{} floor at
+$n{=}256$ only to $[0.043, 0.067]$ at $95\%$, which is why two runs scoring the same raw
+distance against two $48$-draw floors can read \matshuffle{} at $+422$ and at $+346$. We keep
+each run's stored floor; under the corrected floor no gate verdict of \vkid{} or \mvkid{}
+changes and no ranking changes.
+
+
+% =====================================================================
+% BLOCK D. Kernel and preprocessing.
+% NEW \subsection, placed last in \section{Robustness of \vkid{}}
+% (\label{app:vkid-robust}), i.e. after \input{sec/X_vkidrobust} and before
+% the fig:nn figure. Optional one-line pointer at the end of
+% \paragraph{Estimator and kernel.} in Sec. A:
+%   "Sec.~\ref{app:kernel} shows that no conclusion depends on this kernel."
+% =====================================================================
+\subsection{Kernel and preprocessing}
+\label{app:kernel}
+
+With unit-norm rows and $t = a^{\top}b/D \in [-1/D, 1/D]$, the cubic kernel expands as
+$(1+t)^3 = 1 + 3t + 3t^2 + t^3$. On every probe the linear term carries $99.8\%$ of \mvkid{}
+and $98.8$ to $99.5\%$ of \vkid{}, so both metrics are in effect tests of a difference in mean
+embedding; differences in spread, such as mode collapse, are left to the diversity and
+memorization gates. Table~\ref{tab:kernel} varies the kernel and the preprocessing. Every
+\vkid{} variant leaves \solidify{} and \hollow{} hundreds of floors from real, scores
+\matshuffle{} at exactly $0$ and passes every gate of the geometry ladder at $n{=}64$ and
+$128$. Whitening and the clip set the magnitudes: removing the clip lowers \solidify{} from
+$422$ to $288$ floors, and removing whitening raises it to $1{,}637$ while lowering
+\growshell{} to $165$. On the render side, whitening the DINOv2 features against the
+reference leaves \solidify{} at $0.50$ floors and \hollow{} at $0.06$.
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\caption{\textbf{Kernel and preprocessing ablation.} Separations in each variant's own noise
+floor (the bench estimator's expected value, so the base \vkid{} row reads $422$ where the
+card's $48$-draw floor gives $444$), $n{=}256$, $399$-build reference. Gates: the geometry
+ladder at $n{=}64$ and $128$; $^\ast$the render ladder at $n{=}64$.}
+\label{tab:kernel}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrl}
+\toprule
+variant & \solidify{} & \hollow{} & \growshell{} & \matshuffle{} & gates \\
+\midrule
+\vkid{}, cubic          & $422$     & $252$  & $446$ & $0$   & pass \\
+\quad linear kernel     & $419$     & $251$  & $444$ & $0$   & pass \\
+\quad RBF, median       & $475$     & $266$  & $485$ & $0$   & pass \\
+\quad no clip           & $288$     & $247$  & $409$ & $0$   & pass \\
+\quad no whitening      & $1{,}637$ & $213$  & $165$ & $0$   & pass \\
+\quad no whitening, RBF & $692$     & $160$  & $180$ & $0$   & pass \\
+\midrule
+\mvkid{}, cubic         & $0.31$    & $0.03$ & $206$ & $365$ & pass$^\ast$ \\
+\quad linear kernel     & $0.31$    & $0.03$ & $206$ & $365$ & --- \\
+\quad RBF, median       & $0.32$    & $0.03$ & $215$ & $351$ & pass$^\ast$ \\
+\quad whitened DINOv2   & $0.50$    & $0.06$ & $200$ & $277$ & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}

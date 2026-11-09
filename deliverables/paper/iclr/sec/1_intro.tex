@@ -12,34 +12,29 @@ serialized geometry \citep{wang2024llamamesh,sudhakaran2023mariogpt}. Many of th
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/fig1_teaser}
-\caption{\textbf{A building is not its silhouette.} \emph{Left:} a real build, sectioned vertically through its sealed interior, shown in
-peach. \emph{Right:} the same build under \solidify{}, every sealed void filled by its own dominant material and cut on the same plane, almost indistinguishable in all four views the metric renders. \mvkid{} separates the two by $0.14$ of its own noise floor, which leaves them in one
-significance group, while \vkid{} separates them by $202$. Renders use the metric's own texture pack; published builds
+\caption{\textbf{A building is not its silhouette.} \emph{Left:} a real build, sectioned vertically through its five rooms, with sealed interior air in peach. \emph{Right:} the same build under \solidify{}, every sealed void filled by its own dominant material and cut on the same plane, almost indistinguishable in all four views the metric renders. Raw \mvkid{} moves from $-0.001$ to $+0.000$, one significance group, while \vkid{} moves $202$ noise floors. Renders use the metric's own texture pack; published builds
 come from 3D-Craft (Appendix~\ref{app:data}).}
 \label{fig:teaser}
 \end{figure}
 
 %TL;DR of paragraph: the probe is filling sealed interiors with the build's own material, and the render metric ties it with real data even though the metric is wide awake on the same corpus.
-Our probe, \solidify{}, takes real buildings and fills every enclosed air cell with that build's own dominant material, so no new material betrays the corruption (Figure~\ref{fig:teaser}). It adds a median of $33\%$ more blocks, alters $94\%$ of examined builds, and leaves the exterior silhouette untouched. Scored at $n{=}128$ against $399$ held-out real builds, the metric cannot tell the
-solidified corpus from genuinely held-out real data. Comparing every pair of arms and
-correcting for the number of comparisons \citep{holm1979simple}, the two are
-statistically indistinguishable. The metric is not simply insensitive: on the same
-builds it separates a permutation of the block materials, which moves no geometry at
-all, by $+231.52$ noise floors (Table~\ref{tab:leaderboard}).
+Our probe, \solidify{}, takes real buildings and fills every enclosed air cell with that build's own dominant material, so no new material betrays the corruption (Figure~\ref{fig:teaser}). It adds a median of $33\%$ more blocks, alters $94\%$ of examined builds, and leaves the exterior silhouette untouched. Scored at $n{=}128$ against $399$ held-out real builds, a solidified corpus and its genuine, real data counterpart \emph{share a significance group} under a paired, \com{What does this mean haha? These two last lines} Holm-corrected \citep{holm1979simple} comparison over all arm pairs. The same encoder and the same statistic separate a material permutation of the same builds at $+220.83$ noise floors (Table~\ref{tab:leaderboard}).
 
 %TL;DR of paragraph: the cutaway ablation locates the failure in the view protocol rather than the encoder, and under an opaque renderer the invisibility is exact.
-The failure is in what the views show, not in what the encoder computes. Change only the
-cameras, so that the renders expose the interior, and the same probe separates at
-$7$--$56$ noise floors (\S\ref{sec:ablation}). Under an opaque renderer it stops being a
-matter of degree: filling sealed voids cannot change any exterior view, so no encoder
-and no statistic can separate the two at any sample size (\S\ref{sec:hollow},
+\com{weakish? Hard to follow--maybe too much bloat, see what really adds something in this paragraph}
+The failure is in what the views show, not in what the encoder computes.
+Holding the encoder and the statistic fixed and changing only the cameras, so
+that the renders expose the interior, separates the same probe at $9$-$57$
+noise floors (\S\ref{sec:ablation}). Under an opaque renderer the invisibility
+is exact as filling sealed voids cannot change any
+exterior view, so no encoder, statistic, sample size or view budget separates a
+corpus from its solidified copy (\S\ref{sec:hollow},
 Appendix~\ref{app:hull}).
 
 %TL;DR of paragraph: the prescription is to validate a metric against corruptions of known severity before ranking with it, and to measure geometry directly alongside the renders.
-No metric should rank models until it has shown that it detects damage it ought to
-detect. We therefore score candidate metrics against corruptions of known severity and
-require monotonicity, invariance and sample-size stability before any of them orders a
-scoreboard, with separate
+\com{what does this line mean} A metric should therefore earn the right to rank. We score candidate metrics
+against corruptions of known severity and require monotonicity, invariance and
+sample-size stability before any of them orders a scoreboard, with separate
 disqualification gates for memorization and mode collapse. Measuring geometry
 directly, alongside the renders rather than instead of them, closes the blind
 spot. We make three main contributions.

@@ -1,0 +1,39 @@
+% CVPR 2027 supplementary material (separate PDF, due Nov 23).
+% Built from sec/X_appendix.tex (13 sections mirroring the main paper; see
+% SUPP_RESTRUCTURE.md). References back to the main paper go through xr-hyper.
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage[review]{cvpr}
+
+\input{preamble}
+
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+\usepackage{placeins} % \FloatBarrier where a float must not cross a section
+
+% Main-paper labels (sec:*, tab:leaderboard, eq:mmd, ...) come from main.aux.
+\externaldocument[M-]{main}
+
+\def\confName{CVPR}
+\def\confYear{2027}
+\def\paperID{*****}
+
+\title{A Building Is Not Its Silhouette: Structural Blindness in 3D Generation Evaluation}
+\author{Anonymous CVPR submission}
+
+\begin{document}
+\maketitlesupplementary
+
+% Lettered sections (A, B, ...) so they never collide with main-paper section
+% numbers; the main paper cites them as "Supp. Sec. A".
+\appendix
+\input{sec/X_appendix}
+
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{references,references_new}
+}
+
+\end{document}

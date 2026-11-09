@@ -1,0 +1,96 @@
+% Source: outputs/run_20261104_235615_bench_headtohead (notes §80, results T92).
+\subsection{\vkid{} against structural alternatives}
+\label{app:headtohead}
+
+Render metrics are blind to interiors by construction, so outscoring them is not what a
+geometry pillar must show. We therefore compare \vkid{} against the structural metrics a
+3D reviewer would reach for, under the tests \vkid{} itself passed. The rows are:
+\begin{itemize}
+\item kernel distances on the 3D encoders Uni3D and ULIP-2, fed points from every exposed
+  block face, sealed rooms included (\emph{all}), or uniform points inside occupied voxels
+  (\emph{vol});
+\item the set statistics of the shape-generation literature, MMD, $1-$coverage and
+  1-NN accuracy, under chamfer and exact EMD on all-face points, chamfer on voxel centres,
+  and $1-$IoU between occupancy grids, either aligned at the bounding-box corner or
+  maximised over the eight yaw and mirror variants;
+\item KID on the occupancy grid itself, bounding-box centred in $32^3$ and $4^3$
+  average-pooled. This is the same estimator as \vkid{}, with raw occupancy as the
+  features.
+\end{itemize}
+
+Each row is scored by the ladder code that gates the leaderboard. That ladder uses the
+houses\_32 ladder subset, $n{=}128$, 48 noise draws and the geometry rungs. The encoders,
+which read colour, are also judged on the render rungs. Each row is then scored on the
+$n{=}256$ arms of the leaderboard of record, rebuilt with matching build hashes. The
+\vkid{} row reproduces the leaderboard exactly ($+444.4$).
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{2.5pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrrrrlrrr}
+\toprule
+ & \multicolumn{4}{c}{ladder, $n{=}128$} & & \multicolumn{3}{c}{board, $n{=}256$} \\
+\cmidrule(lr){2-5}\cmidrule(lr){7-9}
+row & \solidify{} & \hollow{} & \matshuffle{} & \monochrome{} & gates & \solidify{} & $\rho$ \vkid{} & $\rho$ \mvkid{} \\
+\midrule
+\textbf{\vkid{}}            & $\mathbf{+111.4}$ & $\mathbf{+71.0}$ & $0$ & $0$ & \textbf{pass} & $\mathbf{+444.4}$ & $1$ & $0.27$ \\
+occupancy KID               & $+48.4$  & $+13.1$ & $0$     & $0$      & G2, G6 & $+121.2$ & $0.83$ & $0.23$ \\
+Uni3D KID, all              & $+26.6$  & $+10.4$ & $+22.4$ & $+99.7$  & G6     & $+31.8$  & $0.51$ & $0.85$ \\
+Uni3D KID, vol              & $+37.2$  & $+10.6$ & $+6.7$  & $+105.5$ & G6     & $+108.4$ & $0.59$ & $0.78$ \\
+ULIP-2 KID, all             & $+4.6$   & $+1.8$  & $+29.1$ & $+101.8$ & G6 / G2 & $+12.0$ & $0.42$ & $0.87$ \\
+ULIP-2 KID, vol             & $+11.9$  & $+9.0$  & $+9.7$  & $+62.8$  & G6 / G2 & $+43.2$ & $0.51$ & $0.85$ \\
+chamfer MMD, all            & $+7.6$   & $+1.4$  & $-0.1$  & $-0.1$   & G2, G8 & $+8.9$   & $0.64$ & $0.27$ \\
+chamfer 1-NNA, all          & $+2.9$   & $+1.1$  & $0.0$   & $-0.6$   & G2, G6 & $+4.0$   & $0.76$ & $0.43$ \\
+EMD MMD, all                & $+3.2$   & $+0.3$  & $-0.2$  & $-0.3$   & G2, G8 & ---      & ---    & ---    \\
+EMD 1-NNA, all              & $+1.6$   & $+0.1$  & $-0.5$  & $-0.2$   & G2     & ---      & ---    & ---    \\
+chamfer MMD, voxel centres  & $-3.4$   & $+2.8$  & $+0.1$  & $+0.1$   & G2, G8 & $-3.5$   & $0.53$ & $0.54$ \\
+IoU MMD, D4-aligned         & $-9.0$   & $+7.7$  & $0$     & $0$      & G8     & $-5.3$   & $0.36$ & $0.35$ \\
+IoU 1-NNA, D4-aligned       & $+2.7$   & $+2.4$  & $0$     & $0$      & G2     & $+5.9$   & $0.75$ & $0.28$ \\
+IoU MMD, corner             & $-11.5$  & $+8.4$  & $0$     & $0$      & G6, G8 & $-7.4$   & $0.52$ & $0.46$ \\
+\bottomrule
+\end{tabular}}
+\caption{\textbf{\vkid{} against structural alternatives.} Separation from held-out real
+data in each row's own noise floors. Gates: G2 noise ordering, G6 invariance, G8
+$n$-stability; ``G6 / G2'' gives the failing gate under the geometry and the render rungs.
+$\rho$: Spearman correlation of the ordering of eleven leaderboard arms. The $1-$coverage
+rows fail at least two gates each and are omitted. Exact EMD runs on the ladder only. The
+ladder scores against its $248$-build subset reference and measures from the null mean, so \vkid{} reads $+111.4$ there
+and $+201.8$ in the protocol run at the same $n$.}
+\label{tab:headtohead}
+\end{table}
+
+\paragraph{Of these rows, only \vkid{} passes every gate.} It separates \solidify{} $2.3\times$ more
+strongly than the next row and \hollow{} $5\times$ more strongly, and appearance and
+rotation leave it unmoved. The nearest alternative is occupancy KID: the same estimator on
+the raw grid. It sees \solidify{} and orders the leaderboard much as \vkid{} does
+($\rho{=}0.83$), but it fails noise ordering. Its rotation reading also sits at the edge of
+the invariance bar, because a centred grid is not yaw-invariant. What \vkid{} adds is the
+D4-invariant local descriptor, not the estimator, and generic orbit-averaged occupancy
+descriptors pass as well (Sec.~\ref{app:vkid-robust}), so the class that passes is the
+D4-invariant occupancy kernel distance, of which \vkid{} is one instance.
+
+\paragraph{3D encoders see the interior once their points include it, but read
+appearance.} On interior-inclusive points Uni3D and ULIP-2 separate both probes, so their
+blindness in Table~\ref{tab:probe3d} belongs to the visible-surface sampler and not to the
+encoders. They are not geometry metrics, however. \matshuffle{} and \monochrome{}, which
+leave occupancy unchanged, move them by up to $106$ noise floors at $n{=}128$. Uni3D is
+not yaw-invariant (a $90^\circ$ turn moves it on volume points by $+5.7$ floors at
+$n{=}256$), and both rank the
+leaderboard as \mvkid{} does ($\rho \ge 0.78$). As a geometry pillar they would let a
+generator trade structure for appearance, which the worst-pillar aggregation exists to
+prevent.
+
+\paragraph{The voxel-generation suite misses the probes or rewards the fill.} Chamfer,
+EMD and IoU set statistics never separate the interior probes by more than single digits,
+and each fails noise ordering or $n$-stability. Nearest-neighbour MMD under IoU or
+voxel-centre chamfer goes further and places \solidify{} \emph{closer} to the reference
+than held-out real data, by $3$ to $12$ noise floors. A filled house overlaps its
+neighbours more than a house with rooms does. The metric the voxel literature reports
+would therefore reward a generator for filling its interiors.
+
+\paragraph{Cost.} On about $3{,}000$ to $4{,}400$ builds, \vkid{} takes $15$ to $18$\,s on
+one CPU process. Each encoder takes $25$ to $50$\,s of GPU time after sampling, chamfer
+takes $2$ to $3$ minutes of GPU time, and exact EMD on $512$ points took $32$ minutes on
+$16$ CPU cores.

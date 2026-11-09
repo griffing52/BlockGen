@@ -1,0 +1,19 @@
+% Moved from the ICLR main text (sec/9_statements.tex): CVPR has no
+% reproducibility-statement slot in the main paper, so it lives in the supplementary.
+\section{Reproducibility Statement}
+\label{app:repro-statement}
+
+%TL;DR of paragraph: everything needed to reproduce is released, and every number is traceable to a recorded run.
+The evaluation suite, probes, procedural baselines and corpus split are
+released. Every benchmark run writes a scorecard
+recording corpus, split, sample size, reference size, seed, host, device and
+commit, so each number in this paper is traceable to the run that produced it;
+Sec.~\ref{app:repro} lists these. Two properties bear on replication in
+particular: controls are re-scored in every run rather than cached across runs,
+because the aggregate's unit is the spread of a control scored under the same
+protocol; and every arm must declare the split it was trained on, with arms that
+cannot reported as unranked (Fig.~\ref{fig:contamination}).
+\TODO{Add the anonymized code URL and commit before submission, and insert the
+institutional determination covering the release. The licensing question itself
+is settled: Sec.~\ref{app:data} states what we redistribute and what we do
+not, and the release contains no upstream content.}

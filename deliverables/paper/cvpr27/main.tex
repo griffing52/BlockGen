@@ -1,0 +1,66 @@
+% CVPR 2027 submission: main paper. Ported from ../iclr/main.tex (frozen reference).
+% Kit: author-kit-CVPR2027-v1-latex.zip (cvpr.sty "2027 LaTeX class for IEEE CVPR").
+% Build: `make` (draft) or `make submit` (fails on any leftover \TODO/\com).
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE
+% \usepackage{cvpr}              % CAMERA-READY
+\usepackage[review]{cvpr}      % REVIEW version
+% \usepackage[pagenumbers]{cvpr} % arXiv
+
+\input{preamble}
+
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+
+% Supplementary labels (app:*, fig:pipeline, tab:seven, ...) come from supp.aux.
+% Build supp once before main (the Makefile does this).
+\externaldocument[S-]{supp}
+
+\def\confName{CVPR}
+\def\confYear{2027}
+% The 2027 kit removed the Paper ID from the review header (kit README:
+% "removed the Paper ID to reduce the risk of leaking IDs"). Kept here only as a
+% placeholder for bookkeeping; cvpr.sty does not print it.
+\def\paperID{*****}
+
+%%%%%%%%% TITLE
+\title{A Building Is Not Its Silhouette: Structural Blindness in 3D Generation Evaluation}
+
+%%%%%%%%% AUTHORS (review mode prints "Anonymous CVPR submission" regardless)
+\author{Anonymous CVPR submission}
+
+\begin{document}
+
+% Title plus full-width teaser on page 1.
+\twocolumn[{%
+\renewcommand\twocolumn[1][]{#1}%
+\maketitle
+\input{sec/teaser}
+\vspace{0.5em}
+}]
+
+\input{sec/0_abstract}
+\input{sec/1_intro}
+\input{sec/2_related}
+\input{sec/3_background}
+\input{sec/4_method}
+\input{sec/5_setup}
+\input{sec/6_results}
+\input{sec/7_conclusion}
+
+% ---- end of the 8-page main text (label endofmain is in 7_conclusion) ----
+% LLM Usage Statement: mandatory, excluded from the page limit, placed after the
+% main text and before the references.
+\input{sec/9_statements}
+
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{references,references_new}
+}
+
+% Supplementary material is a separate PDF: see supp.tex.
+
+\end{document}

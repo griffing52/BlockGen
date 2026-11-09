@@ -1,16 +1,16 @@
 \section{Results and Discussion}
 \label{sec:results}
 
-\subsection{The Render Metric Is Flat on the Interior Axis}
+\subsection{The Render Metric vs. the Interior Axis}
 \label{sec:blindness}
 
 %TL;DR of paragraph: the dose-response curve separates blindness from insensitivity, and raising n does not help.
 A metric that is merely insensitive to interiors still moves when the interior changes.
-\mvkid{} does not. On the occupancy-noise and mixture axes it is monotone over $121$--$143$
-noise floors. On the interior axis its range end to end stays under half a noise floor, $0.48$ at
-$n{=}64$ and $0.34$ at $n{=}128$, where \vkid{} reads $133$ and $287$ on the identical
-rungs (Appendix~\ref{app:tables}). Raising $n$ multiplies the geometric signal by $2.2$
-and does not lift the render signal off its sampling floor. Both metrics
+\mvkid{} does not. On the occupancy-noise and mixture axes it is monotone over $121$-$143$
+noise floors. On the interior axis its range end to end is about \emph{one} noise floor,
+$0.4$ at $n{=}64$ and $1.1$ at $n{=}128$, where \vkid{} reads $133$ and $287$ on the
+identical rungs (converse-probe run, Appendix~\ref{app:tables}). Raising $n$ multiplies the
+geometric signal by $2.2$ and leaves the render signal at its sampling floor. Both metrics
 rise on the mixture axis, a real arm progressively replaced by bad samples, which is how a
 generator actually fails.
 
@@ -40,7 +40,8 @@ Table~\ref{tab:seven}.}
 \includegraphics[width=0.90\linewidth]{figures/fig9_cutaway}
 \caption{\textbf{The same encoder and statistic, only the views changed.} Each pair is a
 held-out build over its \solidify{} twin. \emph{Left:} two of the four exterior views the
-standard protocol renders, indistinguishable for this build at a mean pixel difference of $0.89/255$. \emph{Right:} three cutaway protocols on the same builds, each with its separation in
+standard protocol renders, indistinguishable for this build at a mean pixel difference of
+$3.9/255$. \emph{Right:} three cutaway protocols on the same builds, each with its separation in
 noise floors. DINOv2-B,
 unbiased KID, $n{=}256$ against $512$ reference builds; full ablation in
 Table~\ref{tab:ablation}.}
@@ -49,12 +50,13 @@ Table~\ref{tab:ablation}.}
 
 %TL;DR of paragraph: varying encoder, view budget, projection and pooling changes nothing.
 The finding could indict DINOv2 at four views rather than render-and-embed as a class. It
-does not (Figure~\ref{fig:cutaway}, Table~\ref{tab:ablation}). Four other encoders land in the same $0.04$--$0.18$ band as our DINOv2-B: CLIP ViT-B/16 and B/32, ImageNet-supervised ResNet-50,
+does not (Figure~\ref{fig:cutaway}, Table~\ref{tab:ablation}). Four other encoders land in
+the same $0.7$--$1.7$ band as our DINOv2-B: CLIP ViT-B/16 and B/32, ImageNet-supervised ResNet-50,
 and the Inception network FID itself uses. Quadrupling the cameras does not help either.
-\textbf{Sixteen views covering roof and underside separate the probe \emph{less} well
-than four} ($+0.08$ against $+0.18$), which is what added views carrying no information about the
-quantity should do. Perspective projection reads $+0.06$. Nothing measured on exterior views reaches a
-quarter of one noise floor.
+\textbf{Sixteen views covering roof and underside separate the probe \emph{less} well than
+four} ($+1.6$ against $+1.1$), which is what added views carrying no information about the
+quantity should do. Perspective projection reads $+0.9$. No encoder, view budget or
+projection in the ablation clears two noise floors.
 
 %TL;DR of paragraph: the cutaway rows are the positive control that makes this a statement about information rather than features.
 The cutaway rows are the positive control. The same encoder and the same statistic recover
@@ -95,7 +97,8 @@ Appendix~\ref{app:hull} gives the proof.
 
 %TL;DR of paragraph: our renderer leaks through translucency rather than doorways, and every changed pixel sits inside a bit-identical silhouette.
 Our default renderer is not opaque, and under it \solidify{} alters $\mathbf{91\%}$ of the
-$1{,}596$ test-split views, touching a median $1.2\%$ of pixels at a median maximum channel difference of $103/255$. What leaks is \emph{translucency}, not doorways:
+$1{,}596$ test-split views, touching a median $1.75\%$ of pixels at a median maximum
+channel difference of $\mathbf{212/255}$. What leaks is \emph{translucency}, not doorways:
 air reachable through a doorway is never sealed, whereas a glass block in front of a filled
 void does show the fill. Every changed pixel lies inside the silhouette, and the silhouette
 is bit-identical (Appendix~\ref{app:hull}).
@@ -119,38 +122,39 @@ Appendix~\ref{app:tables}. $\dagger$~marks the contaminated checkpoint of \S\ref
   & \realheld{} \emph{(anchor)}      & $0.00$   & ---        & $+0.00$   & $+0.00$ \\
 \midrule
 \multicolumn{6}{l}{\emph{submissions}} \\
-$\dagger$ & \voxar{} \emph{(contaminated)} & $106.87$ & geometry & $+69.76$ & $+106.87$
-\\
-1 & \voxar{} \emph{(clean)} & $\mathbf{136.73}$ & geometry & $+85.31$ & $+136.73$ \\
-2 & \llmft{} & $149.19$ & appearance & $+149.19$ & $+137.72$ \\
-3 & \llmgeo{} & $191.88$ & appearance & $+191.88$ & $+145.58$ \\
-4 & \patchstitch{} & $246.15$ & appearance & $+246.15$ & $+183.03$ \\
-5 & \gabled{} & $300.15$ & geometry & $+287.97$ & $+300.15$ \\
-6 & \hollowbox{} & $476.22$ & appearance & $+476.22$ & $+312.39$ \\
-7 & \randomvox{} & $603.09$ & appearance & $+603.09$ & $+344.94$ \\
+$\dagger$ & \voxar{} \emph{(contaminated)} & $106.87$ & geometry & $+63.98$ & $+106.87$ \\
+1 & \voxar{} \emph{(clean)}          & $\mathbf{136.73}$ & geometry   & $+79.90$  & $+136.73$ \\
+2 & \llmft{}                         & $145.60$ & appearance & $+145.60$ & $+137.72$ \\
+3 & \llmgeo{}                        & $185.73$ & appearance & $+185.73$ & $+145.58$ \\
+4 & \patchstitch{}                   & $223.03$ & appearance & $+223.03$ & $+183.03$ \\
+5 & \gabled{}                        & $300.15$ & geometry   & $+291.93$ & $+300.15$ \\
+6 & \hollowbox{}                     & $464.55$ & appearance & $+464.55$ & $+312.39$ \\
+7 & \randomvox{}                     & $562.83$ & appearance & $+562.83$ & $+344.94$ \\
 \midrule
 \multicolumn{6}{l}{\emph{probes and controls: known damage, not submissions}} \\
-  & \textbf{\solidify{}} & $201.80$ & geometry & $\mathbf{+0.14}$ & $\mathbf{+201.80}$ \\
-  & \matshuffle{} & $231.52$ & appearance & $+231.52$ & $\mathbf{+0.00}$ \\
-  & \monochrome{} & $297.95$ & appearance & $+297.95$ & $+0.00$ \\
-  & \copynoise{} & $302.73$ & geometry & $+153.53$ & $+302.73$ \\
+  & \textbf{\solidify{}}             & $201.80$ & geometry   & $\mathbf{+0.38}$ & $\mathbf{+201.80}$ \\
+  & \matshuffle{}                    & $220.83$ & appearance & $+220.83$ & $\mathbf{+0.00}$ \\
+  & \monochrome{}                    & $304.69$ & appearance & $+304.69$ & $+0.00$ \\
+  & \copynoise{}                     & $302.73$ & geometry   & $+144.34$ & $+302.73$ \\
 \midrule
 \multicolumn{6}{l}{\emph{disqualified: refused a rank, with the reason}} \\
   & \singlemode{}                    & DQ & \multicolumn{3}{l}{mode collapse, $+45.1$ spreads on voxel diversity} \\
-  & \traincopy{}                     & DQ & \multicolumn{3}{l}{memorization, $+10.7$ spreads on retrieval percentile} \\
-  & \voxarun{} \emph{(clean)}        & DQ & \multicolumn{3}{l}{memorization, $+3.0$ spreads, at duplicate rate exactly $0.000$} \\
+  & \traincopy{}                     & DQ & \multicolumn{3}{l}{memorization, $+10.8$ spreads on retrieval percentile} \\
+  & \voxarun{} \emph{(clean)}        & DQ & \multicolumn{3}{l}{memorization, $+3.4$ spreads, at duplicate rate exactly $0.000$} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 %TL;DR of paragraph: each tier is fooled by the corruption aimed at it and rescued by the other, and the asymmetry between the two failures is large.
-Table~\ref{tab:leaderboard} shows the complementarity directly. \solidify{} reads $+0.14$ on appearance against $+201.80$ on geometry, a factor of
-$1{,}441$ between two pillars scoring the same arm, and \matshuffle{} is the converse,
-$+231.52$ on appearance against \emph{exactly} $+0.00$ on geometry. Each tier is fooled by the corruption aimed at it and
+Table~\ref{tab:leaderboard} shows the complementarity directly. \solidify{} reads $+0.38$
+on appearance against $+201.80$ on geometry, a factor of $530$ between two pillars scoring
+the same arm, and \matshuffle{} is the converse, $+220.83$ on appearance against
+\emph{exactly} $+0.00$ on geometry. Each tier is fooled by the corruption aimed at it and
 rescued by the other, which is why \blockscore{} takes the worst pillar. The two failures
 differ in severity: the best attack we have on \vkid{} is \patchstitch{}, which buys
-near-perfect local occupancy statistics with globally incoherent structure and improves its geometry pillar over its appearance pillar by only $1.3\times$ ($+183.03$
-against $+246.15$).
+near-perfect local occupancy statistics with globally incoherent structure and improves its
+geometry pillar over its appearance pillar by only $1.2\times$ ($+183.03$ against
+$+223.03$).
 
 %TL;DR of paragraph: the geometric separation does not come from the added mass or from the sealed-interior scalar.
 \vkid{} does not separate \solidify{} through the added mass, nor through the
@@ -175,23 +179,23 @@ The two tiers disagree about real, uncorrupted builds as well, with no probe inv
 by each metric's exact per-build contribution gives two nearly independent orderings, and
 only the geometric one tracks how much interior a build has (Figure~\ref{fig:influence}).
 Separately, because these statistics are squared, an arm that fails on a quarter of its
-builds scores only $6.4\%$ of the way to fully bad; reporting the square root recovers the failure rate to a mean absolute error of $0.013$
-against $0.128$
+builds scores only $6.4\%$ of the way to fully bad; reporting the square root recovers the
+failure rate to a mean absolute error of $0.011$ against $0.124$
 (Appendix~\ref{app:failrate}).
 
-\subsection{Case Study: Contamination No Statistic Sees}
-\label{sec:casestudy}
+% \subsection{Case Study: Contamination No Statistic Sees}
+% \label{sec:casestudy}
 
-%TL;DR of paragraph: the case study asks whether the suite catches a failure we did not build, and a required provenance declaration finds it in three arms where every distribution statistic reads clean.
-The results above use corruptions we built, where ground truth is known by construction.
-This case study asks whether the suite catches a failure we did not build. A generator we
-control is the right subject, because its training split is knowable. The suite requires
-every arm to declare that split. \voxar{}, the top-ranked submission, declared one that
-contained $346$ of the $399$ canonical test builds
-($87\%$). \label{sec:casestudy:llm}\llmft{} and \llmgeo{} declared an earlier $90/10$
-shuffle holding $53$ of the $399$ ($13\%$). No distribution statistic sees either.
-\voxar{}'s duplicate rate is $0.000$ and its retrieval percentile $0.496$ against a real
-held-out floor of $0.540$, far from the verbatim-copy control at $+10.7$ spreads.
+% %TL;DR of paragraph: the case study asks whether the suite catches a failure we did not build, and a required provenance declaration finds it in three arms where every distribution statistic reads clean.
+% The results above use corruptions we built, where ground truth is known by construction.
+% This case study asks whether the suite catches a failure we did not build. A generator we
+% control is the right subject, because its training split is knowable. The suite requires
+% every arm to declare that split. \voxar{}, the top-ranked submission, declared one that
+% contained $346$ of the $399$ canonical test builds
+% ($87\%$). \label{sec:casestudy:llm}\llmft{} and \llmgeo{} declared an earlier $90/10$
+% shuffle holding $53$ of the $399$ ($13\%$). No distribution statistic sees either.
+% \voxar{}'s duplicate rate is $0.000$ and its retrieval percentile $0.496$ against a real
+% held-out floor of $0.540$, far from the verbatim-copy control at $+10.8$ spreads.
 
 %TL;DR of paragraph: retraining on the clean split erases the margin and turns the cross-track result into a tie, and the gate disqualifies the sibling checkpoint.
 Retraining \voxar{} on the canonical split, with architecture and hyperparameters
@@ -203,7 +207,7 @@ separates from neither. Under a correctly calibrated test it never held a signif
 alone (Appendix~\ref{app:significance}). Contamination lowers an arm's distance from real,
 so the baselines' own contamination flatters them and we report that comparison as not
 separated. The gate also caught the sibling: \voxarun{}, retrained on the same clean split,
-is disqualified at $+3.0$ spreads on a retrieval percentile of $0.369$ against a real floor
+is disqualified at $+3.4$ spreads on a retrieval percentile of $0.369$ against a real floor
 of $0.540$, at a duplicate rate of exactly $0.000$.
 
 %TL;DR of paragraph: a required field beats every detector, and the two tracks fail on different pillars, which is the maximum rule acting on real submissions.
@@ -215,39 +219,6 @@ geometry-limited, $+136.73$ geometry against $+79.90$ appearance, and both langu
 arms are appearance-limited, so a mean over pillars would have reported them as one model
 at two quality levels (Appendix~\ref{app:tables}).
 
-\subsection{Human Evaluation}
-\label{sec:human}
-
-%TL;DR of paragraph: the study, its three pre-registered pairs, and the exclusion rule.
-Synthetic corruption shows only that the metrics order damage we built ourselves. Human
-judgment is the other check. Twenty raters, naive to the hypothesis, each compared $48$ label-stripped
-pairs rendered exactly as the metric renders them, yielding $912$ judgements after one
-session was excluded on catch trials. Three predictions were recorded in the instrument
-before any rater saw a page (Appendix~\ref{app:study}).
-
-%TL;DR of paragraph: raters are at chance on the exterior pair and above chance on the cutaway, so the blindness is informational rather than a defect of the metric.
-\textbf{The corruption is invisible to people too.} On exterior views raters preferred the
-real build over its solidified copy on $43$ of $84$ trials, $0.512$ $[0.407, 0.616]$:
-chance. This decides what kind of failure this is. Had people separated what the metric
-could not, the metric would be failing to read something a reader reads. They cannot, so
-the information is absent from the picture rather than discarded by the statistic.
-\textbf{The same people separate the same builds once the view exposes the interior}, $69$
-of $90$, $0.767$ $[0.669, 0.842]$, which turns ``nobody can tell'' into ``nobody can tell
-\emph{from this view}''. The converse probe is also at chance, $0.606$ $[0.437, 0.753]$ on
-$33$ trials.
-
-%TL;DR of paragraph: the pre-registered pair reverses unanimously, and the geometric scalars say why.
-\textbf{The pre-registered pair reversed, unanimously.} Both metrics rank \patchstitch{}
-above \gabled{}; raters chose \gabled{} on \textbf{$93$ of $93$} trials $[0.960, 1.000]$.
-The geometric scalars say why, and neither side is making an error. \gabled{} is a genuine
-statistical outlier, a hollow and almost perfectly symmetric shell at $0.562$ open interior
-ratio against a real $0.129$, so the metrics are right that it is far from the real
-distribution. \patchstitch{} is assembled from patches of real builds, so its local
-statistics are real by construction and only its global structure is wrong, which its
-largest-connected-part ratio of $0.866$ records against a real $0.978$
-(Table~\ref{tab:baselines}). A distribution distance over local features therefore rewards
-\emph{statistically} house-like over \emph{recognizably} a house.
-
 \subsection{Limitations}
 \label{sec:limitations}
 
@@ -258,9 +229,14 @@ theorem about opaque rendering rather than a fact about our rasterizer
 (Appendix~\ref{app:hull}), and what would close the gap is to push identical builds and the
 identical probe through a path tracer sharing no code with ours. \vkid{} is a
 local-statistics descriptor, and \patchstitch{}, built to exploit that, \emph{outranks} the
-coherent but simple \gabled{} on both tiers, an ordering raters reverse unanimously
-(\S\ref{sec:human}). That is the clearest limitation of the geometric tier, so
-\patchstitch{} stays a standing control. \vkid{} is also blind to materials by
+coherent but simple \gabled{} on both tiers. Neither tier is making an error:
+\gabled{} is a genuine statistical outlier, a hollow and almost perfectly symmetric shell at
+$0.562$ open interior ratio against a real $0.129$, while \patchstitch{} is assembled from
+patches of real builds, so its local statistics are real by construction and only its global
+structure is wrong, which its largest-connected-part ratio of $0.866$ records against a real
+$0.978$. A distribution distance over local features therefore rewards \emph{statistically}
+house-like over \emph{recognizably} a house. That is the clearest limitation of the geometric
+tier, so \patchstitch{} stays a standing control. \vkid{} is also blind to materials by
 construction, which is why the suite has two tiers and neither number belongs alone.
 
 %TL;DR of paragraph: the leaderboard runs at half the protocol's own n, and we score no published external model.

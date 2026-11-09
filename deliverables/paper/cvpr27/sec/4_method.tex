@@ -1,0 +1,81 @@
+\section{Metric Validation}
+\label{sec:method}
+
+\subsection{Probes}
+\label{sec:probes}
+
+%TL;DR of paragraph: Fill-Interior fills sealed air with the build's own material, adding a third more mass behind an unchanged exterior.
+\solidify{} fills every enclosed air cell of a real build with that build's own dominant
+material, which keeps the silhouette bit-identical and adds only interior mass. Under a
+translucent renderer it does change pixel values inside that silhouette
+(\S\ref{sec:ablation}) and can only be observed externally when a structure contains this transparency (e.g. a window). On $200$ held-out real houses, it adds a median of $\mathbf{33\%}$
+blocks (mean $37\%$) and alters $\mathbf{94\%}$ of these builds. The build's own material keeps
+the corruption from showing as a palette anomaly. The probe reaches only \emph{sealed} air, air
+unreachable from the bounding box without passing through solid, so air reachable through a
+doorway survives; per build, the sealed share of a build's own interior volume has a median
+of $100\%$ and a mean of $\mathbf{85.5\%}$ (\suppsec{app:interior}).
+
+%TL;DR of paragraph: Hollow-Shell is the exact converse probe, and four further controls damage appearance or diversity instead of geometry.
+\hollow{} is the converse. It keeps a block only if one of its six faces borders air
+$6$-connected to the outside, so it removes the solid behind the exterior shell where
+\solidify{} fills the sealed air, and it removes a median $13.4\%$ of blocks from $98.4\%$ of builds. Four further
+controls damage appearance or diversity rather than geometry. \matshuffle{} permutes the
+block multiset across a build's own occupied cells, preserving geometry exactly, and
+\monochrome{} repaints every block with one material. \traincopy{} (verbatim training
+builds) and \singlemode{} (one build repeated $n$ times) damage nothing a distribution
+distance objects to.
+
+\subsection{MV- and V-KID}
+
+%TL;DR of paragraph: both metrics are the same unbiased estimator and differ only in features; V-KID is a second tier, exactly material-blind and attackable.
+Both realism metrics are the unbiased estimator of Eq.~\ref{eq:mmd} and differ only in
+$\phi$ (\suppfig{fig:pipeline}). \textbf{\mvkid{}} is our stand-in for the render-and-embed family with four
+orthographic views of each structure at $224$px, embedded with DINOv2-B
+\citep{oquab2024dinov2}. \textbf{\vkid{}} applies the same estimator to a $77$-dimensional descriptor read
+directly off the voxel grid, examining the distribution over the $55$ D4 orbits of
+$2\times2\times2$ occupancy patterns, a $5$-bin wall-thickness histogram, an $8$-bin
+normalized height profile, and $9$ global scalars, in $15$ to $18$\,s for several thousand builds
+on one CPU process (\suppsec{sec:metrics}, \suppsec{app:headtohead}).
+\vkid{} reads occupancy only, so under
+\matshuffle{} and \monochrome{} its value is \emph{bit-identical} to the real row. It measures what the render tier cannot, and not structural quality outright.
+
+\subsection{Blocking Gates}
+\label{sec:gates}
+
+%TL;DR of paragraph: a metric failing a gate is withheld from ranking, and applying the gates to the seven statistics of tab:seven plus the biased MMD estimator settles three things.
+Every candidate metric is scored on rungs of known damage, in units of its own noise
+floor. A metric that fails ordering, invariance or $n$-stability is reported as
+\emph{gated}, with the failing gate named, and may not rank anything. Each gate restates
+a prior criterion, and its threshold predates \vkid{} (\suppsec{app:gateprov}). Applying this to
+the seven statistics of \supptab{tab:seven} and the biased MMD estimator settles three
+things (\supptab{tab:ladder-render}). First, we clearly see the render metric reads appearance rather than structure as \matshuffle{} preserves
+geometry exactly and is yet among the worst-scoring rungs, beaten only by \monochrome{}.
+Second, the biased MMD estimator is unusable at variable $n$: its null on two disjoint
+real halves reads $0.289$ at $n{=}16$, $0.071$ at $n{=}64$ and $0.014$ at $n{=}400$,
+while the unbiased estimator reads $0.000$ at every $n$. A leaderboard mixing arm sizes
+therefore ranks by sample size. Third, precision, density and recall fail monotonicity under
+block noise, and Fr\'echet distance and coverage fail $n$-stability. Only the
+unbiased KID and MMD-RBF clear each condition.
+
+\subsection{Aggregation and Disqualification}
+\label{sec:blockscore}
+
+%TL;DR of paragraph: BlockScore is one instantiation of the gated philosophy, and the property that matters is that no pillar can be traded away.
+The gates decide which metrics may speak. Turning several that pass into one ranked
+number is a separate and more arbitrary problem. \blockscore{} is \emph{one} instantiation: the \textbf{maximum} over five pillars, each
+divided by its own in-run scale, so there are no weights to tune. The property we defend is the maximum rather than the mean. The two tiers are
+blind in complementary directions (\S\ref{sec:complementary}), so averaging lets an arm
+buy a catastrophic pillar with a good one, and the trade the render tier invites is the
+dangerous one: perfect surfaces over a solid interior.  \suppsec{app:blockscore} records two properties of
+the implementation: three of the five pillars (appearance, geometry, palette) are in true noise floors and two are in a
+coarser unit that never determines the maximum, and the null of a maximum is not zero.
+
+%TL;DR of paragraph: novelty and diversity disqualify rather than score, and every arm declares its split.
+Novelty and diversity are \textbf{disqualification gates} rather than weighted terms.
+An arm that trips one is refused a rank and shown with its reason, so a model cannot
+offset memorization with realism. The risk is concrete here: a pre-split autoregressive
+checkpoint from prior work, none of the arms scored here, duplicated roughly $31\%$ of training builds at intersection
+over union (IoU) $\geq 0.95$. Novelty is tested against the training split and, because a
+set can also repeat itself, within the set (\suppsec{app:dreamcubed}). Every arm must also declare the split it trained on, the
+requirement \suppfig{fig:contamination} turns on. Gates need auditing as much as metrics do
+(\suppsec{app:defects}).

@@ -1,0 +1,93 @@
+% Source: outputs/run_20261106_193358_vkid_robustness (notes §82, results T105).
+\subsection{Families, random subsets and generic descriptors}
+
+Each test below runs under the bench's own scoring code: the blocking gates on the ladder
+($n{=}128$, $48$ fresh real draws, geometry rungs) and the separations on the $n{=}256$
+leaderboard of record, whose build hashes we verify. Every row is whitened on the reference
+and scored by the same unbiased KID, and every separation is in that row's own noise floor.
+Rank agreement is Spearman's $\rho$ over the nine structural arms of the board against full
+\vkid{}.
+
+\paragraph{No family carries the result.}
+We group the $77$ dimensions into seven families: $55$ pattern orbits, thickness ($5$
+bins and $2$ scalars), height ($8$ bins and the entropy), surface ($2$), symmetry ($1$),
+interior ($2$) and size ($1$). Removing any one family keeps every gate passing,
+\solidify{} between $310$ and $457$ floors (full $444.4$), \hollow{} between $146$ and
+$270$ (full $265.4$), and $\rho \geq 0.95$ (Table~\ref{tab:vkid-robust}). Random subsets
+tell the same story without any grouping of ours: $20$ of $20$ random $38$-dimensional
+subsets pass every gate, with \solidify{} at a median of $351$ floors (minimum $283$),
+\hollow{} at $221$ ($133$) and $\rho$ at $0.97$ ($0.88$). At $19$ dimensions, $17$ of $20$
+pass, and the weakest still separates \solidify{} by $179$ floors.
+
+\paragraph{A descriptor with no hand design passes.}
+We replace the descriptor by generic maps $\phi$ of the occupancy grid, made exactly
+invariant to the yaw group by orbit averaging, $f(x) = \tfrac{1}{8}\sum_{g \in D_4}
+\phi(gx)$, which is the only design step they share. Three are random-weight
+three-layer 3D CNNs with mean and max pooling per layer ($224$ dimensions, three weight
+draws), one is a feature-hashed histogram of raw $3^3$ occupancy patterns ($256$), and one
+counts occupied $3^3$ neighbours of solid and air cells at $1\times$, $2\times$ and
+$4\times$ pooling ($168$). All six rows, including the concatenation of a CNN with the
+counts, pass every gate and separate \solidify{} by $257$ to $437$ floors and \hollow{} by
+$166$ to $297$. Occupancy KID on a centred, pooled grid fails noise ordering and
+invariance (Sec.~\ref{app:headtohead}); orbit averaging is what turns the raw volume into
+a valid metric, and the separation follows from observing the volume rather than from
+the choice of features. The generic rows reproduce \vkid{}'s ordering of probes and
+baselines ($\rho$ between $0.8$ and $1.0$ over five arms) and differ from it in the
+order of the four learned arms, where the random CNNs place Dream-Cubed behind the three
+autoregressive arms; we report \vkid{} as the instantiation, and the ordering of close
+learned arms as descriptor-dependent.
+
+\paragraph{Global coherence is a separate axis.}
+\patchstitch{} tiles $8^3$ patches of different real builds, so it is the natural attack
+on a local descriptor. \vkid{} places it $368.2$ floors from real, fourth of nine arms.
+Appending global terms, the largest 26-connected part ratio and component count, or
+$2^3$ orbit histograms of the $2\times$ and $4\times$ max-pooled grid, keeps every gate
+and leaves it fourth, with its separation between $0.73$ and $0.81$ of \solidify{}'s
+($0.83$ for \vkid{}). The connected-part ratio on its own separates \patchstitch{} by
+$258$ floors and both interior probes by none, so coherence is measurable and orthogonal
+to the interior axis; at two of $79$ dimensions it does not move the joint kernel. We
+keep \vkid{} unchanged and state its scope as local geometry.
+
+\begin{table}[t]
+\centering
+\small
+\caption{\vkid{} robustness. Gates on the ladder ($n{=}128$); separations on the
+$n{=}256$ board in each row's own noise floor; $\rho$: Spearman over nine arms against
+full \vkid{}. Random rows give the median and, in brackets, the minimum over $20$ draws.}
+\label{tab:vkid-robust}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lrcrrrr}
+\toprule
+descriptor & dims & gates & \solidify{} & \hollow{} & \patchstitch{} & $\rho$ \\
+\midrule
+full \vkid{}                    & $77$  & pass & $444.4$ & $265.4$ & $368.2$ & $1.00$ \\
+\midrule
+\multicolumn{7}{l}{\emph{leave one family out}} \\
+without pattern orbits          & $22$  & pass & $457.4$ & $146.0$ & $342.1$ & $1.00$ \\
+without thickness               & $70$  & pass & $310.4$ & $265.8$ & $374.4$ & $0.95$ \\
+without height                  & $68$  & pass & $414.0$ & $251.4$ & $342.7$ & $1.00$ \\
+without surface                 & $75$  & pass & $441.8$ & $258.3$ & $360.9$ & $1.00$ \\
+without symmetry                & $76$  & pass & $451.1$ & $270.3$ & $357.7$ & $1.00$ \\
+without interior                & $75$  & pass & $421.8$ & $258.7$ & $327.0$ & $1.00$ \\
+without size                    & $76$  & pass & $440.9$ & $263.8$ & $374.6$ & $1.00$ \\
+\midrule
+\multicolumn{7}{l}{\emph{random subsets, 20 draws}} \\
+$50\%$                          & $38$  & $20/20$ & $351\,[283]$ & $221\,[133]$ & $317\,[230]$ & $0.97\,[0.88]$ \\
+$25\%$                          & $19$  & $17/20$ & $298\,[179]$ & $153\,[56]$  & $246\,[178]$ & $0.95\,[0.85]$ \\
+\midrule
+\multicolumn{7}{l}{\emph{no hand design, orbit-averaged}} \\
+random 3D CNN, draw 1           & $224$ & pass & $339.4$ & $223.8$ & $277.8$ & $0.80$ \\
+random 3D CNN, draw 2           & $224$ & pass & $437.3$ & $297.4$ & $284.7$ & $0.73$ \\
+random 3D CNN, draw 3           & $224$ & pass & $403.6$ & $242.1$ & $309.5$ & $0.80$ \\
+hashed $3^3$ patterns           & $256$ & pass & $256.7$ & $208.9$ & $326.0$ & $0.75$ \\
+multi-scale neighbour counts    & $168$ & pass & $359.3$ & $166.3$ & $514.9$ & $0.80$ \\
+random 3D CNN + counts          & $392$ & pass & $396.4$ & $230.7$ & $406.1$ & $0.78$ \\
+\midrule
+\multicolumn{7}{l}{\emph{global terms}} \\
+\vkid{} + connected parts       & $79$  & pass & $454.6$ & $271.4$ & $366.1$ & $1.00$ \\
+\vkid{} + pooled orbits         & $187$ & pass & $485.3$ & $253.4$ & $354.1$ & $1.00$ \\
+connected parts alone           & $2$   & pass & $0.0$   & $0.1$   & $258.4$ & $-0.20$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
