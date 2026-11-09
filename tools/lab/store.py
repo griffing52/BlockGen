@@ -1,4 +1,4 @@
-"""Where the lab's judgements live: labels, notes, and pairwise comparisons.
+"""Where the lab's judgements live: labels, notes, captions, and pairwise comparisons.
 
 **These rows are proposals, never data.** Nothing here is ever written back into
 a corpus `.npz` or a manifest. A label made while browsing is a claim about a
@@ -71,6 +71,20 @@ CREATE TABLE IF NOT EXISTS compares (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS compares_created ON compares (created_at);
+
+-- A caption is not a note. A note says what is wrong with a build and is read
+-- by the person who wrote it; a caption says what the build IS, in the words a
+-- user would type at the /gen prompt, and is destined for the SFT conditioning
+-- set. Keeping them apart means a curation remark can never leak into training
+-- text.
+CREATE TABLE IF NOT EXISTS captions (
+    build_id   TEXT PRIMARY KEY,
+    dataset    TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS captions_dataset ON captions (dataset);
 """
 
 
@@ -224,6 +238,94 @@ class Store:
                 " ORDER BY id").fetchall()
         return [dict(r) for r in rows]
 
+    # --- captions -----------------------------------------------------------
+    def set_caption(self, build_id: str, text: str) -> None:
+        """Upsert a caption; blank text deletes it (same contract as notes)."""
+        dataset = _dataset_of(build_id)
+        body = " ".join((text or "").split())
+        if not body:
+            with self._lock:
+                self._conn.execute("DELETE FROM captions WHERE build_id = ?", (build_id,))
+                self._conn.commit()
+            return
+        now = utcnow()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO captions (build_id, dataset, text, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(build_id) DO UPDATE SET"
+                "   text = excluded.text, updated_at = excluded.updated_at",
+                (build_id, dataset, body, now, now))
+            self._conn.commit()
+
+    def get_caption(self, build_id: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT text FROM captions WHERE build_id = ?", (build_id,)).fetchone()
+        return row["text"] if row else None
+
+    def captions(self, dataset: Optional[str] = None) -> Dict[str, str]:
+        sql = "SELECT build_id, text FROM captions"
+        args: tuple = ()
+        if dataset:
+            sql += " WHERE dataset = ?"
+            args = (dataset,)
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        return {r["build_id"]: r["text"] for r in rows}
+
+    # --- history the queue needs -------------------------------------------
+    def compared_pairs(self, tag: Optional[str] = None) -> Dict[str, int]:
+        """How often each build has appeared in a trial (optionally under one tag).
+
+        The phone queue uses this to spread trials over builds instead of
+        re-sampling the same few, and to avoid re-asking an identical pair. A
+        build's appearance count is what a Bradley-Terry fit later cares about,
+        so balancing it at collection time is cheaper than reweighting after.
+        """
+        sql = "SELECT a, b FROM compares"
+        args: tuple = ()
+        if tag:
+            sql += " WHERE tag = ?"
+            args = (tag,)
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        out: Dict[str, int] = {}
+        for r in rows:
+            out[r["a"]] = out.get(r["a"], 0) + 1
+            out[r["b"]] = out.get(r["b"], 0) + 1
+        return out
+
+    def compared_pair_keys(self, tag: Optional[str] = None) -> set:
+        """Unordered `(a, b)` keys already judged, so a pair is not asked twice.
+        A second judgement of the same pair is a reliability measurement and
+        worth having on purpose, but never by accident."""
+        sql = "SELECT a, b FROM compares"
+        args: tuple = ()
+        if tag:
+            sql += " WHERE tag = ?"
+            args = (tag,)
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        return {(r["a"], r["b"]) if r["a"] <= r["b"] else (r["b"], r["a"]) for r in rows}
+
+    def activity(self, since: Optional[str] = None) -> Dict[str, int]:
+        """Row counts per table, optionally only rows touched at/after `since`
+        (an ISO-8601 UTC string like `utcnow()` makes). This is the phone page's
+        "today: 37" counter -- motivation, not analysis, so `updated_at` is the
+        right clock for the upsert tables."""
+        out: Dict[str, int] = {}
+        for table, col in (("labels", "updated_at"), ("notes", "updated_at"),
+                           ("captions", "updated_at"), ("compares", "created_at")):
+            sql = f"SELECT COUNT(*) AS n FROM {table}"
+            args: tuple = ()
+            if since:
+                sql += f" WHERE {col} >= ?"
+                args = (since,)
+            with self._lock:
+                out[table] = int(self._conn.execute(sql, args).fetchone()["n"])
+        return out
+
     # --- export ------------------------------------------------------------
     def export(self, what: str) -> List[dict]:
         """Full rows, timestamps included -- this is the handoff to the batch
@@ -234,11 +336,14 @@ class Store:
         elif what == "notes":
             sql = ("SELECT build_id, dataset, text, created_at, updated_at"
                    " FROM notes ORDER BY dataset, build_id")
+        elif what == "captions":
+            sql = ("SELECT build_id, dataset, text, created_at, updated_at"
+                   " FROM captions ORDER BY dataset, build_id")
         elif what == "compares":
             sql = ("SELECT id, a, b, winner, ms, tag, created_at"
                    " FROM compares ORDER BY id")
         else:
-            raise ValueError(f"what must be labels|notes|compares, got {what!r}")
+            raise ValueError(f"what must be labels|notes|captions|compares, got {what!r}")
         with self._lock:
             return [dict(r) for r in self._conn.execute(sql).fetchall()]
 

@@ -68,6 +68,16 @@
   .ci{display:block;font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums}
   .gate{color:var(--faint);font-size:10px;font-family:var(--mono)}
   .pill.sub{color:var(--ink)}
+  /* An arm that trained against a reward signal is flagged like an oracle arm:
+     amber, never red, because it is a thing to read with care rather than a
+     failed gate. The signal names live in the title. */
+  .pill.sig{cursor:help}
+  .trainrun{border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--dim);
+            padding:8px 12px;margin:0 0 12px;font-size:12.5px}
+  .trainrun b{color:var(--ink);font-weight:600}
+  .trainrun .meta{margin:4px 0 0}
+  .trainrun pre{font-family:var(--mono);font-size:11px;color:var(--dim);margin:6px 0 0;
+                max-height:260px;overflow:auto;white-space:pre-wrap}
   th.dir{white-space:normal;min-width:96px}
   th.dir em{display:block;font-style:normal;letter-spacing:0;text-transform:none;
             font-size:10px;color:var(--dim)}
@@ -114,6 +124,7 @@
     <h2 id="runtitle" hidden></h2>
     <p class="sub" id="runnote" hidden></p>
     <p class="meta" id="meta"></p>
+    <div id="trainrun" hidden></div>
     <details id="rerun" hidden>
       <summary>Re-run this</summary>
       <div id="rerunbody"></div>
@@ -167,7 +178,58 @@ const boxes = {
   rerunbody: document.getElementById("rerunbody"), compat: document.getElementById("compat"),
   calib: document.getElementById("calib"), notab: document.getElementById("notab"),
   ctltoggle: document.getElementById("ctltoggle"), ctllabel: document.getElementById("ctllabel"),
+  trainrun: document.getElementById("trainrun"),
 };
+
+/* What a generated arm says about its own training. `sample_to_npz.py` writes
+ * `model` and `checkpoint` on the provenance block itself; the trainer and the
+ * post-training stages write `model`, `checkpoint`, `train_split` and
+ * `trained_on_signals` inside the nested sample `report`. Read both so no page
+ * has to know which writer made the arm. `model` may be an architecture dict
+ * rather than a name; it is shown as `arch/preset` then. */
+function trainingOf(row) {
+  const prov = row.provenance || {};
+  const rep = prov.report || {};
+  const first = (k) => [prov[k], rep[k]].find((v) =>
+    v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length));
+  const model = first("model");
+  const label = typeof model === "string" ? model
+    : model && typeof model === "object"
+      ? [[model.arch, model.preset].filter(Boolean).join("/"),
+         [model.d_model, model.layers].filter(Boolean).join("x")].filter(Boolean).join(" ")
+      : "";
+  let signals = first("trained_on_signals") || [];
+  if (typeof signals === "string") signals = [signals];
+  const ck = checkpointFile(first("checkpoint"));
+  return { model: label, checkpoint: ck.file, checkpointStep: ck.step,
+           trainSplit: first("train_split") || "",
+           signals: Array.isArray(signals) ? signals.map(String) : [], trainingRun: rep.run || "" };
+}
+
+/* A checkpoint is a path (`sample_to_npz.py`) or `{file, step}` (the trainer's
+ * sample report). One string either way, so no page prints "[object Object]". */
+function checkpointFile(ckpt) {
+  if (ckpt && typeof ckpt === "object" && !Array.isArray(ckpt)) {
+    const step = Number.isInteger(ckpt.step) ? ckpt.step : null;
+    return { file: String(ckpt.file || ckpt.path || ""), step };
+  }
+  return { file: ckpt === undefined || ckpt === null ? "" : String(ckpt), step: null };
+}
+
+function signalsPill(signals) {
+  if (!signals || !signals.length) return "";
+  return ` <span class="pill unsure sig" title="trained on reward signals: ${
+    esc(signals.join(", "))}">trained on signals</span>`;
+}
+
+/** The scorecard list entry whose run id or run directory is `id`, if any. A
+ *  training run's card lives at `<run>/bench`, so matching on `run_dir` is
+ *  what lets an arm's `source_run_id` reach the card that scored it. */
+function runEntry(id) {
+  if (!id) return null;
+  const seg = String(id).split("/").find((x) => x.startsWith("run_")) || id;
+  return runList.find((r) => r.run === id || r.run === seg || r.run_dir === seg) || null;
+}
 
 /* The five families the page reports, in the order a run is actually read:
  * what it looks like, whether it is copying, how it is built, what it is made
@@ -264,7 +326,8 @@ function pickerLabel(r) {
   const when = stamp(r.started || r.when);
   const ref = (r.n_controls || 0) + (r.n_baselines || 0);
   const subs = r.n_submissions ?? 0;
-  return `${when} · ${r.label || r.run} · ${subs} submission${subs === 1 ? "" : "s"}`
+  return `${when} · ${r.label || r.run}` + (r.n ? ` · n=${r.n}` : "")
+       + ` · ${subs} submission${subs === 1 ? "" : "s"}`
        + (ref ? ` + ${ref} reference` : "")
        + (r.corpus ? ` · ${r.corpus}` : "") + (r.tier ? ` · ${r.tier}` : "");
 }
@@ -277,7 +340,8 @@ async function boot() {
   if (!runs.length) {
     emptyState(boxes.empty, "No scorecards yet",
       "Run <code>python -m blockgen.eval.bench --tier both --n 128 --name \"my first run\"</code>. " +
-      "The page reads every <code>outputs/*/scorecard.json</code>.");
+      "The page reads every <code>outputs/*/scorecard.json</code> and every " +
+      "<code>outputs/*/bench/scorecard.json</code> a training run wrote.");
     document.querySelector(".bar").hidden = true;
     return;
   }
@@ -320,6 +384,7 @@ async function load(run, runs) {
 function renderHeader() {
   renderTitle();
   renderMeta();
+  renderTrainRun();
   renderWarnings();
   renderCompat();
   renderCalibration();
@@ -347,6 +412,9 @@ function renderMeta() {
     ["run", card.run_id],
     ["started", stamp(card.started)],
     ["corpus", ctx.corpus], ["tier", meta.tier], ["arms", arms],
+    // The sample size the result stands on: the largest submission n. Every row
+    // still shows its own, because --n caps controls but not file-backed arms.
+    ["n", benchN()],
     ["submissions", card.n_submissions === undefined || card.n_submissions === null
       ? "" : `${card.n_submissions} of ${arms}`],
     ["ref", ctx.n_ref_used && `${ctx.n_ref_used} val builds`],
@@ -375,6 +443,43 @@ function renderMeta() {
       copy-pasteable. Runs from <code>bench/2</code> onward record a
       <code>rerun</code> command instead.</p>`;
   }
+}
+
+function benchN() {
+  let best = null;
+  for (const r of armIndex.values()) {
+    if (typeof r.n === "number" && r.kind === "submission") best = best === null ? r.n : Math.max(best, r.n);
+  }
+  return best === null ? "" : best;
+}
+
+/* A card found under `outputs/<run>/bench/` was written by that training run's
+ * bench step, and the run directory says what was trained: name, stage, arch,
+ * steps, tiers, and the registry line. A bench-only run has none of this and
+ * the box stays hidden. */
+function renderTrainRun() {
+  const tr = card.train_run;
+  if (!tr) { boxes.trainrun.hidden = true; boxes.trainrun.innerHTML = ""; return; }
+  const model = typeof tr.model === "object" && tr.model && Object.keys(tr.model).length
+    ? JSON.stringify(tr.model) : "";
+  const bits = [
+    ["stage", tr.stage], ["arch", [tr.arch, tr.preset].filter(Boolean).join("/")],
+    ["steps", tr.steps && fmt.int(tr.steps)], ["params", tr.params && fmt.int(tr.params)],
+    ["train", Array.isArray(tr.train) ? tr.train.join(", ") : tr.train],
+    ["val", Array.isArray(tr.val) ? tr.val.join(", ") : tr.val],
+    ["train split", tr.train_split], ["init from", tr.init_from], ["select", tr.select],
+    ["git", tr.git], ["model", model],
+  ].filter(([, v]) => v !== undefined && v !== null && v !== "" && v !== 0);
+  const cfg = tr.config && Object.keys(tr.config).length
+    ? `<details><summary class="hint">config (run.json)</summary>
+       <pre>${esc(JSON.stringify(tr.config, null, 1))}</pre></details>` : "";
+  boxes.trainrun.innerHTML = `<div class="trainrun">
+    Scored by training run <b>${esc(tr.name || tr.dir)}</b>
+    <code>${esc(tr.dir)}</code>${signalsPill(tr.trained_on_signals)}${
+      tr.note ? ` · ${esc(tr.note)}` : ""}
+    <p class="meta">${bits.map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join("")}</p>
+    ${cfg}</div>`;
+  boxes.trainrun.hidden = false;
 }
 
 function renderWarnings() {
@@ -484,11 +589,15 @@ function runSegment(path) {
 function armHint(row) {
   if (row.origin === "in_memory") return clause(row.recipe);
   const p = row.provenance || {};
-  const ckpt = row.source_run_id || runSegment(p.checkpoint);
+  const tr = trainingOf(row);
+  const ckpt = row.source_run_id || runSegment(tr.checkpoint || checkpointFile(p.checkpoint).file);
   const t = p.temperature, k = p.top_k;
   const sampling = t === undefined || t === null ? ""
     : `T=${t}` + (k === undefined || k === null ? "" : ` k=${k}`);
-  return [p.model, ckpt && `ckpt ${ckpt}`, sampling].filter(Boolean).join(" · ");
+  // The split is named only when it is not the canonical one: that is the case
+  // worth a reader's eye, and it is what the protocol unranks on.
+  const split = tr.trainSplit && tr.trainSplit !== "canonical" ? `split ${tr.trainSplit}` : "";
+  return [tr.model, ckpt && `ckpt ${ckpt}`, split, sampling].filter(Boolean).join(" · ");
 }
 
 function armCell(name) {
@@ -499,6 +608,7 @@ function armCell(name) {
   const title = row.origin === "in_memory"
     ? (row.recipe || "") : ((row.model_card || {}).description || "");
   return `<td class="arm"${title ? ` title="${esc(title)}"` : ""}>${esc(name)}${
+    signalsPill(trainingOf(row).signals)}${
     hint ? `<span class="armhint">${esc(hint)}</span>` : ""}</td>`;
 }
 
@@ -689,14 +799,27 @@ function identityBlock(row) {
     const mc = row.model_card || {};
     if (mc.description) out.push(`<p class="prose">${esc(mc.description)}</p>`);
     if (mc.notes) out.push(`<p class="hint">${esc(mc.notes)}</p>`);
-    if (prov.checkpoint) dl.push(["checkpoint", `<code>${esc(prov.checkpoint)}</code>`]);
-    const sid = row.source_run_id || runSegment(prov.checkpoint);
+    const tr = trainingOf(row);
+    if (tr.model) dl.push(["model", esc(tr.model)]);
+    const ckpt = tr.checkpoint || checkpointFile(prov.checkpoint).file;
+    if (ckpt) {
+      dl.push(["checkpoint", `<code>${esc(ckpt)}</code>${
+        tr.checkpointStep !== null ? ` <span class="hint">step ${esc(String(tr.checkpointStep))}</span>` : ""}`]);
+    }
+    if (tr.trainSplit) dl.push(["train split", `<code>${esc(tr.trainSplit)}</code>`]);
+    if (tr.signals.length) {
+      dl.push(["trained on signals", `<code>${esc(tr.signals.join(", "))}</code>
+        <span class="hint">a post-training stage optimised these; read the pillars they
+        touch as in-sample</span>`]);
+    }
+    const sid = row.source_run_id || runSegment(ckpt) || runSegment(tr.trainingRun);
     if (sid) {
-      // A link only when that run left a scorecard of its own; otherwise the id
-      // is still worth printing, it just is not a place you can go.
-      const known = runList.some((r) => r.run === sid);
+      // A link only when that run left a scorecard of its own (at its top level
+      // or under `bench/`); otherwise the id is still worth printing, it just is
+      // not a place you can go.
+      const known = runEntry(sid);
       dl.push(["training run", known
-        ? `<a href="?run=${encodeURIComponent(sid)}">${esc(sid)}</a>` : esc(sid)]);
+        ? `<a href="?run=${encodeURIComponent(known.run)}">${esc(sid)}</a>` : esc(sid)]);
     }
     const t = prov.temperature, k = prov.top_k, s = prov.seed;
     const sampling = [s === undefined || s === null ? "" : `seed ${s}`,

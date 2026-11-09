@@ -1,0 +1,493 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2f5d50">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/static/phone.webmanifest">
+<title>BlockLab · Phone</title>
+<link rel="stylesheet" href="/static/lab.css">
+<!-- The one-thumb face of the lab. The desktop pages hand you a dataset and a
+     grid; this one hands you the next thing and gets out of the way. What that
+     next thing is lives on the server (tools/lab/phone.py + configs/lab/phone.json),
+     so the page never has to know which arm is current or which corpus is half
+     labelled -- it asks, shows, records, asks again. Writes go through the same
+     /api/label, /api/compare and /api/caption routes as everything else, so a
+     phone judgement is indistinguishable from a desktop one in the store. -->
+<style>
+  :root{--tap:64px}
+  html,body{height:100%;overscroll-behavior:none}
+  body{display:flex;flex-direction:column;touch-action:manipulation;
+       -webkit-tap-highlight-color:transparent;
+       padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+  button{touch-action:manipulation;user-select:none;-webkit-user-select:none}
+  img{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+
+  /* --- top bar --------------------------------------------------------- */
+  .top{display:flex;align-items:center;gap:8px;padding:8px 12px;
+       background:var(--panel);border-bottom:1px solid var(--rule);flex:none}
+  .brand{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+  .brand b{color:var(--accent);font-weight:500}
+  .modes{display:flex;gap:4px;flex:1;overflow-x:auto;scrollbar-width:none}
+  .modes::-webkit-scrollbar{display:none}
+  .modes button{padding:6px 9px;font-size:12px;white-space:nowrap;border-radius:999px}
+  @media (max-width:430px){.brand{display:none}}
+  .modes button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);
+                                      border-color:var(--accent)}
+  .modes button[data-done="1"]{opacity:.45}
+  .count{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;
+         text-align:right;line-height:1.25}
+  .count b{color:var(--ink);font-weight:500}
+
+  /* --- card ------------------------------------------------------------ */
+  main{flex:1;display:flex;flex-direction:column;min-height:0;padding:10px 12px 0}
+  .ask{text-align:center;font-size:15px;margin:0 0 8px;flex:none;line-height:1.35}
+  .ask small{display:block;color:var(--faint);font-size:11px;font-family:var(--mono);
+             margin-top:2px}
+  .stage{flex:1;min-height:0;display:grid;gap:10px}
+  .stage.pair{grid-template-rows:1fr 1fr}
+  @media (orientation:landscape){.stage.pair{grid-template-rows:1fr;grid-template-columns:1fr 1fr}}
+  .shot{position:relative;background:var(--panel);border:1px solid var(--rule);
+        padding:0;min-height:0;display:flex;align-items:center;justify-content:center;
+        overflow:hidden;box-shadow:var(--shadow);width:100%}
+  .shot img{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;
+            background:#fff;display:block}
+  .shot img:not([src]){background:repeating-linear-gradient(45deg,var(--sunk),
+      var(--sunk) 8px,var(--panel) 8px,var(--panel) 16px)}
+  .shot .tag{position:absolute;left:8px;bottom:6px;font-family:var(--mono);font-size:10px;
+             letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+             background:var(--panel);padding:1px 6px;border:1px solid var(--rule)}
+  .shot:active{border-color:var(--accent)}
+  .shot.picked{border-color:var(--accent);box-shadow:inset 0 0 0 3px var(--accent)}
+  .shot.dim{opacity:.35}
+  .dots{position:absolute;right:8px;bottom:8px;display:flex;gap:4px}
+  .dots i{width:6px;height:6px;border-radius:50%;background:var(--rule-strong);display:block}
+  .dots i.on{background:var(--accent)}
+  .meta{flex:none;display:flex;justify-content:space-between;gap:8px;
+        font-family:var(--mono);font-size:11px;color:var(--faint);padding:6px 2px 0;
+        white-space:nowrap;overflow:hidden}
+  .meta span{overflow:hidden;text-overflow:ellipsis}
+  .grid4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;
+         flex:1;min-height:0}
+
+  /* --- actions --------------------------------------------------------- */
+  .actions{flex:none;display:flex;gap:8px;padding:10px 12px
+           calc(12px + env(safe-area-inset-bottom));background:var(--ground)}
+  .actions button{flex:1;height:var(--tap);font-size:16px;font-weight:500;
+                  border-radius:10px;border-width:1px}
+  .actions button.good{color:var(--good);background:var(--good-soft);border-color:transparent}
+  .actions button.bad{color:var(--bad);background:var(--bad-soft);border-color:transparent}
+  .actions button.unsure{color:var(--unsure);background:var(--unsure-soft);border-color:transparent}
+  .actions button.quiet{flex:0 0 auto;background:transparent;color:var(--faint);
+                        font-size:13px;padding:0 12px}
+  .actions button.primary{flex:0 0 32%}
+  .actions button.tie{flex:1;background:var(--panel);border-color:var(--rule)}
+  .actions button:active{filter:brightness(.92)}
+  .actions button[disabled]{opacity:.4}
+  .capt{flex:none;display:flex;gap:8px;padding:8px 12px 0}
+  .capt input{flex:1;font:inherit;font-size:16px;padding:12px 12px;border:1px solid var(--rule);
+              background:var(--panel);color:var(--ink);border-radius:10px;min-width:0}
+  .chips{flex:none;display:flex;gap:6px;padding:6px 12px 0;overflow-x:auto;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chips button{white-space:nowrap;font-size:12px;border-radius:999px;padding:5px 10px}
+
+  /* --- undo + empty ---------------------------------------------------- */
+  .undo{position:fixed;left:50%;transform:translate(-50%,8px);
+        bottom:calc(var(--tap) + 28px + env(safe-area-inset-bottom));
+        background:var(--ink);color:var(--ground);padding:8px 8px 8px 14px;
+        border-radius:999px;display:flex;align-items:center;gap:10px;font-size:13px;
+        opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:50;
+        box-shadow:0 4px 18px rgba(0,0,0,.25)}
+  .undo.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  .undo button{background:transparent;color:var(--accent);border:0;font-size:13px;
+               font-weight:600;padding:4px 10px}
+  .undo .bar{position:absolute;left:14px;right:14px;bottom:2px;height:2px;
+             background:var(--accent);transform-origin:left;animation:drain 1.8s linear forwards}
+  @keyframes drain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+  .empty{margin:auto}
+  .toast{bottom:calc(var(--tap) + 28px + env(safe-area-inset-bottom))}
+  .offline{font-family:var(--mono);font-size:10px;color:var(--bad)}
+</style>
+
+<header class="top">
+  <span class="brand">block<b>lab</b></span>
+  <div class="modes" id="modes"></div>
+  <div class="count" id="count"><b>·</b></div>
+</header>
+
+<main id="main"></main>
+<div class="actions" id="actions"></div>
+
+<div class="undo" id="undo" hidden>
+  <span id="undoText"></span><button id="undoBtn">Undo</button><span class="bar"></span>
+</div>
+
+<script type="module">
+import { api, toast } from "/static/lab.js";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+/* Same px as the desktop compare page so the two share one thumbnail cache. */
+const PX = 448;
+const UNDO_MS = 1800;
+const MODES = [["mix", "Mix"], ["compare", "Compare"], ["curate", "Curate"], ["caption", "Caption"]];
+
+const prefs = {
+  get(k, d) { try { const v = localStorage.getItem("lab-phone-" + k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("lab-phone-" + k, v); } catch { /* private mode */ } },
+};
+
+/* `?mode=` wins over the remembered mode so a bookmark can open straight into
+ * captions; the remembered one is for the icon on the home screen. */
+const state = {
+  mode: new URLSearchParams(location.search).get("mode") || prefs.get("mode", "mix"),
+  queue: [], task: null, t0: 0, view: 0,
+  fetching: false, exhausted: false,
+  recent: [],           // build ids handed out lately; sent back as `exclude`
+  pending: null,        // the one action inside its undo window
+  done: 0,              // this session
+  summary: null,
+};
+
+// --- outbox ---------------------------------------------------------------
+/* Writes are queued, not awaited: a tap must feel instant on a flaky wifi, and
+ * a POST that fails is retried rather than lost. The outbox persists so a
+ * tunnel ride with no signal still ends with every judgement in the store. */
+const outbox = {
+  load() { try { return JSON.parse(localStorage.getItem("lab-phone-outbox") || "[]"); } catch { return []; } },
+  save(items) { try { localStorage.setItem("lab-phone-outbox", JSON.stringify(items)); } catch { /* ignore */ } },
+  push(item) { const items = this.load(); items.push(item); this.save(items); this.flush(); },
+  flushing: false,
+  async flush() {
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      let items = this.load();
+      while (items.length) {
+        const it = items[0];
+        try { await api.post(it.path, it.body); }
+        catch (e) {
+          // 4xx is a bad row and will never succeed; drop it loudly. Anything
+          // else is the network and is worth waiting for.
+          if (/^(bad|build_id|winner|caption|no such)/i.test(e.message)) { toast(`dropped: ${e.message}`, 3000); }
+          else { setOffline(true); break; }
+        }
+        items.shift(); this.save(items);
+      }
+      if (!items.length) setOffline(false);
+    } finally { this.flushing = false; }
+  },
+};
+function setOffline(on) {
+  const n = outbox.load().length;
+  const el = $("count").querySelector(".offline");
+  if (on && n) {
+    if (el) el.textContent = `${n} unsent`;
+    else $("count").insertAdjacentHTML("beforeend", `<div class="offline">${n} unsent</div>`);
+  } else if (el) el.remove();
+}
+addEventListener("online", () => outbox.flush());
+addEventListener("pagehide", () => {
+  // Commit whatever is still in its undo window: leaving the page is a
+  // stronger signal than a 1.8 s timer.
+  if (state.pending) { clearTimeout(state.pending.timer); outbox.push(state.pending.write); state.pending = null; }
+  const items = outbox.load();
+  if (items.length && navigator.sendBeacon) {
+    const ok = items.every((it) => navigator.sendBeacon(it.path,
+      new Blob([JSON.stringify(it.body)], { type: "application/json" })));
+    if (ok) outbox.save([]);
+  }
+});
+
+// --- queue -----------------------------------------------------------------
+const thumb = (bid) => `/api/thumb/${encodeURIComponent(bid)}?px=${PX}`;
+const view = (bid, k) => k === 0 ? thumb(bid) : `/api/view/${encodeURIComponent(bid)}/${k}?px=${PX}`;
+
+function remember(ids) {
+  for (const id of ids) state.recent.push(id);
+  if (state.recent.length > 60) state.recent.splice(0, state.recent.length - 60);
+}
+
+async function refill() {
+  if (state.fetching || state.exhausted) return;
+  state.fetching = true;
+  try {
+    const exclude = [...new Set([
+      ...state.queue.flatMap((t) => t.build_ids || []),
+      ...(state.task ? state.task.build_ids || [] : []),
+      ...state.recent,
+    ])].join(",");
+    const r = await api.get(`/api/phone/next?mode=${state.mode}&n=6&exclude=${encodeURIComponent(exclude)}`);
+    const got = r.tasks || [];
+    if (!got.length) state.exhausted = true;
+    for (const t of got) { state.queue.push(t); remember(t.build_ids || []); }
+    preload();
+    if (!state.task) advance();
+  } catch (e) {
+    toast(`queue: ${e.message}`, 3000);
+  } finally {
+    state.fetching = false;
+  }
+}
+
+/* Two tasks ahead is enough: a cold render is ~0.25 s behind the renderer lock
+ * and a judgement takes longer than that. */
+function preload() {
+  for (const t of state.queue.slice(0, 2)) {
+    for (const bid of t.build_ids || []) {
+      new Image().src = thumb(bid);
+      if (t.kind === "caption") for (let k = 1; k < 4; k++) new Image().src = view(bid, k);
+    }
+  }
+}
+
+function advance() {
+  state.task = state.queue.shift() || null;
+  state.view = 0;
+  if (state.queue.length < 3) refill();
+  render();
+  preload();
+}
+
+// --- commit with undo --------------------------------------------------------
+function commit(write, label, revert) {
+  // Only one action can be inside the window; a second tap commits the first.
+  if (state.pending) { clearTimeout(state.pending.timer); outbox.push(state.pending.write); state.pending = null; }
+  const task = state.task;
+  const ms = Math.round(performance.now() - state.t0);
+  if (write.body && "ms" in write.body) write.body.ms = ms;
+  state.done += 1;
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch { /* ignore */ } }
+  const pending = { write, task, revert, timer: 0 };
+  pending.timer = setTimeout(() => {
+    if (state.pending === pending) { state.pending = null; hideUndo(); }
+    outbox.push(write);
+    if (state.done % 8 === 0) loadStats();
+  }, UNDO_MS);
+  state.pending = pending;
+  showUndo(label);
+  advance();
+}
+
+function showUndo(label) {
+  const el = $("undo");
+  $("undoText").textContent = label;
+  el.hidden = false;
+  // restart the drain animation
+  const bar = el.querySelector(".bar"); bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = "";
+  requestAnimationFrame(() => el.classList.add("on"));
+}
+function hideUndo() { const el = $("undo"); el.classList.remove("on"); setTimeout(() => { if (!el.classList.contains("on")) el.hidden = true; }, 160); }
+$("undoBtn").addEventListener("click", () => {
+  const p = state.pending;
+  if (!p) return;
+  clearTimeout(p.timer);
+  state.pending = null;
+  state.done = Math.max(0, state.done - 1);
+  hideUndo();
+  // Put the current task back behind the undone one so nothing is skipped.
+  if (state.task) state.queue.unshift(state.task);
+  state.queue.unshift(p.task);
+  advance();
+  if (p.revert) outbox.push(p.revert);      // labels: restore what was true before
+});
+
+// --- render ----------------------------------------------------------------
+function render() {
+  const main = $("main"), actions = $("actions");
+  const t = state.task;
+  if (!t) {
+    actions.innerHTML = "";
+    if (state.exhausted) {
+      const other = MODES.filter(([m]) => m !== state.mode);
+      main.innerHTML = `<div class="empty"><p><strong>Nothing left in ${esc(modeName(state.mode))}</strong></p>
+        <p class="hint">Every item this mode knows about is done. Switch mode, or add pools in
+        <code>configs/lab/phone.json</code>.</p>
+        <p>${other.map(([m, n]) => `<button data-mode="${m}">${n}</button>`).join(" ")}</p></div>`;
+      main.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+    } else {
+      main.innerHTML = `<div class="empty hint">loading…</div>`;
+    }
+    return;
+  }
+  state.t0 = performance.now();
+  if (t.kind === "compare") renderCompare(t);
+  else if (t.kind === "curate") renderCurate(t);
+  else renderCaption(t);
+}
+
+const dims = (d) => Array.isArray(d) ? d.join("×") : "";
+const metaLine = (t) => [t.title && esc(t.title), t.category && esc(t.category), dims(t.dims),
+  t.n_blocks != null ? `${t.n_blocks} blocks` : ""].filter(Boolean).join(" · ");
+
+function renderCompare(t) {
+  $("main").innerHTML = `
+    <p class="ask">${t.question}<small>${esc(t.tag)} · tap the one you mean</small></p>
+    <div class="stage pair">
+      <button class="shot" id="L"><img alt="first build" src="${thumb(t.left)}" decoding="async"><span class="tag">1</span></button>
+      <button class="shot" id="R"><img alt="second build" src="${thumb(t.right)}" decoding="async"><span class="tag">2</span></button>
+    </div>`;
+  $("actions").innerHTML = `<button id="tie" class="quiet tie">can't tell</button>`;
+  const pick = (side) => {
+    const winner = side === null ? null : (side === "L" ? t.left : t.right);
+    if (side) { $(side).classList.add("picked"); $(side === "L" ? "R" : "L").classList.add("dim"); }
+    commit({ path: "/api/compare", body: { a: t.a, b: t.b, winner, ms: 0, tag: t.tag } },
+      side === null ? "Recorded: can't tell" : `Recorded: ${side === "L" ? "first" : "second"} one`);
+  };
+  $("L").addEventListener("click", () => pick("L"));
+  $("R").addEventListener("click", () => pick("R"));
+  $("tie").addEventListener("click", () => pick(null));
+  state.keys = { ArrowLeft: () => pick("L"), ArrowUp: () => pick("L"), ArrowRight: () => pick("R"),
+                 ArrowDown: () => pick("R"), " ": () => pick(null) };
+}
+
+function cycleView(t, img, dots) {
+  state.view = (state.view + 1) % 4;
+  img.src = view(t.build_id, state.view);
+  dots.querySelectorAll("i").forEach((d, i) => d.classList.toggle("on", i === state.view));
+}
+
+function renderCurate(t) {
+  $("main").innerHTML = `
+    <p class="ask">${t.question}<small>tap the picture to turn it · ${t.remaining != null ? `${t.remaining} left in this set` : ""}</small></p>
+    <div class="stage">
+      <button class="shot" id="pic"><img alt="build" src="${thumb(t.build_id)}" decoding="async">
+        <span class="dots" id="dots"><i class="on"></i><i></i><i></i><i></i></span></button>
+    </div>
+    <div class="meta"><span>${metaLine(t)}</span><span>${esc(t.dataset)}</span></div>`;
+  $("actions").innerHTML = `
+    <button class="bad" id="bad">Bad</button>
+    <button class="unsure" id="unsure">Unsure</button>
+    <button class="good" id="good">Good</button>
+    <button class="quiet" id="skip">skip</button>`;
+  const img = $("pic").querySelector("img"), dots = $("dots");
+  $("pic").addEventListener("click", () => cycleView(t, img, dots));
+  const label = (l) => commit(
+    { path: "/api/label", body: { build_id: t.build_id, label: l } }, `Marked ${l}`,
+    { path: "/api/label", body: { build_id: t.build_id, label: null } });
+  $("good").addEventListener("click", () => label("good"));
+  $("bad").addEventListener("click", () => label("bad"));
+  $("unsure").addEventListener("click", () => label("unsure"));
+  $("skip").addEventListener("click", () => advance());
+  state.keys = { g: () => label("good"), b: () => label("bad"), u: () => label("unsure"),
+                 s: () => advance(), v: () => cycleView(t, img, dots) };
+  swipe($("pic"), { left: () => label("bad"), right: () => label("good") });
+}
+
+/* A few starter words so a caption can be two taps and a word rather than a
+ * sentence typed with thumbs. The chips only insert text; what is saved is
+ * whatever ends up in the field. */
+const CHIPS = ["house", "cottage", "tower", "barn", "hut", "shop", "church", "ruin",
+  "wooden", "stone", "brick", "sandstone", "dark oak", "red roof", "two storeys",
+  "small", "large", "with a porch", "with a chimney", "medieval", "modern"];
+
+function renderCaption(t) {
+  const prev = t.label ? `<span class="pill ${esc(t.label)}">${esc(t.label)}</span> ` : "";
+  $("main").innerHTML = `
+    <p class="ask">${t.prompt}<small>${t.remaining != null ? `${t.remaining} left in this set` : ""}</small></p>
+    <div class="grid4">${[0, 1, 2, 3].map((k) =>
+      `<span class="shot"><img alt="view ${k}" src="${view(t.build_id, k)}" decoding="async"></span>`).join("")}</div>
+    <div class="meta"><span>${prev}${metaLine(t)}</span><span>${esc(t.dataset)}</span></div>
+    <div class="chips" id="chips">${CHIPS.map((c) => `<button data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+    <div class="capt"><input id="cap" type="text" autocomplete="off" autocapitalize="none"
+         enterkeyhint="done" placeholder="a small stone cottage with a red roof"></div>`;
+  $("actions").innerHTML = `<button class="quiet" id="skip">skip</button>
+    <button class="primary" id="save" disabled>Save</button>`;
+  const inp = $("cap");
+  const save = () => {
+    const text = inp.value.trim();
+    if (!text) return;
+    commit({ path: "/api/caption", body: { build_id: t.build_id, text } }, "Caption saved",
+      { path: "/api/caption", body: { build_id: t.build_id, text: "" } });
+  };
+  inp.addEventListener("input", () => { $("save").disabled = !inp.value.trim(); });
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+  $("save").addEventListener("click", save);
+  $("skip").addEventListener("click", () => advance());
+  $("chips").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    const sep = inp.value && !/\s$/.test(inp.value) ? " " : "";
+    inp.value += sep + b.dataset.c;
+    $("save").disabled = false;
+    inp.focus();
+  }));
+  state.keys = {};
+}
+
+function swipe(el, { left, right }) {
+  let x0 = null, y0 = null;
+  el.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  el.addEventListener("touchend", (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    x0 = y0 = null;
+    if (Math.abs(dx) > 90 && Math.abs(dx) > 2 * Math.abs(dy)) { e.preventDefault(); (dx < 0 ? left : right)(); }
+  });
+}
+
+// --- modes + stats -----------------------------------------------------------
+const modeName = (m) => (MODES.find(([k]) => k === m) || [m, m])[1];
+
+function renderModes() {
+  const s = state.summary;
+  const left = (kind) => {
+    if (!s) return null;
+    const jobs = s.jobs[kind] || [];
+    if (kind === "compare") return jobs.length ? Infinity : 0;
+    return jobs.reduce((acc, j) => acc + Math.max(0, (j.total || 0) - (j.done || 0)), 0);
+  };
+  $("modes").innerHTML = MODES.map(([m, n]) => {
+    const n_left = m === "mix" ? null : left(m);
+    const done = n_left === 0 ? ' data-done="1"' : "";
+    const title = (n_left && n_left !== Infinity) ? ` title="${n_left.toLocaleString()} left"` : "";
+    return `<button data-mode="${m}" aria-pressed="${m === state.mode}"${done}${title}>${n}</button>`;
+  }).join("");
+  $("modes").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+}
+
+function setMode(m) {
+  if (!MODES.some(([k]) => k === m)) return;
+  state.mode = m; prefs.set("mode", m);
+  history.replaceState(null, "", m === "mix" ? location.pathname : `?mode=${m}`);
+  state.queue = []; state.task = null; state.exhausted = false;
+  renderModes(); render(); refill();
+}
+
+function localMidnightISO() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+async function loadStats() {
+  try {
+    const r = await api.get(`/api/phone/stats?since=${encodeURIComponent(localMidnightISO())}`);
+    const sum = (o) => (o.compares || 0) + (o.labels || 0) + (o.captions || 0);
+    $("count").innerHTML = `<b>${sum(r.today || {})}</b> today<br>${sum(r.total || {}).toLocaleString()} all`;
+    setOffline(outbox.load().length > 0);
+  } catch { /* the counter is decoration */ }
+}
+
+async function loadSummary() {
+  try { state.summary = await api.get("/api/phone/summary"); } catch { state.summary = null; }
+  renderModes();
+}
+
+// --- keyboard (desktop testing; the phone never sees this) ---------------------
+state.keys = {};
+addEventListener("keydown", (e) => {
+  if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === "z" && state.pending) { e.preventDefault(); $("undoBtn").click(); return; }
+  const fn = state.keys[e.key];
+  if (fn) { e.preventDefault(); fn(); }
+});
+
+// --- boot -----------------------------------------------------------------------
+if (!MODES.some(([k]) => k === state.mode)) state.mode = "mix";
+renderModes();
+render();
+outbox.flush();
+loadSummary();
+loadStats();
+refill();
+</script>

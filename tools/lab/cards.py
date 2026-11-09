@@ -82,7 +82,8 @@ ORIGINS = ("npz", "in_memory")
 #: them. Each name is checked by presence, never by version, and each is a thing
 #: the page can offer to show; a name here means "this card cannot show it".
 MISSING_CHECKS = ("run.blockscore", "run.head_to_head", "ladder", "run.examples",
-                  "meta.provenance", "geometry_scalars", "cost", "fidelity")
+                  "meta.provenance", "geometry_scalars", "traversal", "cost",
+                  "fidelity")
 
 #: How many submission names a derived label spells out before it says `+N`.
 LABEL_ARMS = 3
@@ -210,6 +211,7 @@ def missing(blob: dict[str, Any], run: dict[str, Any]) -> list[str]:
         "run.examples": bool(run.get("examples")),
         "meta.provenance": have_provenance,
         "geometry_scalars": "geometry_scalars" in present,
+        "traversal": "traversal" in present,
         "cost": "cost" in present,
         "fidelity": "fidelity" in present,
     }

@@ -1,0 +1,11 @@
+{
+  "name": "BlockLab Phone",
+  "short_name": "BlockLab",
+  "start_url": "/phone",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#edeef0",
+  "theme_color": "#2f5d50",
+  "icons": [{"src": "/static/phone-icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}

@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import errno
 import json
+import socket
+import subprocess
 import sys
 import threading
 import urllib.error
@@ -62,6 +64,28 @@ def _launch(url: str, delay: float = 0.0) -> None:
     threading.Timer(delay, go).start()
 
 
+def _lan_addresses() -> list[str]:
+    """Addresses a phone could use. The UDP-connect trick finds the interface
+    that carries the default route without sending a packet; Tailscale is asked
+    directly because its address is the one that works away from home."""
+    out: list[str] = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            out.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True,
+                           text=True, timeout=2)
+        if r.returncode == 0:
+            out += [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    seen: set[str] = set()
+    return [a for a in out if not (a in seen or seen.add(a))]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.lab", description=__doc__)
     ap.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -69,7 +93,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default="127.0.0.1",
                     help="loopback by default; there is no auth on this thing")
     ap.add_argument("--open", action="store_true", help="launch a browser at the hub")
+    ap.add_argument("--phone", action="store_true",
+                    help="bind every interface and print the /phone URL for the LAN "
+                         "and Tailscale. No auth: only do this on a network you trust.")
     args = ap.parse_args(argv)
+    if args.phone and args.host == "127.0.0.1":
+        args.host = "0.0.0.0"
 
     LAB_ROOT.mkdir(parents=True, exist_ok=True)
     try:
@@ -100,9 +129,20 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
         return 1
 
-    url = f"http://{args.host}:{server.server_address[1]}/"
+    port = server.server_address[1]
+    url = f"http://{args.host}:{port}/"
     print(f"[lab] BlockLab on {url}  (db: {LAB_ROOT / 'lab.db'})", file=sys.stderr,
           flush=True)
+    if args.phone:
+        addrs = _lan_addresses()
+        if addrs:
+            for a in addrs:
+                print(f"[lab] phone: http://{a}:{port}/phone", file=sys.stderr)
+        else:
+            print(f"[lab] phone: http://<this machine's address>:{port}/phone",
+                  file=sys.stderr)
+        print("[lab] (no auth; anyone on that network can label)", file=sys.stderr,
+              flush=True)
     if args.open:
         _launch(url, delay=0.4)
     try:

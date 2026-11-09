@@ -43,6 +43,8 @@ Run it
 ------
     python -m tools.lab                    # http://127.0.0.1:8765
     python -m tools.lab --port 9000 --open
+    python -m tools.lab --phone            # also binds the LAN/tailnet and prints
+                                           # the /phone URL (no auth: trusted nets only)
 
 The HTTP contract
 -----------------
@@ -70,16 +72,36 @@ All responses are JSON unless noted. `build_id` is stable across restarts and is
 
     GET  /api/thumb/<build_id>?px=256           -> image/jpeg (cached on disk)
     GET  /api/view/<build_id>/<k>?px=320        -> image/jpeg, view k of four
+    GET  /api/rep/<name>/<build_id>?px=640      -> image/jpeg, the build drawn in
+                                                   representation <name> (blockgen.corpus.reps)
 
     GET  /api/build/<build_id>
          -> {build_id, dataset, index, dims, n_blocks, meta,
-             features: {...}, geometry: {...}, label, note, views: [url, ...]}
+             features: {...}, geometry: {...}, label, note, views: [url, ...],
+             reps: [{name, url, doc}, ...]}
 
     POST /api/label      {build_id, label}            -> {ok, label}
          label in {"good", "bad", "unsure", null}; null clears.
     POST /api/note       {build_id, text}             -> {ok}
     POST /api/compare    {a, b, winner, ms, tag}      -> {ok}
          `winner` is a build_id or null for "can't tell".
+    POST /api/caption    {build_id, text}             -> {ok, text}
+         A caption is what the build IS (SFT conditioning text); a note is what
+         is wrong with it. Separate tables. Blank text deletes.
+
+    GET  /api/phone/next?mode=mix|compare|curate|caption&n=6&exclude=<ids,>
+         -> {mode, tasks: [task]}   the queue behind the /phone page
+            task.kind == "compare": {tag, question, a, b, left, right, build_ids}
+                 sides already randomized; the page POSTs /api/compare as usual.
+            task.kind == "curate":  {question, build_id, dataset, index, title,
+                 category, dims, n_blocks, remaining, build_ids}
+            task.kind == "caption": {prompt, build_id, ..., label, remaining}
+            every task also carries thumbs: {build_id: url} and views: {build_id: [url x4]}.
+            Pools and weights come from configs/lab/phone.json (`tools/lab/phone.py`).
+            `exclude` is what the page already holds, so batches never overlap.
+    GET  /api/phone/summary  -> {mix, jobs: {compare: [...], curate: [...], caption: [...]}}
+    GET  /api/phone/stats?since=<iso>  -> {total: {labels, notes, captions, compares},
+                                           today: {...}}
 
     POST /api/subset/preview  {parent, rule, mode, name?, id?, note?}
          -> {n, parent_n, describe, indices: [int], sample: [row]}
@@ -93,7 +115,7 @@ All responses are JSON unless noted. `build_id` is stable across restarts and is
 
     GET  /api/labels?dataset=<id>   -> {counts: {good, bad, unsure, unlabeled},
                                         by_build: {build_id: label}}
-    GET  /api/export?what=labels|notes|compares       -> JSON download
+    GET  /api/export?what=labels|notes|captions|compares  -> JSON download
 
     GET  /api/scorecards
          -> [{run, path, when, n_arms, corpus,        <- the original five

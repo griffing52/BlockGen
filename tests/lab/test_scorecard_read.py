@@ -61,13 +61,18 @@ EXPECTED_ORDER = ["run_20260906_190029_bench", "run_20260831_225029_bench",
 #: the browser: `index.html` and `leaderboard.html` read every one of them.
 ADDED_KEYS = {"run_id", "path", "when", "leaderboard", "head_to_head", "arm_names",
               "metrics", "label", "note", "started", "n_submissions", "n_controls",
-              "n_baselines", "compat"}
+              "n_baselines", "compat",
+              # 2026-10-31: the run directory a nested `bench/` card belongs to,
+              # and what that directory's training run recorded (None here: no
+              # fixture is a training run).
+              "run_dir", "train_run"}
 
 #: The original `list_scorecards` contract, frozen. Everything after it is
 #: additive; these five may not move.
 LIST_KEYS_ORIGINAL = {"run", "path", "when", "n_arms", "corpus"}
 LIST_KEYS_ADDED = {"label", "note", "started", "tier", "n_submissions",
-                   "n_controls", "n_baselines", "git_dirty", "has_examples"}
+                   "n_controls", "n_baselines", "git_dirty", "has_examples",
+                   "run_dir", "n", "train_run"}
 
 
 @pytest.fixture
@@ -447,3 +452,161 @@ def test_a_cards_own_recipe_beats_the_static_table(outputs):
     patched["arms"]["real_test"]["meta"]["provenance"].pop("recipe")
     rows = {r["name"]: r for r in api._scorecard_payload(patched)["arms_index"]}
     assert rows["real_test"]["recipe"] == cards.RECIPES()["real_test"]
+
+
+# --- cards under outputs/<run>/bench/ ----------------------------------------
+# The trainer's bench step writes its card to `<run>/bench/scorecard.json`, one
+# level deeper than the glob looked. 27 cards on disk were invisible. A nested
+# card is a card of the RUN directory it sits under: its id is `<run>/bench`,
+# its sort stamp and `run_dir` are the run's, and the run's sidecars (run.json,
+# summary.json, the registry line) are joined onto it as `train_run`.
+TRAIN_RUN = "run_20261014_101448_houses32_scratch_5m"
+TRAIN_CONFIG = {"name": "houses32_scratch_5m", "stage": "sft", "arch": "ar2", "preset": "5m",
+                "train": ["sft-houses32"], "val": ["eval-holdout"], "steps": 8000,
+                "bench_n": 64, "trained_on_signals": []}
+
+
+def stage_training_run(root: Path, run: str = TRAIN_RUN, *, registry=True) -> Path:
+    """The bench2 fixture directory copied to `<run>/bench/` (card plus its
+    examples npz), with the sidecars a training run leaves beside it."""
+    d = root / run
+    shutil.copytree(FIXTURES / STAGE["bench2"][0], d / "bench")
+    (d / "run.json").write_text(json.dumps({"config": TRAIN_CONFIG, "meta": {"tokenizer": "abc"}}))
+    (d / "summary.json").write_text(json.dumps(
+        {"run": f"outputs/{run}", "name": "houses32_scratch_5m", "params": 5525243, "steps": 8000}))
+    if registry:
+        lines = [{"run": f"outputs/{run}", "name": "houses32_scratch_5m", "steps": 60,
+                  "params": 5525243, "git": "0000000"},
+                 {"run": f"outputs/{run}", "name": "houses32_scratch_5m", "steps": 8000,
+                  "params": 5525243, "git": "dbe873b"}]
+        (root / "registry.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+    catalog.forget_scorecards()
+    catalog.forget_train_runs()
+    return d
+
+
+def test_a_card_under_bench_is_discovered_and_attributed_to_its_run(outputs):
+    stage_training_run(outputs)
+    rows = {r["run"]: r for r in catalog.list_scorecards()}
+    assert f"{TRAIN_RUN}/bench" in rows
+    row = rows[f"{TRAIN_RUN}/bench"]
+    assert row["run_dir"] == TRAIN_RUN
+    assert row["path"].endswith(f"{TRAIN_RUN}/bench/scorecard.json")
+    assert row["n_arms"] == 4 and row["corpus"] == "houses_32"
+    tr = row["train_run"]
+    assert tr["dir"] == TRAIN_RUN and tr["name"] == "houses32_scratch_5m"
+    assert tr["arch"] == "ar2" and tr["preset"] == "5m" and tr["steps"] == 8000
+    assert tr["train"] == ["sft-houses32"] and tr["trained_on_signals"] == []
+    assert tr["config"] == TRAIN_CONFIG
+    # the registry has two lines for a resumed run; the LAST is the one scored
+    assert tr["registry"]["git"] == "dbe873b" and tr["params"] == 5525243
+
+
+def test_a_nested_card_sorts_by_its_run_directory_stamp_not_bench(outputs):
+    stage_training_run(outputs)
+    runs = [r["run"] for r in catalog.list_scorecards()]
+    assert runs[0] == f"{TRAIN_RUN}/bench"           # 2026-10-14 is the newest stamp
+    assert runs[1:] == EXPECTED_ORDER
+    # `started` falls back to the run directory's stamp (the fixture card carries
+    # its own `started_at`, so check the helper directly)
+    assert catalog.run_dir_name(Path("outputs") / TRAIN_RUN / "bench" / "scorecard.json") == TRAIN_RUN
+    assert cards.dir_stamp(TRAIN_RUN) == "2026-10-14T10:14:48Z"
+
+
+def test_a_nested_card_resolves_by_its_id_and_by_its_run_directory(outputs):
+    """`?run=<training run>` and an arm's `source_run_id` both name the run
+    directory, and both must open the card its bench step wrote."""
+    stage_training_run(outputs)
+    by_id = catalog.load_scorecard(f"{TRAIN_RUN}/bench")
+    by_dir = catalog.load_scorecard(TRAIN_RUN)
+    by_path = catalog.load_scorecard(str(Path("outputs") / TRAIN_RUN / "bench" / "scorecard.json"))
+    assert by_id["run_id"] == by_dir["run_id"] == by_path["run_id"] == f"{TRAIN_RUN}/bench"
+    assert by_id["run_dir"] == TRAIN_RUN
+    assert by_id["train_run"]["name"] == "houses32_scratch_5m"
+    assert by_id == by_dir == by_path
+    assert set(by_id) - set(raw("bench2")) == ADDED_KEYS
+
+
+def test_a_nested_card_keeps_its_example_builds(outputs):
+    stage_training_run(outputs)
+    card = catalog.load_scorecard(f"{TRAIN_RUN}/bench")
+    ids = catalog.example_build_ids(Path("outputs") / TRAIN_RUN / "bench", card)
+    assert ids and all(v for v in ids.values())
+    payload = api._scorecard_payload(card)
+    assert any(r["examples"] for r in payload["arms_index"])
+
+
+def test_both_depths_in_one_run_directory_are_two_cards_with_distinct_ids(outputs):
+    """Ids are deterministic: a nested card is `<run>/bench` whether or not a
+    top-level card exists, so a bookmark survives one appearing later."""
+    d = stage_training_run(outputs)
+    shutil.copyfile(card_path("legacy_c"), d / "scorecard.json")
+    catalog.forget_scorecards()
+    rows = {r["run"]: r for r in catalog.list_scorecards()}
+    assert {TRAIN_RUN, f"{TRAIN_RUN}/bench"} <= set(rows)
+    assert rows[TRAIN_RUN]["run_dir"] == rows[f"{TRAIN_RUN}/bench"]["run_dir"] == TRAIN_RUN
+    assert rows[TRAIN_RUN]["corpus"] == "houses_32" and rows[TRAIN_RUN]["n_arms"] == 3
+    # the bare directory name now means the top-level card
+    assert catalog.load_scorecard(TRAIN_RUN)["run_id"] == TRAIN_RUN
+    assert catalog.load_scorecard(f"{TRAIN_RUN}/bench")["run_id"] == f"{TRAIN_RUN}/bench"
+
+
+def test_a_bench_only_run_has_no_train_run(outputs):
+    rows = {r["run"]: r for r in catalog.list_scorecards()}
+    assert all(r["train_run"] is None for r in rows.values())
+    assert catalog.load_scorecard(STAGE["legacy_c"][1])["train_run"] is None
+
+
+def test_train_run_survives_a_missing_registry_and_a_broken_line(outputs):
+    d = stage_training_run(outputs, registry=False)
+    tr = catalog.train_run(TRAIN_RUN)
+    assert tr["name"] == "houses32_scratch_5m" and tr["params"] == 5525243   # from summary.json
+    (Path("outputs") / "registry.jsonl").write_text("{not json\n" + json.dumps(
+        {"run": f"outputs/{TRAIN_RUN}", "name": "houses32_scratch_5m", "git": "ffffff"}) + "\n")
+    catalog.forget_train_runs()
+    assert catalog.train_run(TRAIN_RUN)["git"] == "ffffff"
+    (d / "run.json").write_text("not json either")
+    assert catalog.train_run(TRAIN_RUN)["name"] == "houses32_scratch_5m"    # registry still answers
+    assert catalog.train_run(TRAIN_RUN)["config"] == {}
+    assert catalog.train_run("run_does_not_exist") is None
+
+
+def test_train_run_reads_a_bare_string_signal_as_one_signal(outputs):
+    """Both readers agree: `standings.training` wraps a string, so must this."""
+    d = stage_training_run(outputs, registry=False)
+    cfg = {**TRAIN_CONFIG, "trained_on_signals": "reward"}
+    (d / "run.json").write_text(json.dumps({"config": cfg, "meta": {}}))
+    catalog.forget_train_runs()
+    assert catalog.train_run(TRAIN_RUN)["trained_on_signals"] == ["reward"]
+    cfg["trained_on_signals"] = {"not": "a list"}
+    (d / "run.json").write_text(json.dumps({"config": cfg, "meta": {}}))
+    catalog.forget_train_runs()
+    assert catalog.train_run(TRAIN_RUN)["trained_on_signals"] == []
+
+
+def test_train_run_is_memoized_until_a_sidecar_or_the_registry_changes(outputs):
+    d = stage_training_run(outputs)
+    first = catalog.train_run(TRAIN_RUN)
+    assert catalog.train_run(TRAIN_RUN) is first                  # same object: no re-read
+    (d / "summary.json").write_text(json.dumps(
+        {"run": f"outputs/{TRAIN_RUN}", "name": "houses32_scratch_5m", "params": 1, "steps": 9}))
+    (Path("outputs") / "registry.jsonl").unlink()
+    again = catalog.train_run(TRAIN_RUN)
+    assert again is not first and again["params"] == 1              # summary re-read; config steps still win
+    assert again["steps"] == 8000
+    (Path("outputs") / "registry.jsonl").write_text(json.dumps(
+        {"run": f"outputs/{TRAIN_RUN}", "name": "houses32_scratch_5m", "git": "abcdef0"}) + "\n")
+    assert catalog.train_run(TRAIN_RUN)["git"] == "abcdef0"      # registry mtime is in the key
+    catalog.forget_train_runs()
+    assert catalog.train_run(TRAIN_RUN) is not again
+
+
+def test_list_rows_carry_the_submission_n(outputs):
+    rows = {r["run"]: r for r in catalog.list_scorecards()}
+    blob = raw("bench2")
+    subs = [a["meta"]["n"] for a in blob["arms"].values() if a["meta"].get("kind") == "submission"]
+    assert rows["run_20260102_000000_bench_fixture"]["n"] == max(subs)
+    # the all-control card falls back to the largest arm n rather than None
+    allctl = raw("legacy_allcontrol")
+    assert rows["run_20260831_195140_bench"]["n"] == max(
+        a["meta"]["n"] for a in allctl["arms"].values() if isinstance(a["meta"].get("n"), int))

@@ -658,7 +658,7 @@ def _read_scorecard(path: Path) -> dict:
         return hit[1]
     blob = json.loads(path.read_text())
     try:
-        blob = cards.migrate(blob, path.parent.name, stamp)
+        blob = cards.migrate(blob, scorecard_run_id(path), stamp)
     except Exception as exc:                          # never break the page
         print(f"[lab.catalog] could not normalise {path}: "
               f"{type(exc).__name__}: {exc}; reading it raw", flush=True)
@@ -666,18 +666,37 @@ def _read_scorecard(path: Path) -> dict:
     return blob
 
 
+#: Where a scorecard may sit relative to `outputs/`. The bench writes to whatever
+#: `--out` said: a run directory of its own (`outputs/run_*_bench/`) or, when the
+#: trainer invokes it, a `bench/` folder INSIDE the training run it scored. The
+#: second layout went invisible for 27 cards because only the first was globbed.
+SCORECARD_GLOBS = ("*/scorecard.json", "*/bench/scorecard.json")
+
+#: The run-directory sidecars a training run leaves beside its `bench/` card.
+#: `run.json` holds the config the trainer ran with, `summary.json` the registry
+#: record it appended, and `outputs/registry.jsonl` the same record indexed
+#: across runs. All three are optional; a bench-only run has none.
+RUN_JSON = "run.json"
+SUMMARY_JSON = "summary.json"
+REGISTRY_JSONL = "registry.jsonl"
+
+
 def _scorecard_paths() -> List[Path]:
-    """Every `outputs/*/scorecard.json`, newest run first.
+    """Every scorecard under `outputs/`, newest run first.
+
+    Two depths (`SCORECARD_GLOBS`): a card at the top of a run directory, and a
+    card the trainer's bench step writes to `<run>/bench/`. Both are attributed
+    to the run directory they sit under, so the sort key and the stamp fallback
+    are always the RUN directory's name, never `bench`.
 
     Ordered by the `run_<YYYYMMDD_HHMMSS>_` stamp in the directory name, not by
     `st_mtime`, which is what this sorted by first. File modification time is not
     a property of the run: a `git checkout`, an rsync, a `touch`, a second writer
     dropping a `table.md` into a run dir -- any of them silently reordered the run
     picker, so the "newest" entry was whichever card the filesystem had been
-    poked at last. All eleven directories on disk parse, so the ordering costs no
-    JSON reads at all; `st_mtime` remains the fallback for a directory that does
-    not follow the convention, which is the one case where it is genuinely the
-    best guess available.
+    poked at last. `st_mtime` remains the fallback for a directory that does not
+    follow the convention, which is the one case where it is genuinely the best
+    guess available.
 
     Note the glob: `outputs/*/scorecard.json`, every directory, not
     `outputs/run_*_bench/`. Two of the cards on disk do not match the narrower
@@ -686,9 +705,175 @@ def _scorecard_paths() -> List[Path]:
     """
     if not OUTPUTS_ROOT.is_dir():
         return []
-    return sorted((p for p in OUTPUTS_ROOT.glob("*/scorecard.json") if p.is_file()),
-                  key=lambda p: cards.dir_stamp(p.parent.name) or _when(p),
+    found: List[Path] = []
+    for pattern in SCORECARD_GLOBS:
+        found.extend(p for p in OUTPUTS_ROOT.glob(pattern) if p.is_file())
+    return sorted(set(found),
+                  key=lambda p: cards.dir_stamp(run_dir_name(p)) or _when(p),
                   reverse=True)
+
+
+def scorecard_run_id(path: Path) -> str:
+    """The id of the card at `path`: its directory, relative to `outputs/`.
+
+    `"run_20260831_225029_bench"` for a top-level card and
+    `"run_20261014_101448_houses32_scratch_5m/bench"` for a nested one. The id
+    does all three of its jobs unchanged (picker value, `?run=`, API segment:
+    the page URL-encodes it, `load_scorecard` resolves it under `OUTPUTS_ROOT`),
+    and it is deterministic: it never depends on whether a sibling card exists,
+    so a bookmark to a nested card survives a top-level card appearing later.
+    A card outside `outputs/` keeps the old rule, its parent directory's name.
+    """
+    parent = Path(path).parent
+    for root in (OUTPUTS_ROOT, OUTPUTS_ROOT.resolve()):
+        try:
+            return parent.relative_to(root).as_posix()
+        except ValueError:
+            try:
+                return parent.resolve().relative_to(root).as_posix()
+            except ValueError:
+                continue
+    return parent.name
+
+
+def run_dir_name(path: Path) -> str:
+    """The `outputs/<run>` directory a scorecard belongs to: the first segment
+    of its id. Equal to the id for a top-level card."""
+    return scorecard_run_id(path).split("/", 1)[0]
+
+
+# --- training-run attribution ----------------------------------------------
+_REGISTRY: Optional[Tuple[float, Dict[str, dict]]] = None
+
+
+def _registry_by_run() -> Dict[str, dict]:
+    """`outputs/registry.jsonl`, keyed by run directory name, memoized on mtime.
+
+    The trainer appends one line per finished run (`blockgen.train.registry`),
+    recording the record's `run` as a path (`outputs/run_...`); the key here is
+    that path's last segment so it matches the lab's run ids. A run that was
+    resumed has several lines, and the LAST wins: it is the record of the
+    checkpoint the bench actually scored. Fail-soft to `{}`: a half-written line
+    costs one record, never the page.
+    """
+    global _REGISTRY
+    path = OUTPUTS_ROOT / REGISTRY_JSONL
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return {}
+    if _REGISTRY is not None and _REGISTRY[0] == stamp:
+        return _REGISTRY[1]
+    out: Dict[str, dict] = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(rec, dict) and rec.get("run"):
+                out[Path(str(rec["run"])).name] = rec
+    except OSError as exc:
+        print(f"[lab.catalog] unreadable registry {path}: {exc}", flush=True)
+    _REGISTRY = (stamp, out)
+    return out
+
+
+def _read_json(path: Path) -> Optional[dict]:
+    try:
+        blob = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return blob if isinstance(blob, dict) else None
+
+
+#: Config keys lifted onto the attribution row, so a page can say what a model
+#: is without walking the whole config. The full config travels too.
+TRAIN_RUN_KEYS = ("name", "stage", "arch", "preset", "model", "train", "val", "steps",
+                  "train_split", "trained_on_signals", "init_from", "bench_n", "bench_tier",
+                  "select", "note")
+
+
+_TRAIN_RUNS: Dict[str, Tuple[tuple, Optional[dict]]] = {}
+
+
+def _sidecar_stamp(path: Path) -> Optional[Tuple[int, int]]:
+    """`(mtime_ns, size)` of a sidecar, None when absent. Size joins mtime so a
+    rewrite inside one timestamp tick still misses the memo."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def train_run(run_dir: str) -> Optional[dict]:
+    """What the training run at `outputs/<run_dir>` says about itself, or None.
+
+    Memoized on the sidecars' stamps and the registry's mtime: `list_scorecards`
+    and `load_scorecard` both ask, once per nested card per board request, and
+    the answer only changes when one of those three files does.
+
+    Joins the three sidecars a trainer run leaves: `run.json` (`config` + `meta`),
+    `summary.json` (the registry record) and the matching `registry.jsonl` line.
+    None when none of them exists, which is every bench-only run directory, so a
+    page can tell "this card was scored by a training run" from "this card is a
+    bench run" by one null check. Keys: `dir`, `name`, `stage`, `arch`, `preset`,
+    `model`, `train`, `val`, `steps`, `train_split`, `trained_on_signals`,
+    `init_from`, `config` (the whole config block), `registry` (the record), and
+    whichever of those the files did not carry is None.
+    """
+    root = OUTPUTS_ROOT / run_dir
+    by_run = _registry_by_run()
+    key = (str(root), _sidecar_stamp(root / RUN_JSON), _sidecar_stamp(root / SUMMARY_JSON),
+           _REGISTRY[0] if _REGISTRY is not None else None)
+    hit = _TRAIN_RUNS.get(run_dir)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    out = _train_run_uncached(run_dir, root, by_run.get(run_dir))
+    _TRAIN_RUNS[run_dir] = (key, out)
+    return out
+
+
+def _train_run_uncached(run_dir: str, root: Path, record: Optional[dict]) -> Optional[dict]:
+    cfg_blob = _read_json(root / RUN_JSON)
+    summary = _read_json(root / SUMMARY_JSON)
+    registry = record or summary
+    if cfg_blob is None and registry is None:
+        return None
+    config = cfg_blob.get("config") if cfg_blob else None
+    config = config if isinstance(config, dict) else {}
+    out: Dict[str, object] = {"dir": run_dir}
+    for key in TRAIN_RUN_KEYS:
+        value = config.get(key)
+        if value is None and isinstance(registry, dict):
+            value = registry.get(key)
+        out[key] = value
+    if not out.get("name"):
+        m = cards.RUN_DIR_RE.match(run_dir)
+        out["name"] = (m.group(3) if m and m.group(3) else run_dir)
+    # A bare string is one signal, as `standings.training` reads it; never a
+    # list of its characters.
+    signals = out.get("trained_on_signals") or []
+    if isinstance(signals, str):
+        signals = [signals]
+    out["trained_on_signals"] = [str(s) for s in signals] if isinstance(signals, (list, tuple)) else []
+    out["params"] = (registry or {}).get("params") if isinstance(registry, dict) else None
+    out["git"] = (registry or {}).get("git") if isinstance(registry, dict) else None
+    out["config"] = config
+    out["registry"] = registry if isinstance(registry, dict) else None
+    return out
+
+
+def forget_train_runs() -> None:
+    """Drop the registry and attribution memos (tests write several registries
+    and sidecars to one tmp path)."""
+    global _REGISTRY
+    _REGISTRY = None
+    _TRAIN_RUNS.clear()
 
 
 def _when(path: Path) -> str:
@@ -727,6 +912,11 @@ def list_scorecards() -> List[dict]:
     `git_dirty` is `None`, not `False`, when the card does not carry the flag: a
     run recorded before the flag existed does not know whether the tree was
     clean, and "unknown" must not render as "clean" next to a commit sha.
+
+    `run` is the card's directory relative to `outputs/` (`scorecard_run_id`),
+    so a card the trainer wrote at `outputs/<run>/bench/scorecard.json` has the
+    id `<run>/bench`; `run_dir` is `<run>` either way, and `train_run` is what
+    that directory says about the training run (`train_run`), or None.
     """
     out: List[dict] = []
     for path in _scorecard_paths():
@@ -740,7 +930,8 @@ def list_scorecards() -> List[dict]:
         run = blob.get("run") or {}
         arms = blob.get("arms") or {}
         counts = _arm_kind_counts(arms)
-        run_id = path.parent.name
+        run_id = scorecard_run_id(path)
+        run_dir = run_dir_name(path)
         out.append({"run": run_id, "path": str(path), "when": _when(path),
                     "n_arms": len(arms),
                     "corpus": ctx.get("corpus", ""),
@@ -753,8 +944,33 @@ def list_scorecards() -> List[dict]:
                     "n_controls": counts["control"],
                     "n_baselines": counts["baseline"],
                     "git_dirty": run.get("git_dirty"),
-                    "has_examples": bool(run.get("examples"))})
+                    "has_examples": bool(run.get("examples")),
+                    # Additive (2026-10-31): the run DIRECTORY a nested card
+                    # belongs to, the n its submissions were scored at, and the
+                    # training run that scored it (None for a bench-only run).
+                    "run_dir": run_dir,
+                    "n": arms_n(arms),
+                    "train_run": train_run(run_dir)})
     return out
+
+
+def arms_n(arms: dict) -> Optional[int]:
+    """The sample size a card's result stands on: the largest submission `n`,
+    else the largest `n` of any arm, else None. One number for a picker label;
+    the per-arm `n` stays on every row, because `--n` caps controls and
+    baselines but not file-backed arms, so one run holds several."""
+    best: Optional[int] = None
+    fallback: Optional[int] = None
+    if isinstance(arms, dict):
+        for arm in arms.values():
+            meta = arm.get("meta") if isinstance(arm, dict) else None
+            n = (meta or {}).get("n")
+            if not isinstance(n, int):
+                continue
+            fallback = n if fallback is None else max(fallback, n)
+            if cards.arm_kind(meta or {}) == "submission":
+                best = n if best is None else max(best, n)
+    return best if best is not None else fallback
 
 
 def _metric_names(arms: dict) -> List[str]:
@@ -800,8 +1016,12 @@ def load_scorecard(run: str) -> dict:
     derived data belongs in `arms_index`, built per request in `api`, for exactly
     the same reason.
     """
+    # A training run's id resolves to the card its bench step wrote under
+    # `bench/` when the run directory itself holds none, so `?run=<training run>`
+    # and the arm's `source_run_id` both open the card that scored it.
     candidates = [Path(run), Path(run) / "scorecard.json",
-                  OUTPUTS_ROOT / run / "scorecard.json"]
+                  OUTPUTS_ROOT / run / "scorecard.json",
+                  OUTPUTS_ROOT / run / "bench" / "scorecard.json"]
     path = next((p for p in candidates if p.is_file() and p.name == "scorecard.json"),
                 None)
     if path is None:
@@ -818,9 +1038,12 @@ def load_scorecard(run: str) -> dict:
     meta = blob.get("run") or {}
     compat = blob.get("compat")
     counts = _arm_kind_counts(arms)
-    run_id = path.parent.name
+    run_id = scorecard_run_id(path)
+    run_dir = run_dir_name(path)
     blob.update({
         "run_id": run_id,
+        "run_dir": run_dir,
+        "train_run": train_run(run_dir),
         "path": str(path),
         "when": _when(path),
         "leaderboard": meta.get("blockscore") or [],

@@ -28,6 +28,7 @@
 
   aside.drawer{position:sticky;top:60px;max-height:calc(100vh - 76px);overflow:auto}
   .views{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:0 0 10px}
+  .views img.rep{grid-column:1 / -1;aspect-ratio:auto;image-rendering:pixelated}
   .views img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;
              border:1px solid var(--rule)}
   .kv{width:100%;font-size:12px}
@@ -97,7 +98,7 @@ function showEmpty(title, hint) { grid.innerHTML = ""; emptyState(emptyBox, titl
 const state = {
   dataset: null, filter: "all", tile: 168,
   items: [], total: 0, offset: 0,
-  sel: -1, loading: false, detail: null,
+  sel: -1, loading: false, detail: null, rep: "voxels",
   counts: { good: 0, bad: 0, unsure: 0, unlabeled: 0 },
 };
 
@@ -317,6 +318,17 @@ const rows = (obj, digits = 3) => Object.entries(obj || {})
     typeof v === "number" ? fmt.n(v, Number.isInteger(v) ? 0 : digits) : esc(v ?? "—")
   }</td></tr>`).join("");
 
+/* `voxels` is the four orbit renders; any other representation is one picture
+   from /api/rep, drawn by blockgen.corpus.reps, so a new representation needs
+   no change here. The choice sticks for the session. */
+function viewsHtml(d, rep) {
+  if (rep === "voxels" || !(d.reps || []).some(r => r.name === rep))
+    return (d.views || []).map((u, i) =>
+      `<img loading="lazy" alt="view ${i}" src="${u}?px=320">`).join("");
+  const r = d.reps.find(r => r.name === rep);
+  return `<img class="rep" alt="${esc(rep)}" title="${esc(r.doc)}" src="${r.url}?px=640">`;
+}
+
 async function showDetail(item) {
   if (!item) return;
   state.detail = item.build_id;
@@ -339,8 +351,11 @@ async function showDetail(item) {
     <strong>${esc(d.title || d.build_id)}</strong>
     ${d.category ? `<span class="pill">${esc(d.category)}</span>` : ""}
     <p class="hint">${fmt.dims(d.dims)} · ${fmt.int(d.n_blocks)} blocks</p>
-    <div class="views">${(d.views || []).map((u, i) =>
-      `<img loading="lazy" alt="view ${i}" src="${u}?px=320">`).join("")}</div>
+    ${(d.reps || []).length > 1 ? `<p class="hint">read as
+      <select id="rep">${d.reps.map(r =>
+        `<option value="${esc(r.name)}" title="${esc(r.doc)}">${esc(r.name)}</option>`).join("")}
+      </select></p>` : ""}
+    <div class="views" id="views">${viewsHtml(d, "voxels")}</div>
     <div class="labelbtns">
       ${["good", "bad", "unsure", ""].map(l =>
         `<button data-label="${l}">${l || "clear"}</button>`).join("")}
@@ -358,6 +373,14 @@ async function showDetail(item) {
   drawer.querySelectorAll(".labelbtns button").forEach(b =>
     b.addEventListener("click", () => setLabel(item, b.dataset.label || null)));
   paintDrawerLabel(d.label);
+  const rep = $("rep");
+  if (rep) {
+    rep.value = state.rep;
+    $("views").innerHTML = viewsHtml(d, state.rep);
+    rep.addEventListener("change", () => {
+      state.rep = rep.value; $("views").innerHTML = viewsHtml(d, state.rep);
+    });
+  }
 
   const note = $("note");
   note.addEventListener("blur", () => saveNote(item, note.value));

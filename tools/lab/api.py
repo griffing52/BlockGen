@@ -52,6 +52,7 @@ PAGES = {
     "/compare": "compare.html",
     "/curation": "curation.html",
     "/ontology": "ontology.html",
+    "/phone": "phone.html",
 }
 
 CONTENT_TYPES = {
@@ -66,6 +67,7 @@ CONTENT_TYPES = {
     ".ico": "image/x-icon",
     ".woff2": "font/woff2",
     ".map": "application/json",
+    ".webmanifest": "application/manifest+json",
 }
 
 LABELS = ("good", "bad", "unsure")
@@ -606,8 +608,20 @@ def api_build(build_id: str) -> Any:
         "label": label, "note": note or "",
         "thumb": f"/api/thumb/{quoted}",
         "views": [f"/api/view/{quoted}/{k}" for k in range(4)],
+        # Every representation the library can read this build in, with the
+        # picture that shows it; `voxels` is what `views` already draws.
+        "reps": [{"name": n, "url": f"/api/rep/{n}/{quoted}", "doc": r.doc}
+                 for n, r in _reps().items()],
     })
     return out
+
+
+def _reps() -> dict:
+    try:
+        from blockgen.corpus import reps
+        return dict(reps.REPRESENTATIONS)
+    except Exception:          # the panel degrades to the orbit views
+        return {}
 
 
 def api_labels(query: Query) -> Any:
@@ -641,8 +655,9 @@ def api_labels(query: Query) -> Any:
 
 def api_export(query: Query) -> Any:
     what = (_one(query, "what", "labels") or "labels").lower()
-    if what not in ("labels", "notes", "compares"):
-        raise LabError(400, "bad export", f"what must be labels|notes|compares, got {what!r}")
+    if what not in ("labels", "notes", "captions", "compares"):
+        raise LabError(400, "bad export",
+                       f"what must be labels|notes|captions|compares, got {what!r}")
     with store_session() as store:
         return {"what": what, "exported_at": time.time(), "rows": store.export(what)}
 
@@ -654,8 +669,20 @@ def api_standings(query: Query) -> Any:
     exist" and is read by three pages, while this one opens and collapses every
     card that matches a protocol. Folding the second into the first would put an
     O(runs) read behind the hub's first paint.
+
+    `n=` filters both tables to the arms scored at one sample size (the equal-n
+    rule: BlockScore is comparable only at equal n); the response still carries
+    every group's count and how many rows the filter hid.
     """
-    return lab_module("standings").board(_one(query, "protocol"))
+    n_raw = _one(query, "n")
+    n = None
+    if n_raw not in (None, ""):
+        # `int()` not `int(float())`: "128.9" is junk, not 128.
+        try:
+            n = int(str(n_raw).strip())
+        except ValueError:
+            raise LabError(400, "n must be an integer", f"got {n_raw!r}")
+    return lab_module("standings").board(_one(query, "protocol"), n=n)
 
 
 def api_protocols(query: Query) -> Any:
@@ -779,6 +806,59 @@ def post_compare(body: dict[str, Any]) -> Any:
     return {"ok": True}
 
 
+def post_caption(body: dict[str, Any]) -> Any:
+    bid = str(body.get("build_id") or "")
+    if not bid:
+        raise LabError(400, "build_id required")
+    _build_id(bid)
+    text = str(body.get("text") or "")
+    if len(text) > 500:
+        raise LabError(400, "caption too long", "500 characters is plenty for one line")
+    with store_session() as store:
+        store.set_caption(bid, text)
+    return {"ok": True, "text": " ".join(text.split())}
+
+
+# --- phone queue -----------------------------------------------------------
+def _planner(store: Any) -> Any:
+    return lab_module("phone").Planner(store)
+
+
+def api_phone_next(query: Query) -> Any:
+    """The next few tasks for the phone page. `exclude` is a comma-separated list
+    of build ids the page is still holding (queued, or inside its undo window)."""
+    phone = lab_module("phone")
+    mode = (_one(query, "mode", "mix") or "mix").lower()
+    if mode not in phone.MODES:
+        raise LabError(400, "bad mode", f"expected one of {phone.MODES}, got {mode!r}")
+    n = _int(query, "n", 6, lo=1, hi=24)
+    raw = _one(query, "exclude", "") or ""
+    exclude = [x for x in (part.strip() for part in raw.split(",")) if x]
+    with store_session() as store:
+        tasks = _planner(store).next_tasks(mode, n, exclude)
+    for t in tasks:
+        for bid in t.get("build_ids", ()):
+            t.setdefault("thumbs", {})[bid] = f"/api/thumb/{urllib.parse.quote(bid, safe='')}"
+            t.setdefault("views", {})[bid] = [
+                f"/api/view/{urllib.parse.quote(bid, safe='')}/{k}" for k in range(4)]
+    return {"mode": mode, "tasks": tasks}
+
+
+def api_phone_summary(query: Query) -> Any:
+    with store_session() as store:
+        return _planner(store).summary()
+
+
+def api_phone_stats(query: Query) -> Any:
+    """Totals, plus everything since `since` (ISO-8601 UTC) -- the page passes its
+    local midnight so "today" means the rater's today, not the server's."""
+    since = _one(query, "since") or None
+    with store_session() as store:
+        total = store.activity()
+        today = store.activity(since) if since else {}
+    return {"total": total, "since": since, "today": today}
+
+
 # --- image routes ----------------------------------------------------------
 _VIEW_CACHE: dict[tuple[str, int, int], list[bytes]] = {}
 _VIEW_LOCK = threading.Lock()
@@ -815,6 +895,18 @@ def image_thumb(rest: str, query: Query) -> bytes:
     dataset_id, index = _build_id(rest)
     px = _int(query, "px", 256, lo=32, hi=1024)
     return lab_module("renders").thumb(dataset_id, index, px=px)
+
+
+def image_rep(rest: str, query: Query) -> bytes:
+    """`/api/rep/<name>/<build_id>`: the build drawn in one representation."""
+    name, _, build_part = rest.partition("/")
+    if not name or not build_part:
+        raise LabError(400, "expected /api/rep/<name>/<build_id>", rest)
+    if name not in _reps():
+        raise LabError(404, "no such representation", name)
+    dataset_id, index = _build_id(build_part)
+    px = _int(query, "px", 640, lo=64, hi=2048)
+    return lab_module("renders").rep(name, dataset_id, index, px=px)
 
 
 def image_view(rest: str, query: Query) -> bytes:
@@ -933,6 +1025,9 @@ class LabHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/view/"):
             px = _int(query, "px", 320, lo=64, hi=1024)
             return self._image(image_view(path[len("/api/view/"):], query), px)
+        if path.startswith("/api/rep/"):
+            px = _int(query, "px", 640, lo=64, hi=2048)
+            return self._image(image_rep(path[len("/api/rep/"):], query), px)
 
         if path.startswith("/api/ontology/swatch/"):
             return self._swatch(path[len("/api/ontology/swatch/"):])
@@ -950,6 +1045,9 @@ class LabHandler(BaseHTTPRequestHandler):
             "/api/ontology": api_ontology,
             "/api/ontology/catalogs": api_ontology_catalogs,
             "/api/ontology/prompt": api_ontology_prompt,
+            "/api/phone/next": api_phone_next,
+            "/api/phone/summary": api_phone_summary,
+            "/api/phone/stats": api_phone_stats,
         }
         if path in simple:
             self._json(200, simple[path](query))
@@ -1020,6 +1118,7 @@ class LabHandler(BaseHTTPRequestHandler):
                 "/api/label": post_label,
                 "/api/note": post_note,
                 "/api/compare": post_compare,
+                "/api/caption": post_caption,
                 "/api/subset": post_subset,
                 "/api/subset/preview": post_subset_preview,
                 "/api/subset/delete": post_subset_delete,
@@ -1036,8 +1135,11 @@ class LabHandler(BaseHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> ThreadingHTTPServer:
-    """Bind and return the server. 127.0.0.1 only -- this is a workstation tool
-    with no auth, and the labels in it are unpublished research judgements."""
+    """Bind and return the server. 127.0.0.1 by default -- this is a workstation
+    tool with no auth, and the labels in it are unpublished research judgements.
+    `python -m tools.lab --phone` binds every interface on purpose so a phone on
+    the same LAN or tailnet can reach `/phone`; that is a trusted-network
+    decision the launcher makes explicit, not a default."""
     server = ThreadingHTTPServer((host, port), LabHandler)
     server.daemon_threads = True
     return server

@@ -209,7 +209,7 @@ def _content_sha(s: Structure) -> str:
     return h.hexdigest()
 
 
-def cache_key(dataset_id: str, index: int, px: int, view: int = 0) -> str:
+def cache_key(dataset_id: str, index: int, px: int, view: "int | str" = 0) -> str:
     """Content-addressed key. Falls back to the id when the build cannot load.
 
     The fallback keeps a missing dataset from turning into an exception in the
@@ -223,7 +223,9 @@ def cache_key(dataset_id: str, index: int, px: int, view: int = 0) -> str:
     except Exception:
         digest = "id" + hashlib.sha1(
             f"{dataset_id}:{index}".encode("utf-8")).hexdigest()[:18]
-    return f"{digest}_p{int(px)}_v{int(view)}"
+    # An int is an orbit view; a string names a representation picture.
+    tag = f"v{int(view)}" if isinstance(view, int) else str(view)
+    return f"{digest}_p{int(px)}_{tag}"
 
 
 def cache_path(key: str) -> Path:
@@ -280,6 +282,43 @@ def thumb(dataset_id: str, index: int, px: int = 256) -> bytes:
 def views(dataset_id: str, index: int, px: int = 256) -> List[bytes]:
     """All four orbit views for the detail page. Never raises."""
     return [_cached_view(dataset_id, index, px, v) for v in range(len(VIEWS))]
+
+
+def rep(name: str, dataset_id: str, index: int, px: int = 512) -> bytes:
+    """JPEG of the build read in representation `name` (`blockgen.corpus.reps`).
+
+    Same disk cache as the orbit views, keyed by the representation's name, so a
+    facade sheet is drawn once per build. Pure-numpy pictures skip the render
+    thread; a representation that draws through the renderer goes through it
+    like every other render. Never raises: a bad name or a failed picture is a
+    placeholder, which the caller can tell from a build by its stripes.
+    """
+    from blockgen.corpus import reps
+
+    path = cache_path(cache_key(dataset_id, index, px, f"r{name}"))
+    if path.is_file():
+        try:
+            return path.read_bytes()
+        except OSError:
+            pass
+    try:
+        r = reps.get(name)
+        s = catalog.load_builds(dataset_id)[index]
+        draw = lambda: r.picture(r.encode(s), px)
+        img = _on_render_thread(draw) if r.needs_renderer else draw()
+        data = encode_jpeg(_composite(img))
+    except Exception as exc:
+        print(f"[lab.renders] {dataset_id}:{index} rep {name} failed: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return placeholder(px)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".jpg.part")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    except OSError as exc:
+        print(f"[lab.renders] cache write failed for {path}: {exc}", flush=True)
+    return data
 
 
 def render_array(s: Structure, px: int = 256, view: int = 0) -> Optional[np.ndarray]:

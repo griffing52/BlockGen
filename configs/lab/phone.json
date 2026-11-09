@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "What the phone queue serves, in priority order. Dataset ids may be globs",
+    "(fnmatch) against the lab catalog; a job whose pools resolve to nothing is",
+    "skipped silently so a fresh clone still gets a page. `mix` is the draw",
+    "probability per kind when the page is in Mix mode; captions are typing and",
+    "are deliberately not in the mix -- they have their own mode.",
+    "Order of value (see notes.md section 49): 2AFC pairs feed the human study",
+    "AND preference tuning; good/bad on the curated house caches cleans the SFT",
+    "set and gives a precision estimate for the curation gates; captions improve",
+    "text conditioning.",
+    "Arms are pinned by id, not globbed over outputs/run_*: that directory is full of mock, smoke and pilot runs whose builds are not worth a human second. Add a new arm here when its bench run is the one being written up."
+  ],
+  "mix": {
+    "compare": 0.6,
+    "curate": 0.4
+  },
+  "compare": [
+    {
+      "tag": "more_real",
+      "question": "Which looks more like a <b>real Minecraft house</b>?",
+      "weight": 1.0,
+      "a": [
+        "split:houses_32:test"
+      ],
+      "b": [
+        "arm:bench_arms__*_32",
+        "arm:run_20261007_092654_bench_houses32_classic__classic-matched_32",
+        "arm:run_20261007_092654_bench_houses32_dream__dream_32",
+        "arm:run_20261008_004051_bench_houses32_dream_caption133__dream-caption_32"
+      ],
+      "pairing": "across"
+    },
+    {
+      "tag": "better_build",
+      "question": "Which is the <b>better build</b>?",
+      "weight": 1.0,
+      "a": [
+        "arm:bench_arms__*_32",
+        "arm:run_20261007_092654_bench_houses32_classic__classic-matched_32",
+        "arm:run_20261007_092654_bench_houses32_dream__dream_32",
+        "arm:run_20261008_004051_bench_houses32_dream_caption133__dream-caption_32"
+      ],
+      "b": [
+        "arm:bench_arms__*_32",
+        "arm:run_20261007_092654_bench_houses32_classic__classic-matched_32",
+        "arm:run_20261007_092654_bench_houses32_dream__dream_32",
+        "arm:run_20261008_004051_bench_houses32_dream_caption133__dream-caption_32"
+      ],
+      "pairing": "any"
+    }
+  ],
+  "curate": [
+    {
+      "question": "Keep this as a <b>training house</b>?",
+      "weight": 2.0,
+      "datasets": [
+        "corpus:houses_32",
+        "corpus:houses_48"
+      ]
+    },
+    {
+      "question": "Is this a <b>usable house build</b>?",
+      "weight": 1.0,
+      "datasets": [
+        "raw:3dcraft",
+        "raw:grabcraft"
+      ]
+    }
+  ],
+  "caption": [
+    {
+      "prompt": "Describe it in one line, the way you would ask <code>/gen</code> for it.",
+      "datasets": [
+        "corpus:houses_32",
+        "corpus:houses_48"
+      ],
+      "prefer_label": "good",
+      "skip_label": "bad"
+    }
+  ]
+}

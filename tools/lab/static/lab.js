@@ -30,7 +30,7 @@ export function toast(msg, ms = 1600) {
 export function chrome(active) {
   const tabs = [["/", "Hub"], ["/curate", "Curate"], ["/leaderboard", "Leaderboard"],
                 ["/runs", "Runs"], ["/compare", "Compare"], ["/curation", "Gates"],
-                ["/ontology", "Ontology"]];
+                ["/ontology", "Ontology"], ["/phone", "Phone"]];
   const nav = tabs.map(([href, label]) =>
     `<a href="${href}"${href === active ? ' aria-current="page"' : ""}>${label}</a>`).join("");
   document.body.insertAdjacentHTML("afterbegin",

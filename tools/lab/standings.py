@@ -32,6 +32,23 @@ Model identity is `provenance.model` where the card has it and the arm name
 otherwise, which is the same join `api._model_cards` uses and the same convention
 `sample_to_npz.py` writes: an arm is named after the model it ran. Two runs of
 one model therefore collapse to one row, and `history` keeps the rest.
+
+**It groups by n and says when a view mixes them.** BlockScore is comparable
+only at equal n: a pillar is a bootstrap distance whose spread shrinks with the
+sample, so an n=399 arm and an n=128 arm are not two readings on one ruler even
+inside one protocol. Every row carries its `n`, `n_groups` counts the arms at
+each distinct n, `default_n` names the group a page should open on (the largest
+n with at least two arms), and `board(n=...)` filters to one group while
+reporting how many rows that hid. Nothing is unranked by this: a provisional arm
+stays provisional for the protocol's reasons, and grouping only decides which
+rows are shown side by side.
+
+**It surfaces what an arm trained on.** A generated arm's `provenance.report`
+carries `model`, `checkpoint`, `train_split` and `trained_on_signals` (the
+rewards or preference signals a post-training stage optimised). The first three
+are lifted onto the row; `trained_on_signals` is both lifted and flagged, the
+way an `oracle_train` arm is flagged today, because a model that trained against
+a reward the bench also measures has to be read with that in mind.
 """
 
 from __future__ import annotations
@@ -70,20 +87,112 @@ def model_id(name: str, meta: dict) -> str:
         model = prov.get("model")
         if isinstance(model, str) and model.strip():
             return model.strip()
+        report = prov.get("report")
+        model = report.get("model") if isinstance(report, dict) else None
+        # `report.model` is a dict (arch, preset, widths) on a post-training
+        # arm; that describes a model and does not name one, so only a string
+        # counts as an identity.
+        if isinstance(model, str) and model.strip():
+            return model.strip()
     return str(name)
+
+
+def model_label(model: Any) -> str:
+    """A string for the `model` field however it was written: the name itself,
+    or `arch/preset` (then `d_model x layers`) when the writer recorded the
+    architecture dict instead of a name."""
+    if isinstance(model, str):
+        return model.strip()
+    if isinstance(model, dict):
+        head = "/".join(str(model[k]) for k in ("arch", "preset")
+                        if model.get(k) not in (None, ""))
+        dims = "x".join(str(model[k]) for k in ("d_model", "layers")
+                        if model.get(k) not in (None, ""))
+        return " ".join(part for part in (head, dims) if part)
+    return "" if model is None else str(model)
+
+
+def training(meta: dict) -> dict:
+    """What a generated arm says about its own training, from `provenance`.
+
+    Reads the top-level provenance block first (`sample_to_npz.py` writes
+    `model` and `checkpoint` there) and the nested sample `report` second (the
+    trainer and the post-training stages write `model`, `checkpoint`,
+    `train_split` and `trained_on_signals` there). Every key is present, None or
+    `[]` when unrecorded, so a page never has to probe two shapes.
+    """
+    prov = meta.get("provenance") if isinstance(meta, dict) else None
+    prov = prov if isinstance(prov, dict) else {}
+    report = prov.get("report")
+    report = report if isinstance(report, dict) else {}
+
+    def first(key: str) -> Any:
+        for block in (prov, report):
+            value = block.get(key)
+            if value not in (None, "", [], {}):
+                return value
+        return None
+
+    model = first("model")
+    detail = next((b.get("model") for b in (prov, report) if isinstance(b.get("model"), dict)), None)
+    signals = first("trained_on_signals")
+    if isinstance(signals, str):
+        signals = [signals]
+    signals = [str(x) for x in signals] if isinstance(signals, (list, tuple)) else []
+    ckpt, step = checkpoint_file(first("checkpoint"))
+    return {
+        "model": model_label(model) or None,
+        "model_detail": detail,
+        "checkpoint": ckpt,
+        "checkpoint_step": step,
+        "train_split": first("train_split"),
+        "trained_on_signals": signals,
+        "training_run": report.get("run") or None,
+    }
+
+
+def checkpoint_file(ckpt: Any) -> Tuple[Optional[str], Optional[int]]:
+    """`(path, step)` from either shape a writer records a checkpoint in.
+
+    `sample_to_npz.py` writes the path; the trainer's sample report
+    (`blockgen/train/sample.py`) writes `{"file", "step"}`. A page gets one
+    string either way, so a dict never reaches `String()` and renders as
+    "[object Object]", and the `run_` segment stays findable.
+    """
+    if isinstance(ckpt, dict):
+        step = ckpt.get("step")
+        path = ckpt.get("file") or ckpt.get("path")
+        return ((str(path) if path not in (None, "") else None),
+                (step if isinstance(step, int) and not isinstance(step, bool) else None))
+    return (str(ckpt) if ckpt not in (None, "", [], {}) else None), None
 
 
 def _appearance(card: dict, run_id: str, name: str, meta: dict,
                 row: dict, examples: Dict[str, List[str]]) -> dict:
     """One model's showing in one run -- the unit `history` is made of."""
     score = row.get("score")
+    trained = training(meta)
+    train_run = card.get("train_run") if isinstance(card.get("train_run"), dict) else None
     return {
         "run": run_id,
+        "run_dir": card.get("run_dir") or run_id.split("/", 1)[0],
         "run_label": card.get("label") or run_id,
+        "train_run_name": (train_run or {}).get("name"),
         "started": card.get("started") or card.get("when") or "",
         "arm": name,
         "track": meta.get("track") or "",
         "n": meta.get("n"),
+        # `model_label`, not `model`: the row's `model` is its identity (the key
+        # two runs of one checkpoint share), and `board` writes it last. This is
+        # the model as the WRITER described it, which for a post-training arm is
+        # an architecture dict rendered as `arch/preset`.
+        "model_label": trained["model"],
+        "model_detail": trained["model_detail"],
+        "checkpoint": trained["checkpoint"],
+        "checkpoint_step": trained["checkpoint_step"],
+        "train_split": trained["train_split"],
+        "trained_on_signals": trained["trained_on_signals"],
+        "training_run": trained["training_run"],
         "score": score if isinstance(score, (int, float)) else None,
         "status": row.get("status") or "",
         "worst_pillar": row.get("worst_pillar") or "",
@@ -112,7 +221,9 @@ def _tied(x: float, y: float) -> bool:
 def _better(a: dict, b: dict) -> dict:
     """The appearance that represents the model.
 
-    Lower score wins; a scored appearance always beats a disqualified one,
+    Between appearances at different n, the one at ``BOARD_N`` (else the larger n)
+    wins, because their scores are not comparable. At equal n the lower score wins;
+    a scored appearance always beats a disqualified one,
     because a DQ is not a position. Genuine ties go to the NEWER run -- it is the
     one whose card carries provenance and example builds, and "the most recent
     time this model achieved its best score" is a defensible thing for a row to
@@ -120,6 +231,10 @@ def _better(a: dict, b: dict) -> dict:
     """
     a_ok = a["status"] != "DQ" and isinstance(a["score"], (int, float))
     b_ok = b["status"] != "DQ" and isinstance(b["score"], (int, float))
+    if a_ok and b_ok and a.get("n") != b.get("n"):
+        # Scores at different n are not ordered (a pillar's spread shrinks with n), so the
+        # board's n wins, then the larger n, never the lower number.
+        return a if _n_pref(a) >= _n_pref(b) else b
     if a_ok and b_ok:
         if _tied(float(a["score"]), float(b["score"])):
             return a if (a["started"] or "") >= (b["started"] or "") else b
@@ -127,6 +242,15 @@ def _better(a: dict, b: dict) -> dict:
     if a_ok != b_ok:
         return a if a_ok else b
     return a if (a["started"] or "") >= (b["started"] or "") else b
+
+
+#: The sample size every card is drawn at since 2026-11-05; an arm's row prefers its appearance at this n.
+BOARD_N = 256
+
+
+def _n_pref(row: dict) -> Tuple[bool, int]:
+    n = row.get("n") if isinstance(row.get("n"), int) else 0
+    return (n == BOARD_N, n)
 
 
 def _sort_key(row: dict) -> Tuple[int, float, str]:
@@ -137,12 +261,43 @@ def _sort_key(row: dict) -> Tuple[int, float, str]:
     return (0, float(row["score"]), row["model"])
 
 
-def board(protocol_id: Optional[str] = None) -> Dict[str, Any]:
-    """The whole board for one protocol. Never raises; empty on a fresh clone."""
+def n_groups(rows: List[dict]) -> List[dict]:
+    """`[{"n", "arms", "ranked", "provisional"}, ...]`, largest n first, over the
+    rows of both tables. `n` is None for a row whose card never recorded one;
+    that group sorts last so the page can name it rather than lose it."""
+    counts: Dict[Optional[int], dict] = {}
+    for row in rows:
+        n = row.get("n") if isinstance(row.get("n"), int) else None
+        slot = counts.setdefault(n, {"n": n, "arms": 0, "ranked": 0, "provisional": 0})
+        slot["arms"] += 1
+        slot["ranked" if not row.get("unranked_reason") else "provisional"] += 1
+    return sorted(counts.values(), key=lambda g: (g["n"] is None, -(g["n"] or 0)))
+
+
+def default_n(groups: List[dict]) -> Optional[int]:
+    """The group a page opens on: the largest n holding at least two arms,
+    because one arm is not a ranking; else the largest n at all; else None."""
+    sized = [g for g in groups if isinstance(g.get("n"), int)]
+    for g in sized:                     # already largest first
+        if g["arms"] >= 2:
+            return g["n"]
+    return sized[0]["n"] if sized else None
+
+
+def board(protocol_id: Optional[str] = None, n: Optional[int] = None) -> Dict[str, Any]:
+    """The whole board for one protocol. Never raises; empty on a fresh clone.
+
+    `n` restricts `ranked` and `provisional` to the arms scored at that sample
+    size; `n_hidden` then says how many rows that put out of view, and
+    `n_groups` still counts every arm, so the filter can never pass for the
+    whole. Without it both tables carry every n and `mixed_n` says whether a
+    reader is looking at more than one.
+    """
     pro = proto.get(protocol_id or proto.DEFAULT_ID)
     if pro is None:
         return {"protocol": None, "ranked": [], "provisional": [], "skipped": [],
-                "n_runs": 0, "n_matching": 0,
+                "n_runs": 0, "n_matching": 0, "n_groups": [], "default_n": None,
+                "n_filter": n, "n_hidden": 0, "mixed_n": False,
                 "error": f"no protocol named {protocol_id!r}"}
 
     by_model: Dict[str, dict] = {}
@@ -209,6 +364,14 @@ def board(protocol_id: Optional[str] = None) -> Dict[str, Any]:
 
     ranked.sort(key=_sort_key)
     provisional.sort(key=_sort_key)
+    groups = n_groups(ranked + provisional)
+    hidden = 0
+    if n is not None:
+        keep = lambda row: row.get("n") == n     # noqa: E731
+        hidden = sum(1 for row in ranked + provisional if not keep(row))
+        ranked = [row for row in ranked if keep(row)]
+        provisional = [row for row in provisional if keep(row)]
+    shown_ns = {row.get("n") for row in ranked + provisional}
     return {
         "protocol": pro.to_json(),
         "protocols": [p.to_json() for p in proto.OFFICIAL],
@@ -218,4 +381,9 @@ def board(protocol_id: Optional[str] = None) -> Dict[str, Any]:
         "n_runs": n_runs,
         "n_matching": n_matching,
         "select": SELECT,
+        "n_groups": groups,
+        "default_n": default_n(groups),
+        "n_filter": n,
+        "n_hidden": hidden,
+        "mixed_n": len(shown_ns) > 1,
     }

@@ -101,6 +101,9 @@ SPECS: Tuple[RawSpec, ...] = (
     RawSpec("worldcrop", "World crops (archive.org worlds)", MC / "worldcrop",
             "2*/crops/*.npz", "auto-detected built components; masked to the component",
             "worldcrop"),
+    RawSpec("templates", "Vanilla structure templates (jar 1.21.1)", MC / "templates",
+            "**/*.npz", "the game's own jigsaw pieces; Mojang assets, internal only",
+            "templates"),
 )
 
 BY_ID: Dict[str, RawSpec] = {s.id: s for s in SPECS}
@@ -280,6 +283,16 @@ def _read_worldcrop(path: Path) -> Optional[Structure]:
                      source_path=str(path), metadata=meta)
 
 
+def _read_template(path: Path) -> Optional[Structure]:
+    """A `blockgen.corpus.templates` piece: legacy `ids`/`data` in XYZ, named by
+    its path in the jar (`village/plains/houses/plains_medium_house_1`)."""
+    z = np.load(path)
+    rel = path.relative_to(MC / "templates").with_suffix("")
+    return Structure(block_ids=z["ids"].astype(np.int32), block_data=z["data"].astype(np.int32),
+                     source_path=str(path),
+                     metadata={"corpus": "templates", "category": rel.parts[0], "title": str(rel)})
+
+
 _READERS: Dict[str, Callable[[Path], Optional[Structure]]] = {
     "grabcraft": _read_grabcraft,
     "3dcraft": _read_3dcraft,
@@ -287,6 +300,7 @@ _READERS: Dict[str, Callable[[Path], Optional[Structure]]] = {
     "text2mc_schem": _read_text2mc_schem,
     "legacy": _read_legacy,
     "worldcrop": _read_worldcrop,
+    "templates": _read_template,
 }
 
 

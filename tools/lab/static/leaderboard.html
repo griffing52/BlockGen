@@ -19,7 +19,15 @@
      confidence intervals mean nothing. Both are shown, ordered identically, and
      the provisional rows carry their reason on every line. Lowering the bar to
      populate a leaderboard is the exact failure `composite.py` was written
-     against; keeping it while hiding the near-misses is just unhelpful. -->
+     against; keeping it while hiding the near-misses is just unhelpful.
+
+     The third: BLOCKSCORE IS COMPARABLE ONLY AT EQUAL n. A pillar is a bootstrap
+     distance whose spread shrinks with the sample, so an n=399 arm and an n=128
+     arm are not two readings on one ruler even inside one protocol. The board
+     therefore opens on one n (the largest with at least two arms), offers a chip
+     per distinct n, and puts an amber banner over any view that mixes them.
+     Grouping never unranks: a provisional arm is provisional for the protocol's
+     reasons, and the chips only decide which rows sit side by side. -->
 <style>
   .why{color:var(--dim);font-size:12.5px;margin:0 0 16px;max-width:62ch}
   .proto{display:flex;flex-wrap:wrap;gap:6px 16px;font-family:var(--mono);
@@ -61,6 +69,15 @@
   .skip{font-size:12px;color:var(--dim)}
   .skip li{margin:3px 0}
   .skip code{font-size:11px}
+  .chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px;font-size:12px}
+  .chips .lab{color:var(--faint);font-family:var(--mono);font-size:11px;margin-right:4px}
+  .chip{font:inherit;font-size:12px;padding:3px 10px;border-radius:12px;cursor:pointer;
+        border:1px solid var(--rule-strong);background:var(--panel);color:var(--dim)}
+  .chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+  .chip small{color:var(--faint);font-family:var(--mono);font-size:10px;margin-left:4px}
+  tr.sig td:first-child{border-left:3px solid var(--unsure)}
+  .pill.sig{cursor:help}
+  .ncol{font-family:var(--mono)}
 </style>
 
 <main class="wrap">
@@ -82,6 +99,8 @@
   <div id="page" hidden>
     <p class="proto" id="protometa"></p>
     <div id="notice"></div>
+    <div class="chips" id="nchips"></div>
+    <div id="nbanner"></div>
 
     <h2>Ranked <span class="count" id="rankedn"></span></h2>
     <p class="lede" id="rankedlede"></p>
@@ -127,10 +146,41 @@ const boxes = {
   prov: el("prov"), drill: el("drill"), skipped: el("skipped"),
   skipwrap: el("skipwrap"), rankedn: el("rankedn"), provn: el("provn"),
   rankedlede: el("rankedlede"), provlede: el("provlede"),
+  nchips: el("nchips"), nbanner: el("nbanner"),
 };
 
 let data = null;
 let selected = null;
+/* The n the tables are filtered to; null shows every n (and earns the banner).
+ * Set from `default_n` on load, then by the chips. A `?n=` in the URL wins, so
+ * a view can be bookmarked. */
+let nSel = null;
+let nTouched = false;
+
+const inView = (r) => nSel === null || r.n === nSel;
+
+/* Flagged the way an oracle_train arm is flagged: an amber pill on the row,
+ * never red, with the signal names in the tooltip. A model that trained
+ * against a reward the bench also measures is not disqualified by that, but
+ * the pillars that reward touched are in-sample for it. */
+function signalsPill(r) {
+  const sig = r.trained_on_signals || [];
+  if (!sig.length) return "";
+  return ` <span class="pill warnp sig" title="trained on reward signals: ${
+    esc(sig.join(", "))}">trained on signals</span>`;
+}
+
+function modelLine(r) {
+  // One mono line under the name: track, the model as the sampler named it
+  // (when that differs from the row's identity), checkpoint run, split, run.
+  const bits = [r.track || ""];
+  if (r.model_label && r.model_label !== r.model) bits.push(r.model_label);
+  const ckpt = String(r.checkpoint || "").split("/").find((seg) => seg.startsWith("run_"));
+  if (ckpt) bits.push(`ckpt ${ckpt}`);
+  if (r.train_split && r.train_split !== "canonical") bits.push(`split ${r.train_split}`);
+  bits.push(r.train_run_name ? `trained as ${r.train_run_name}` : (r.run_label || r.run));
+  return bits.filter(Boolean).join(" · ");
+}
 
 const stamp = (s) => String(s || "").slice(0, 16).replace("T", " ");
 
@@ -166,12 +216,13 @@ function rowHtml(r, i, provisional) {
     return `<td class="num"${worst ? ' style="color:var(--bad)"' : ""}>${
       typeof v === "number" ? v.toFixed(2) : "—"}</td>`;
   }).join("");
-  return `<tr class="${cls}" data-model="${esc(r.model)}" tabindex="0">
+  const sig = (r.trained_on_signals || []).length ? " sig" : "";
+  return `<tr class="${cls}${sig}" data-model="${esc(r.model)}" tabindex="0">
     <td class="rank">${rank}</td>
     <td>${thumbs(r.examples, 48, 3) || '<span class="hint">—</span>'}</td>
-    <td class="model">${esc(r.model)} ${pill}
-      <span class="sub2">${esc(r.track || "")}${r.n ? " · n=" + r.n : ""} ·
-        ${esc(r.run_label || r.run)}</span></td>
+    <td class="model">${esc(r.model)} ${pill}${signalsPill(r)}
+      <span class="sub2">${esc(modelLine(r))}</span></td>
+    <td class="num ncol">${fmt.int(r.n)}</td>
     ${scoreCell(r)}
     ${cells}
   </tr>`;
@@ -179,14 +230,19 @@ function rowHtml(r, i, provisional) {
 
 function tableHtml(rows, provisional) {
   if (!rows.length) {
+    const hidden = nSel !== null
+      && (provisional ? data.provisional : data.ranked).some((r) => !inView(r));
     return `<tr><td class="hint" style="padding:14px">${
-      provisional
+      hidden
+        ? `Nothing at n=${nSel}. The arms in this table were scored at another n; pick its chip or <b>all</b>.`
+        : provisional
         ? "Nothing here — every model that ran this protocol is ranked above."
         : "No model has met this protocol yet. The provisional table below shows "
           + "what came closest and what each one still needs."
     }</td></tr>`;
   }
   const head = `<tr><th class="num">#</th><th>Examples</th><th>Model</th>
+    <th class="num" title="builds scored; BlockScore is comparable only at equal n">n</th>
     <th class="num">BlockScore ↓</th><th>Worst pillar</th>
     ${PILLARS.map((p) => `<th class="num">${esc(p)}</th>`).join("")}</tr>`;
   return head + rows.map((r, i) => rowHtml(r, i, provisional)).join("");
@@ -203,8 +259,20 @@ function renderDrill(model) {
   const slate = (data.protocol || {}).slate || {};
   const prov = r.provenance || {};
   const bits = [];
-  if (prov.checkpoint) bits.push(["checkpoint", prov.checkpoint]);
-  if (prov.model) bits.push(["model", prov.model]);
+  if (r.model_label && r.model_label !== r.model) bits.push(["model", r.model_label]);
+  if (r.model_detail) bits.push(["architecture", JSON.stringify(r.model_detail)]);
+  // `r.checkpoint` is already a path (the server unwraps the trainer's
+  // `{file, step}`); the raw provenance fallback may still be that dict.
+  const rawCkpt = prov.checkpoint;
+  const ckpt = r.checkpoint || (rawCkpt && typeof rawCkpt === "object" ? rawCkpt.file : rawCkpt);
+  if (ckpt) bits.push(["checkpoint", Number.isInteger(r.checkpoint_step) ? `${ckpt} (step ${r.checkpoint_step})` : ckpt]);
+  if (typeof r.n === "number") bits.push(["n", String(r.n)]);
+  if (r.train_split) bits.push(["train split", r.train_split]);
+  if ((r.trained_on_signals || []).length) {
+    bits.push(["trained on signals", r.trained_on_signals.join(", ")
+      + " (a post-training stage optimised these; the pillars they touch are in-sample)"]);
+  }
+  if (r.train_run_name) bits.push(["trained as", `${r.train_run_name} (${r.run_dir || r.run})`]);
   const sampling = ["seed", "temperature", "top_k"]
     .filter((k) => prov[k] !== undefined && prov[k] !== null)
     .map((k) => `${k} ${prov[k]}`).join(" · ");
@@ -236,7 +304,7 @@ function renderDrill(model) {
     <p class="hint" style="margin:0 0 8px">
       Best score from <a href="/runs?run=${encodeURIComponent(r.run)}">${
         esc(r.run_label || r.run)}</a>${r.unranked_reason
-        ? ` · <span class="pill warnp">${esc(r.unranked_reason)}</span>` : ""}</p>
+        ? ` · <span class="pill warnp">${esc(r.unranked_reason)}</span>` : ""}${signalsPill(r)}</p>
     ${r.recipe ? `<p class="hint">${esc(r.recipe)}</p>` : ""}
     ${bits.length ? `<dl class="kv">${bits.map(([k, v]) =>
       `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
@@ -277,8 +345,31 @@ function render() {
   boxes.notice.innerHTML = p.note
     ? `<p class="lede">${esc(p.note)}</p>` : "";
 
-  boxes.rankedn.textContent = `(${data.ranked.length})`;
-  boxes.provn.textContent = `(${data.provisional.length})`;
+  renderChips();
+
+  const ranked = data.ranked.filter(inView);
+  const provisional = data.provisional.filter(inView);
+  const hidden = (data.ranked.length - ranked.length) + (data.provisional.length - provisional.length);
+  const shownNs = [...new Set([...ranked, ...provisional].map((r) => r.n))]
+    .sort((a, b) => (b ?? -1) - (a ?? -1));
+  if (shownNs.length > 1) {
+    boxes.nbanner.innerHTML = `<div class="warn"><b>This view mixes sample sizes</b>
+      (n = ${shownNs.map((n) => n ?? "unrecorded").join(", ")}). BlockScore is comparable only
+      at equal n: a pillar is a bootstrap distance whose spread shrinks with the sample, so
+      the order between rows at different n is not a ranking. Pick one n above to compare
+      like with like.</div>`;
+  } else if (hidden) {
+    boxes.nbanner.innerHTML = `<p class="lede">Showing the arms scored at n=${nSel}; ${hidden}
+      ${hidden === 1 ? "arm" : "arms"} at other sample sizes ${hidden === 1 ? "is" : "are"}
+      out of view, not unranked. Pick <b>all</b> to see every row.</p>`;
+  } else {
+    boxes.nbanner.innerHTML = "";
+  }
+
+  boxes.rankedn.textContent = nSel === null || !hidden
+    ? `(${ranked.length})` : `(${ranked.length} of ${data.ranked.length})`;
+  boxes.provn.textContent = nSel === null || !hidden
+    ? `(${provisional.length})` : `(${provisional.length} of ${data.provisional.length})`;
   boxes.rankedlede.textContent =
     "Models that met the protocol in full. Ranked by their best BlockScore across "
     + "every matching run; a disqualified model is never given a position.";
@@ -289,8 +380,8 @@ function render() {
     + "for the order between them to mean anything. Shown so the gap is visible "
     + "rather than the model silently vanishing.";
 
-  boxes.board.innerHTML = tableHtml(data.ranked, false);
-  boxes.prov.innerHTML = tableHtml(data.provisional, true);
+  boxes.board.innerHTML = tableHtml(ranked, false);
+  boxes.prov.innerHTML = tableHtml(provisional, true);
   wire(boxes.board, false);
   wire(boxes.prov, true);
 
@@ -301,6 +392,29 @@ function render() {
       — ${esc((s.reasons || []).join("; "))}</li>`).join("");
 
   if (selected) renderDrill(selected);
+}
+
+/* One chip per distinct n over both tables, largest first, plus "all". The
+ * count on each is arms, not models in view, so a chip never reads as empty
+ * for a group whose only arm is provisional. */
+function renderChips() {
+  const groups = data.n_groups || [];
+  if (groups.length < 2 && nSel === null) { boxes.nchips.innerHTML = ""; return; }
+  const chip = (n, label, count) =>
+    `<button class="chip" type="button" data-n="${n === null ? "" : n}"
+      aria-pressed="${String(nSel === n)}">${label}${
+      count === undefined ? "" : `<small>${count} ${count === 1 ? "arm" : "arms"}</small>`}</button>`;
+  boxes.nchips.innerHTML = `<span class="lab">n</span>`
+    + groups.map((g) => chip(g.n, g.n === null ? "unrecorded" : `n=${g.n}`, g.arms)).join("")
+    + chip(null, "all");
+  boxes.nchips.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => {
+    nSel = b.dataset.n === "" ? null : Number(b.dataset.n);
+    nTouched = true;
+    const url = new URL(location.href);
+    if (nSel === null) url.searchParams.set("n", "all"); else url.searchParams.set("n", String(nSel));
+    history.replaceState(null, "", url);
+    render();
+  }));
 }
 
 async function load() {
@@ -316,10 +430,20 @@ async function load() {
     boxes.page.hidden = true;
     emptyState(boxes.empty, "No benchmark runs yet",
       'Run <code>python -m blockgen.eval.bench --tier both --n 128 --name "my first run"</code>, '
-      + "then reload. The board reads every <code>outputs/*/scorecard.json</code>.");
+      + "then reload. The board reads every <code>outputs/*/scorecard.json</code> and every "
+      + "<code>outputs/*/bench/scorecard.json</code> a training run wrote.");
     return;
   }
   boxes.empty.innerHTML = "";
+  if (!nTouched) {
+    const want = qs.get("n");
+    if (want === "all") nSel = null;
+    else if (want !== null && want !== "" && Number.isFinite(Number(want))) nSel = Number(want);
+    else nSel = data.default_n ?? null;
+    nTouched = true;
+  } else if (nSel !== null && !(data.n_groups || []).some((g) => g.n === nSel)) {
+    nSel = data.default_n ?? null;    // a protocol switch with no such group
+  }
   render();
 }
 

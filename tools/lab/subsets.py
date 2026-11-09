@@ -59,7 +59,7 @@ _SLUG_OK = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 #: that silently widens a selection is the failure mode worth spending an error
 #: message on -- you would get a plausible number back and never look again.
 FILTER_KEYS = ("labels", "exclude_labels", "corpus", "category", "title_contains",
-               "min_blocks", "max_blocks", "max_dim", "limit", "seed")
+               "min_blocks", "max_blocks", "max_dim", "limit", "seed", "tier")
 
 LABEL_VALUES = ("good", "bad", "unsure", "unlabelled")
 
@@ -112,6 +112,8 @@ class Subset:
             bits.append(f"≤{r['max_blocks']} blocks")
         if r.get("max_dim") is not None:
             bits.append(f"fits {r['max_dim']}³")
+        if r.get("tier"):
+            bits.append(f"corpus tier {r['tier']}")
         if r.get("limit") is not None:
             bits.append(f"random {r['limit']} (seed {r.get('seed', 0)})")
         return ", ".join(bits) if bits else "everything in the parent"
@@ -268,6 +270,37 @@ def _scan_rows(dataset_id: str, n: int) -> List[dict]:
     return rows
 
 
+def _tier_positions(parent: str, tier: str) -> set:
+    """Parent indices whose file belongs to a corpus tier (`blockgen.corpus.tiers`).
+
+    A tier is an id list over the corpus manifest. A world-crop id is
+    `wc:<month>_<world>_<k>` and its file is `<month>/crops/<stem>.npz` under
+    the raw root, so the mapping needs no manifest read (and no pandas, which
+    the lab's venv does not carry). Resolved by path, so a stale raw index (the
+    ingest adds months) drops builds rather than mislabelling them. Curated
+    caches are datasets of their own in the lab and are not routed through here.
+    """
+    from blockgen.corpus.tiers import TIER_DIR
+    from tools.lab import rawcorpora as rc
+
+    if parent not in ("raw:worldcrop", f"raw:{rc.UNION_ID}"):
+        raise SubsetError(f"a tier rule needs parent raw:worldcrop or raw:all, not {parent}")
+    ids_path = Path(TIER_DIR) / f"{tier}.ids.txt"
+    if not ids_path.is_file():
+        raise SubsetError(f"no materialised tier {tier!r}; run python -m blockgen.corpus.tiers build")
+    prefix = "" if parent == "raw:worldcrop" else "worldcrop/"
+    pos = {p: i for i, p in enumerate(rc.index(parent.split(":", 1)[1]))}
+    out = set()
+    for tid in ids_path.read_text().split():
+        if not tid.startswith("wc:"):
+            continue
+        stem = tid[3:]
+        i = pos.get(f"{prefix}{stem[:6]}/crops/{stem}.npz")
+        if i is not None:
+            out.add(i)
+    return out
+
+
 def _needs_rows(rule: Dict[str, Any]) -> bool:
     return any(rule.get(k) is not None for k in
                ("corpus", "category", "title_contains", "min_blocks", "max_blocks", "max_dim"))
@@ -309,6 +342,10 @@ def resolve_indices(subset: Subset, parent_n: Optional[int] = None,
             keep = [i for i in keep if label_of(i) in set(labels_in)]
         if labels_out:
             keep = [i for i in keep if label_of(i) not in set(labels_out)]
+
+    if rule.get("tier"):
+        members = _tier_positions(subset.parent, str(rule["tier"]))
+        keep = [i for i in keep if i in members]
 
     if _needs_rows(rule):
         rows = _manifest_rows(subset.parent, lookup)
