@@ -1,0 +1,9 @@
+# Cross-category control for dream-caption (workshop paper). The builder and critic are
+# shown the cached caption of a prompt from a DIFFERENT category
+# (configs/agentic/prompts/caption_donors_test.json, built from the dream-caption test
+# builds; category-match rate 0). dream-caption-shuffled's donor is the previous prompt
+# of the same arm, and the test prompts are sorted by category, so that donor almost
+# always describes a near-identical house; this one never does.
+extends: dream-caption
+description: control for dream-caption, the caption of a different-category prompt's dream
+params: {caption_control: deranged}

@@ -17,7 +17,7 @@ Machine-read sources: `configs/corpus/*.yaml`, `data/minecraft/corpus/tiers/*.js
 
 | Option | Status | Where | Current number |
 |---|---|---|---|
-| worldcrop (MAP archive.org world saves, cropped) | used | blockgen/data/worldcrop/run.py; blockgen/corpus/manifest.py build | 927,427 manifest rows (manifest summary, 2026-10-31; 926k at T55); pretraining only, no licence; 47 of 94 ingested months manifested; rows: pretrain-all 643,603, pretrain-clean 543,561, anneal 270,192 |
+| worldcrop (MAP archive.org world saves, cropped) | used | blockgen/data/worldcrop/run.py; blockgen/corpus/manifest.py build | 927,427 manifest rows (manifest summary, 2026-10-31; 926k at T55); pretraining only, no licence; 47 of 95 ingested months manifested; rows: pretrain-all 643,603, pretrain-clean 543,561, anneal 270,192 |
 | grabcraft (category-labelled) | used | blockgen/data/grabcraft_dataset.py; enters through the 32/48 caches | rows: pretrain-all 2,303, pretrain-clean 2,303, anneal 2,294, sft-houses32 1,103, eval-holdout 257 |
 | 3dcraft (CraftAssist houses with build order) | used | blockgen/utils/corpora.py | build-order traces loaded, consumed by nothing; rows: pretrain-all 1,487, pretrain-clean 1,487, anneal 1,484, sft-houses32 738, eval-holdout 529 |
 | text2mc .h5 | used | blockgen/utils/corpora.py (current vocab); blockgen/curation/corpus.py (legacy, ground-stripped) | rows: pretrain-all 311, pretrain-clean 310, anneal 309, sft-houses32 22, eval-holdout 12 |

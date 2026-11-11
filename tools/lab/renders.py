@@ -284,6 +284,42 @@ def views(dataset_id: str, index: int, px: int = 256) -> List[bytes]:
     return [_cached_view(dataset_id, index, px, v) for v in range(len(VIEWS))]
 
 
+def rawfaces(dataset_id: str, index: int, px: int = 640) -> bytes:
+    """JPEG of the faces a facade model wrote for this build (`tools.lab.rawfaces`).
+
+    Cached like the representation pictures, with the dataset id in the key: two
+    arms can lift different face sets to the same build. Never raises; a build
+    with no paired face set is a placeholder.
+    """
+    from tools.lab import rawfaces as rf
+
+    tag = "rraw_" + hashlib.sha1(dataset_id.encode("utf-8")).hexdigest()[:10]
+    path = cache_path(cache_key(dataset_id, index, px, tag))
+    if path.is_file():
+        try:
+            return path.read_bytes()
+        except OSError:
+            pass
+    try:
+        d = catalog.get_dataset(dataset_id)
+        img = rf.picture(d.source, d.n, index, px) if d is not None else None
+        if img is None:
+            return placeholder(px)
+        data = encode_jpeg(img)
+    except Exception as exc:
+        print(f"[lab.renders] {dataset_id}:{index} raw faces failed: "
+              f"{type(exc).__name__}: {exc}", flush=True)
+        return placeholder(px)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".jpg.part")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    except OSError as exc:
+        print(f"[lab.renders] cache write failed for {path}: {exc}", flush=True)
+    return data
+
+
 def rep(name: str, dataset_id: str, index: int, px: int = 512) -> bytes:
     """JPEG of the build read in representation `name` (`blockgen.corpus.reps`).
 

@@ -761,6 +761,7 @@ def build_claims(bench: Optional[Path] = None,
     claims += added_claims_rankflips_exact()
     claims += added_claims_functional_rebase()
     claims += added_claims_stats_supp()
+    claims += added_claims_round2_text()
     for c in claims:
         free = set(getattr(getattr(c.compute, "__code__", None), "co_freevars", ()))
         roles = {ROLE_VARS[v] for v in free & set(ROLE_VARS)}
@@ -2541,6 +2542,131 @@ def added_claims_stats_supp() -> List[Claim]:
                              tol=0.51 if abs(want) >= 10 else 0.0051, unit="noise floors", appears_in="tab:kernel",
                              printed=bool(want)))
     return out
+
+
+
+def added_claims_round2_text() -> List[Claim]:
+    """Numbers added by the round-2 text and layout pass (2026-11-11).
+
+    The position-debiased GPT-4o reanalysis (run_20261111_015408_vlm_judge_debias, no
+    new calls) behind §6.1, tab:vlm and app:vlm; the disqualification-gate facts of
+    app:gatespec (diversity bar, the twin-gate margin of the probe exemption), read from
+    the twin-gate rescore card, the gate code and the gate-provenance sweep; and the
+    percentile level of the fresh-real effect-size null quoted in §6.4.
+    """
+    from blockgen.eval.bench import composite as _cp
+    deb = _load(ROOT / "outputs" / "run_20261111_015408_vlm_judge_debias" / "results.json")
+    Cd, Pd, Sy = deb["conditions"], deb["pooled"], deb["system"]
+    card = _load(ROOT / "outputs" / "run_20261104_214146_bench_twin_gate_rescore"
+                 / "scorecard.json")["arms"]
+    nov = lambda a, k: card[a]["novelty"][k]["value"]
+    gates = {g.key: g for g in _cp.GATES}
+    sw = _load(ROOT / "outputs" / "run_20261106_193109_gate_provenance" / "sweep.json")
+    divsw, corners = sw["part_b_novelty"]["sweep"], sw["part_a_ladder"]["corners"]
+    shipped = {k for k, v in sw["part_b_novelty"]["shipped"].items() if v}
+    eff = _load(STATS_RUN / "results.json")["effects"]["probes"]["Fill-Interior"]["mv"]
+
+    def spreads(arm, key, direction):
+        g = gates[key]
+        sd = max(g.min_spread, _spread_of(card["real_test"]["novelty"][key]))
+        d = (nov(arm, key) - nov("real_test", key)) / sd
+        return d if direction == "above" else -d
+
+    out = []
+    for cond, v, lo, hi, where in [
+            ("interior_ext", 0.61, 0.48, 0.78, "§6.1, tab:vlm"),
+            ("interior_cut", 0.70, 0.65, 0.76, "§6.1, tab:vlm"),
+            ("interior_cutq", 0.63, 0.53, 0.73, "tab:vlm"),
+            ("hollow_ext", 0.57, 0.45, 0.71, "tab:vlm"),
+            ("hollow_cut", 0.80, 0.72, 0.90, "tab:vlm"),
+            ("gabled_patchwork", 0.28, 0.21, 0.35, "tab:vlm")]:
+        out += [
+            Claim(f"VLM debiased BT P(first) {cond}", v, lambda c=cond: Cd[c]["bt_p_real"],
+                  tol=0.0051, appears_in=where),
+            Claim(f"VLM debiased BT P(first) {cond} CI low", lo,
+                  lambda c=cond: Cd[c]["ci"]["bt_p_real"][0], tol=0.0051, appears_in=where),
+            Claim(f"VLM debiased BT P(first) {cond} CI high", hi,
+                  lambda c=cond: Cd[c]["ci"]["bt_p_real"][1], tol=0.0051, appears_in=where)]
+    PE, PR = Pd["pooled_exterior"], Pd["pooled_roof_off"]
+    out += [
+        Claim("VLM debiased BT P(first) catch arm", 1.0, lambda: Cd["catch"]["bt_p_real"],
+              tol=0.0051, appears_in="tab:vlm"),
+        Claim("VLM first-slot rate, Fill exterior (debias run)", 0.93,
+              lambda: Cd["interior_ext"]["p_first"], tol=0.0051,
+              appears_in="Fig. 1 caption, §6.1 (as 93%)"),
+        Claim("VLM pooled exterior: order-consistent pairs", 31, lambda: PE["n_consistent"],
+              appears_in="app:vlm"),
+        Claim("VLM pooled exterior: P(real) on consistent pairs", 0.68,
+              lambda: PE["p_real_consistent"], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled exterior: consistent CI low", 0.50,
+              lambda: PE["ci"]["p_real_consistent"][0], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled exterior: consistent CI high", 0.84,
+              lambda: PE["ci"]["p_real_consistent"][1], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled exterior: binomial p vs 0.5", 0.07,
+              lambda: PE["binom_p_consistent_vs_half"], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled roof off: order-consistent pairs", 103, lambda: PR["n_consistent"],
+              appears_in="app:vlm"),
+        Claim("VLM pooled roof off: P(real) on consistent pairs", 0.89,
+              lambda: PR["p_real_consistent"], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled roof off: consistent CI low", 0.83,
+              lambda: PR["ci"]["p_real_consistent"][0], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled roof off: consistent CI high", 0.95,
+              lambda: PR["ci"]["p_real_consistent"][1], tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled exterior BT P(real)", 0.59, lambda: PE["bt_p_real"], tol=0.0051,
+              appears_in="app:vlm"),
+        Claim("VLM pooled exterior BT CI low", 0.50, lambda: PE["ci"]["bt_p_real"][0],
+              tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled exterior BT CI high", 0.70, lambda: PE["ci"]["bt_p_real"][1],
+              tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled roof off BT P(real)", 0.73, lambda: PR["bt_p_real"], tol=0.0051,
+              appears_in="app:vlm"),
+        Claim("VLM pooled roof off BT CI low", 0.68, lambda: PR["ci"]["bt_p_real"][0],
+              tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM pooled roof off BT CI high", 0.78, lambda: PR["ci"]["bt_p_real"][1],
+              tol=0.0051, appears_in="app:vlm"),
+        Claim("VLM system ranking unchanged by the position term", 1.0,
+              lambda: float(Sy["rank"] == Sy["old_rank"]), unit="holds",
+              appears_in="app:vlm"),
+        # app:gatespec: disqualification bars and the probe exemption
+        Claim("diversity gate bar (spreads)", 10.0, lambda: gates["voxel_diversity"].z,
+              appears_in="app:gatespec", printed=False),
+        Claim("Fill-Interior voxel diversity", 0.810, lambda: nov("real@solidify", "voxel_diversity"),
+              tol=0.0005, appears_in="app:gatespec"),
+        Claim("held-out real voxel diversity", 0.898, lambda: nov("real_test", "voxel_diversity"),
+              tol=0.0005, appears_in="app:gatespec, app:dreamcubed"),
+        Claim("Fill-Interior diversity gap (spreads)", 4.4,
+              lambda: spreads("real@solidify", "voxel_diversity", "below"), tol=0.051,
+              appears_in="app:gatespec"),
+        Claim("Fill-Interior twin-rate gap (spreads)", 2.93,
+              lambda: spreads("real@solidify", "voxel_twin_rate", "above"), tol=0.0051,
+              appears_in="app:gatespec"),
+        Claim("probes exempt from the twin gate", 1.0,
+              lambda: float(not gates["voxel_twin_rate"].applies_to_probes), unit="holds",
+              appears_in="app:gatespec"),
+        Claim("diversity bar 5 and 20 give the shipped verdicts; 3 adds only Fill-Interior", 1.0,
+              lambda: float(set(divsw["diversity z=5"]["dq"]) == shipped
+                            and set(divsw["diversity z=20"]["dq"]) == shipped
+                            and divsw["diversity z=3"]["changed"] == ["real@solidify"]),
+              unit="holds", appears_in="app:gatespec"),
+        Claim("fig:gatesweep joint corners as captioned", 1.0,
+              lambda: float(corners["strict"]["params"] == {"order_tol": -0.5, "k6": 0.5, "k7": 1.0, "k8": 1.0}
+                            and corners["lenient"]["params"] == {"order_tol": 1.0, "k6": 3.0, "k7": 3.0, "k8": 3.0}
+                            and corners["very_lenient"]["params"] == {"order_tol": 2.0, "k6": 5.0, "k7": 5.0, "k8": 5.0}),
+              unit="holds", appears_in="fig:gatesweep caption"),
+        # §6.4: the fresh-real null quoted for the appearance effect size is its 95th percentile
+        Claim("percentile level of the fresh-real effect-size null", 95,
+              lambda: 95.0 if "e_Random-Voxels_null95" in eff else float("nan"),
+              appears_in="§6.4", note="the stats run stores this null as e_Random-Voxels_null95"),
+    ]
+    return out
+
+
+def _spread_of(metric: dict) -> float:
+    """composite._spread on a stored metric dict: half the 95% interval over 1.96, or nan."""
+    lo, hi = (metric.get("ci") or [None, None])[:2]
+    if lo is None or hi is None or hi <= lo:
+        return float("nan")
+    return (hi - lo) / (2 * 1.96)
 
 
 if __name__ == "__main__":

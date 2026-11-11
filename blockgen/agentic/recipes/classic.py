@@ -137,7 +137,8 @@ def _legacy_repair(ep: Any, rounds: int) -> None:
             break
 
 
-def _legacy_critique(ep: Any, rounds: int, mode: str, views: Sequence[str]) -> None:
+def _legacy_critique(ep: Any, rounds: int, mode: str, views: Sequence[str],
+                     description: str = "") -> None:
     from blockgen.agentic.prompts import critique_prompt
 
     for i in range(rounds):
@@ -150,7 +151,7 @@ def _legacy_critique(ep: Any, rounds: int, mode: str, views: Sequence[str]) -> N
             ep.trace.event("critique_skipped", reason="no render")
             break
         stage = f"critique{i + 1}"
-        ask = critique_prompt(ep.prompt, cur.report, imgs,
+        ask = critique_prompt(description or ep.prompt, cur.report, imgs,
                               views=[f"{int(get_view(v).azim)}° azimuth" for v in views],
                               mode=mode)
         # agent.py: keep_history=False critique request is [system, ask]
@@ -163,8 +164,21 @@ def _legacy_critique(ep: Any, rounds: int, mode: str, views: Sequence[str]) -> N
 @register("method", "classic")
 def classic(ep: EpisodeLike, *, plan: bool = False, n_examples: int = 0, repair_rounds: int = 1,
             critique_rounds: int = 0, critique_mode: str = "rewrite",
-            critique_views: Sequence[str] = ("legacy_a", "legacy_b")) -> None:
-    """BuildAgent's plan / generate / repair / critique loop on any action space."""
+            critique_views: Sequence[str] = ("legacy_a", "legacy_b"), spec: bool = False) -> None:
+    """BuildAgent's plan / generate / repair / critique loop on any action space.
+
+    ``spec``: before building, one planner turn writes the request out as a structured
+    design spec (``describe.spec_turn``, the describe stage's schema) with no image;
+    the builder sees it and every critique turn sees it as the target description.
+    The text-only control for ``dream-caption`` (recipe ``text-spec``).
+    """
+    spec_text = ""
+    if spec:
+        from blockgen.agentic import describe as describe_mod
+
+        st = describe_mod.setup(ep, describe_mod.config(
+            "before", "json", expand_into_image=False, show_spec=True))
+        spec_text = (st.spec_text if st is not None else "") or ""
     if critique_mode not in ("rewrite", "patch"):
         raise ValueError(f"critique_mode must be rewrite|patch, got {critique_mode!r}")
     if critique_mode == "patch" and critique_rounds and not getattr(ep.kit.actions, "patchable", False):
@@ -181,9 +195,14 @@ def classic(ep: EpisodeLike, *, plan: bool = False, n_examples: int = 0, repair_
             ep.plan = str(ep.ask(plan_prompt(ep.prompt, tuple(ep.size)), role="planner",
                                  history=False, stage="plan")).strip()
             steps.record_text(ep, "plan.txt", ep.plan)
+        if spec_text:
+            ep.plan = ((ep.plan + "\n\n") if ep.plan else "") + (
+                "DESIGN SPEC (written from the request; no image was made):\n" + spec_text)
         _legacy_generate(ep, n_examples)
         _legacy_repair(ep, repair_rounds)
-        _legacy_critique(ep, critique_rounds, critique_mode, views)
+        _legacy_critique(ep, critique_rounds, critique_mode, views,
+                         description=(f"{ep.prompt}\n\nTARGET DESCRIPTION:\n{spec_text}"
+                                      if spec_text else ""))
         return
 
     if plan:

@@ -613,7 +613,31 @@ def api_build(build_id: str) -> Any:
         "reps": [{"name": n, "url": f"/api/rep/{n}/{quoted}", "doc": r.doc}
                  for n, r in _reps().items()],
     })
+    # The faces a facade model actually wrote, when its sampling run saved them
+    # beside the build cache (`tools.lab.rawfaces`). Listed as one more
+    # representation so the build panel's "read as" picker shows it unchanged.
+    if _has_rawfaces(dataset_id, index):
+        out["reps"].append({"name": "raw faces", "url": f"/api/rawfaces/{quoted}",
+                            "doc": lab_module("rawfaces").DOC})
     return out
+
+
+def _has_rawfaces(dataset_id: str, index: int) -> bool:
+    try:
+        d = lab_module("catalog").get_dataset(dataset_id)
+        if d is None or d.kind != "arm":
+            return False
+        m = lab_module("rawfaces").index_map(d.source, d.n)
+        return m is not None and 0 <= index < len(m)
+    except Exception:          # the panel simply omits the entry
+        return False
+
+
+def image_rawfaces(rest: str, query: Query) -> bytes:
+    """`/api/rawfaces/<build_id>`: the raw faces of a facade build, disagreements in red."""
+    dataset_id, index = _build_id(rest)
+    px = _int(query, "px", 640, lo=64, hi=2048)
+    return lab_module("renders").rawfaces(dataset_id, index, px=px)
 
 
 def _reps() -> dict:
@@ -1028,6 +1052,9 @@ class LabHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/rep/"):
             px = _int(query, "px", 640, lo=64, hi=2048)
             return self._image(image_rep(path[len("/api/rep/"):], query), px)
+        if path.startswith("/api/rawfaces/"):
+            px = _int(query, "px", 640, lo=64, hi=2048)
+            return self._image(image_rawfaces(path[len("/api/rawfaces/"):], query), px)
 
         if path.startswith("/api/ontology/swatch/"):
             return self._swatch(path[len("/api/ontology/swatch/"):])

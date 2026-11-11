@@ -1,0 +1,10 @@
+# Text-only control for dream-caption (workshop paper): no image anywhere. Before
+# building, one planner turn writes the request out as a structured design spec in the
+# describe stage's schema (describe.spec_turn); the builder sees it with the request and
+# every critique turn sees it as the target description. Everything else is
+# classic-matched: same builder, 1 repair, 3 render critiques, best-of by clip_text +
+# validity. dream-caption minus this arm is what the image adds beyond a structured
+# description of the same house; one text call replaces dream-caption's caption call.
+extends: classic-matched
+description: no-image control for dream-caption; a structured text spec instead of the dream and its caption
+params: {spec: true}

@@ -5027,7 +5027,13 @@ back. P2 adds oriented pieces.
 The same legacy recipe at 20M (T118, d512 x 8, 27M parameters) scores 190 against 297 to 319 at 5M,
 beating every 5M arm on geometry by 5 to 6 units, past the seed spread, and leading appearance and mv_dino_kid.
 It sits closer to its training data (dino_nn_percentile 0.36 against real 0.51) without voxel duplicates.
-Scale, not pretraining, is what moves this recipe; a second 20M seed is running.
+Scale, not pretraining, is what moves this recipe. The second 20M seed (T124) replicates the geometry
+(8.1 against 9.1, same Holm group) but fails the dino_nn_percentile memorization gate (0.351; seed 0's 0.359
+passed), so 20M sits on the gate's edge: proximity to training data, no voxel copies.
+The agentic and LLM one-shot arms at n=256 on 256 distinct prompts (T125, $15.66) all fail the twin gate
+(29 to 41% near-copies, real 0.8%): the LLMs reuse one template across different requests, so T51's twins
+were not a repeated-prompt artifact. Ungated, dream-caption ties the 5M learned arms on geometry and beats them
+on mv_dino_kid (0.223); one-shot and classic-matched trail every learned arm.
 Ladder P2 (T119): P1's knobs on oriented pieces (`learn_pieces --oriented`, 78a45c76538c) score 330, tied with
 canon_oriented on both primaries and equal on appearance and mv_dino_kid. The pipeline gap is closed: trainer
 settings plus oriented pieces account for all of it. The pipeline defaults (WSD, beta2 0.95, wd 0.1, dropout 0,
@@ -5766,6 +5772,14 @@ empty interior, and the next lever for the number is an interior stage, not anot
 relaxed see-through rule and the face order stay open but matter less now that selection removes the
 skeletons.
 
+**Shell reference (2026-11-11, T122 addendum).** Scoring the same arms against the six-face shells of the
+reference houses (standardizer refit on shells) splits the geometry gap in two: representation (real
+houses 18.2 from their own shells; ceiling 13.8 from real) and generator (constrained best-of-4 4.0,
+constrained 5.4, best-of-4 8.2, grammar 11.3). The order of constrained decoding and best-of-4 flips
+between the two references because free decoding's face disagreement fills volume the full-house
+reference reads as interior. Keep both columns on facade cards: the shell column for developing the
+generator, the full-house column for the board.
+
 ## §90. The f=4 oracle of the cascade-and-AR hybrid: a per-face AR that reads its own coarse level first (2026-11-09)
 
 §74 closed the fixed-pooling cascade with a recommendation: let the cascade supply the gestalt
@@ -5833,3 +5847,74 @@ rebases it on §88's 40 exact-permutation pairs (39 of them are in the old 76). 
   app:functional subsection, stats.tex, limitation_line.tex, audit_claims_additions.py, README.md).
   Claim to state: detection of interior change is not ranking of interior function. The probes hold;
   "V-KID orders generators better" does not.
+
+---
+
+## §92. Round-2 review experiments: a function pillar does not fix the ranking; V-KID is a detector (2026-11-11)
+
+Round-2 critiques (`deliverables/paper/cvpr27/critiques/round2/`, rigor, skeptic, content) converge on
+one point: the walk-through FD sides with MV-KID on generators, so V-KID and BlockScore do not rank
+function. Eight CPU experiments (results T126 to T133; drafts in
+`deliverables/paper/cvpr27/drafts_20261111_round2/`, claims in its `audit_claims_additions.py`,
+61/61 hold).
+
+- **Function pillar (T126).** FD in noise floors (sd 0.019 over 200 real draws) never sets the
+  maximum (0/40 generators in z, 2/40 in e), so BS+F = BS: ρ with FD 0.17, 4/40 reversed pairs.
+  Guards against circularity: measure split, door-free criterion, leave-one-measure-out, build
+  split. Held out, the function pillar predicts no better than MV-KID (LOMO mean 0.41 vs 0.42), and
+  any maximum that contains V-KID sits below zero (−0.11 to −0.18). Weighting function up only helps
+  once it binds everywhere, i.e. once BlockScore is the function pillar. Hollow-Shell is not damage
+  under reachability (z 0.7); its FD is connectivity alone. Lesson: the leaderboard's problem is
+  V-KID's veto, not a missing pillar. Report function as a column beside the board.
+- **Effect-size plane (T127).** Every generator lies above the diagonal (V e > MV e); FD colour
+  does not follow height on the V axis. Figures with live text in the drafts dir.
+- **BrickGPT 2.2 (T128).** The number does not survive: interval [1.8, 3.2] with the card's anchor
+  (OSMesa CPU render, self-consistent), 1.6 to 3.2 over single-build anchors, 3.2 and 1.6 under two
+  new anchors. The direction does (ratio > 1 everywhere). OSMesa does not reproduce EGL pixels
+  (cosine 0.87 to 0.96), so CPU features must never be mixed with cached EGL ones.
+- **Seed variance (T129).** σ_seed 13 MV / 36 V floors from three recipes (df 4; the V term rests on
+  the world-crop pair). With it, MV-significant decisions 20 → 10, V 7 → 2; 28/40 reversed pairs
+  clear the 95% seed band. The faces "seeds" card is sampling seeds, not training seeds.
+- **Leak bins (T130).** 0.96 is the atlas-fixed number; deployed 0.66. Original bin intervals were
+  the unrescaled 80% subsample. Paired test: no bin survives Holm; top quartile −1.5 floors toward
+  real, p 0.012, Holm 0.060.
+- **Rank intervals (T131).** Rescale + floor MC error: VOXEL-AR-U ties MATERIAL-SHUFFLE, MONOCHROME
+  ties TRAIN-COPY+NOISE; flips 0.29/0.41 replace 0.20/0.21. Ungated Dream-Cubed is 2–3 (z), 2 (e2).
+- **Gate audit (T132).** S6 blocking removes every render metric (both domains) and the 2-d
+  connected-parts metric; V-KID class untouched. Dropping G1 changes 1 of 112 verdicts.
+- **Fill inference (T133).** Paired swap p 0.057, unpaired 0.87; canonical paired fixed-reference
+  CI [−0.23, +0.94] floors, TOST equivalent; direct paired MMD detects (e 0.018, p < 1e-4).
+
+Process note: `pkill -f <path>` from a Bash call matches the calling shell's own command line and
+kills it; use the PID.
+
+## §93. Reviewer-weakness queue, 2026-11-11: judge position, worst pillar across n, the twin gate, colour-free 3D encoders, Objaverse seed 1
+
+CPU items first, no API calls, sec/ untouched; drafts in `deliverables/paper/cvpr27/drafts_20261111_experiments/`
+(item1..item5 .tex, `audit_claims_additions.py`, 45 claims pass).
+
+- **Judge position (T134).** `run_20261111_015408_vlm_judge_debias`. Exterior pairs are decided by slot: the two
+  orders agree on 12% (31 of 256 pairs) against 54% roof off. On content-decided pairs P(real) 0.68 [0.50, 0.84]
+  exterior (p 0.07), 0.89 [0.83, 0.95] roof off; BT with a position term 0.59 [0.50, 0.70] vs 0.73. The contrast
+  survives; the exterior number is "uninformative, leaning real", not a clean null. System BT with a position term:
+  ranks unchanged, real 6th; Spearman MV 0.77, BS 0.59, V 0.17.
+- **Worst pillar across n (T135).** `run_20261111_015636_blockscore_pillar_stability`. 0 of 13 shared arms change
+  worst pillar between n=128 and 256; Spearman 0.98. Effect-size BlockScore (max of app and geo, sqrt MMD^2 / RV):
+  Spearman 0.96 (n=256) / 0.90 (n=128) with the z form; submissions ordered identically. Five-pillar effect size
+  lets palette dominate (0.61).
+- **Twin gate (T136).** `run_20261111_015843_twin_gate_audit`. 0 of 24 real held-out draws over the bar (max 0.023).
+  6 of 40 rank-flip generators gated: 3 agentic LLM, llm_control, and **two trained voxel-AR arms at T=0.7
+  (0.070, 0.109)**, which contradicts the paper's "every model we trained reads 0.000". Provenance: rule (3 spreads,
+  0.02) is the duplicate gate's from 2026-09-07; the statistic and its IoU 0.8 were chosen after the Dream-Cubed
+  audit (§73). At IoU 0.95 Dream-Cubed still reads 0.19 vs real <= 0.016. Ungated, Dream-Cubed ranks 2 (first
+  submission). The library's global FFT grid needs tens of GB on the LLM arms (crops up to 253 wide);
+  the audit uses a per-pair grid (identical on dream, checked).
+- **Colour-free encoders (T137).** `run_20261111_024010_uni3d_colorfree_gates`. Grey points: ULIP-2 passes G1,
+  G2, G6, G7, G8 on all-face and volume points (Fill +6.0 / +16.7 at n=128, V-KID +111.4); Uni3D fails G6 on yaw
+  (1.2-1.7 floors). Colour-free rows follow V-KID on the board (rho 0.72-0.81) not MV-KID (0.45-0.49). This
+  **contradicts "only V-KID passes every gate"** (6_results l.79-80, X_headtohead).
+- **Objaverse seed 1 (T138).** Rerun `scripts/run_mesh_probe_3d_cpuonly.py` (no GPU: OSMesa + CPU DINOv2) from
+  seed 1's emd.npz. The first two attempts died: an OOM while a peer job held the RAM, then pyrender leaking
+  ~1 GB/min under OSMesa (every uploaded mesh kept until the renderer is deleted); the wrapper now drops the
+  renderer per object (RSS flat at 1.7 GB). OSMesa and EGL renders differ by 1.1/255 mean (3% of pixels > 8,
+  edges), so seed 1's render rows are not bit-comparable to seed 0's. Run dir `run_20261111_022342_mesh_probe3d_568_s1cpu`.

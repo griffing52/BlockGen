@@ -5,7 +5,7 @@ same from every exterior camera, differ completely once cut open, and the
 metrics the field uses agree with the camera rather than the cut. The metric
 strip reads its numbers from the recorded runs at draw time:
 
-* MV-DINO-KID and V-KID: the appearance and geometry pillars of `real@solidify`
+* MV-KID and V-KID: the appearance and geometry pillars of `real@solidify`
   in the n=256 leaderboard of record (noise floors);
 * Uni3D KID on visible-surface points: `uni3d_vis_kid` on `solidify` in the
   Minecraft 3D-native run (seed 0, n=128; seed 1 in the caption);
@@ -171,12 +171,12 @@ def draw_strip(fig, rect, nums) -> None:
     top_h, gap, bot_h = 0.64 * H, 0.22 * H, 0.08 * H
     ax = fig.add_axes((px0, B + bot_h + gap, pw, top_h))
     ax2 = fig.add_axes((px0, B, pw, bot_h))
-    rows = [("MV-DINO-KID", "renders", nums["mv"], ORANGE),
+    rows = [("MV-KID", "renders", nums["mv"], ORANGE),
             ("Uni3D KID", "visible points", nums["uni3d"], GREY),
             ("V-KID", "voxels", nums["vkid"], BLUE)]
     n = len(rows)
     ax.axvspan(-2, 2, color=SHADE, lw=0, zorder=0)
-    ax.text(0, n - 0.45, "noise", ha="center", va="bottom", fontsize=7, color=INK_2)
+    ax.text(0, n - 0.45, "\u00b12", ha="center", va="bottom", fontsize=7, color=INK_2)
     for k, (name, obs, v, col) in enumerate(rows):
         y = n - 1 - k
         ax.plot([0, v], [y, y], color=col, lw=1.2, solid_capstyle="butt", zorder=2)

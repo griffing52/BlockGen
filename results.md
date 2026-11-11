@@ -6813,3 +6813,219 @@ selection already removes the skeletons.
 
 Verdict: the functional result strengthens under the calibrated test; V-KID detects interior change
 but does not rank interior function on generators.
+
+## T124. A second 20M seed: geometry replicates (8.1 against 9.1), but it fails the memorization gate (2026-11-10)
+
+Card `run_20261109_224721_bench_canon_oriented_recipe_at_20M_second_seed` (`--tier both --n 256 --baselines`).
+`run_20261109_144738_recanon20m_s1_native` is T118's command with torch seed 1 (split still pinned to seed 0).
+Final train loss 0.103 (seed 0: 0.112). Samples as T118 (T=1.0, top_k 40, 256, sample seed 0). Recipe:
+scratchpad `recanon/legacy20m_s1.sh` (log `outputs/logs/legacy20m_s1.log`).
+
+| arm | BlockScore | geom_kid | mv_dino_kid | dino_nn_percentile | voxel_nn_iou | voxel_diversity | dino_dup_rate |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| 20M, seed 0 (T118) | 190 | 9.1 [8.1, 10.2] | 0.159 | 0.359 | 0.390 | 0.878 | 0.000 |
+| **20M, seed 1** | **DQ** | **8.1 [7.3, 8.9]** | **0.157** | **0.351** | 0.405 | 0.866 | 0.004 |
+| canon_oriented (5M) | 297 | 14.2 | 0.254 | 0.433 | 0.360 | 0.885 | 0.000 |
+| 5M recreation, seed 0 / 1 | 313 / 319 | 15.0 / 15.3 | 0.245 / 0.208 | 0.464 / 0.412 | 0.361 / 0.366 | 0.885 / 0.886 | 0.000 |
+| real test | 0 | -0.1 | 0.001 | 0.508 | 0.375 | 0.898 | 0.008 |
+
+Seed 1 is disqualified by the `dino_nn_percentile` gate (memorization: closer to training data than held-out real,
++3.1 spreads). Seed 0's 0.359 passed; seed 1's 0.351 does not, so the gate threshold sits between the two seeds.
+Holm on `geom_kid`: the two 20M seeds share group `c`, both ahead of every 5M arm (seed 1 vs canon_oriented
+-6.18, vs recanon s0 -6.95, all p_adj 0.012). Same on `mv_dino_kid` (group `c`).
+
+**The 20M quality gain replicates; the recipe sits on the memorization boundary.** Geometry and appearance at 20M
+are a seed-stable 5 to 7 units better than 5M, so T118 was not a lucky seed. But both seeds sit at the gate's edge
+(nn percentile 0.35 to 0.36, real 0.51, 5M 0.41 to 0.46): the extra capacity buys realism partly by moving toward
+the training set. There are still no voxel duplicates and nn IoU (0.39 to 0.41) is near real's 0.375, so this is
+proximity, not copying. T118's 190 stands on the card but is one gated seed of two. Candidate fixes, untested:
+an earlier checkpoint (train loss 0.10 is a third of 5M's), dropout above 0.1, or fewer epochs.
+
+## T125. Agentic and LLM one-shot arms at n=256 with distinct prompts: all four fail the twin gate (2026-11-10)
+
+Card `run_20261110_095530_bench_agentic_and_LLM_one-shot_arms_at_n_256` (`--tier both --n 256 --baselines`).
+Each agentic arm is 256 builds from 256 distinct prompts: T51's 133 test GrabCraft prompts
+(`houses32_test_grabcraft.txt`) plus 123 new ones from val GrabCraft titles
+(`configs/agentic/prompts/houses32_val_grabcraft.txt`, disjoint from test, same format). dream-caption, dream and
+classic-matched reuse T51's test builds and add `run_20261109_165950_bench_houses32_agentic_val`; `llm-oneshot`
+(recipe `legacy-oneshot`: gpt-5-mini, one example, no plan, repair or critique) is new on both halves
+(`run_20261109_130512_bench_houses32_oneshot_test`, `run_20261109_145342_bench_houses32_oneshot_val`).
+Spend: one-shot $1.39 + $1.31, agentic val $12.50, plus $0.46 on a stopped first chain; **$15.66 total** against the
+$25 + $10 caps. Recipe: scratchpad `recanon/agentic256.sh` (log `outputs/logs/agentic256.log`).
+
+| arm | BlockScore | geom_kid | mv_dino_kid | voxel_twin_rate | voxel_diversity | dino_nn_percentile |
+|---|--:|--:|--:|--:|--:|--:|
+| 20M legacy, seed 0 (T118) | 190 | 9.1 | 0.159 | 0.008 | 0.878 | 0.359 |
+| canon_oriented | 297 | 14.2 | 0.254 | 0.000 | 0.885 | 0.433 |
+| pipeline P2 (T119) | 330 | 15.8 | 0.253 | 0.000 | 0.888 | 0.461 |
+| dream-caption | DQ | 15.2 | 0.223 | 0.285 | 0.777 | 0.463 |
+| dream | DQ | 17.4 | 0.349 | 0.309 | 0.784 | 0.490 |
+| classic-matched | DQ | 18.6 | 0.416 | 0.410 | 0.821 | 0.582 |
+| llm-oneshot | DQ | 18.9 | 0.434 | 0.406 | 0.836 | 0.599 |
+| real test | 0 | -0.1 | 0.001 | 0.008 | 0.898 | 0.508 |
+
+Every LLM arm is disqualified on `voxel_twin_rate` (near-copies at IoU >= 0.8 inside the set; +13.9 to +20.1
+spreads). Holm on `geom_kid`: dream-caption (`de`) ties canon_oriented and P2 (`d`); dream `ef`; classic-matched and
+one-shot `f`, behind every learned arm. On `mv_dino_kid` dream-caption (0.223, alone in `d`) beats both 5M arms
+(`e`) and trails only the 20M model (`c`).
+
+**Distinct prompts do not remove the twins: the LLM arms repeat themselves across different requests.** T51's
+n=133 rates (0.21 to 0.32) were not an artifact of repeated prompts; with 256 different titles, 29 to 41% of builds
+still have a near-copy in the set (real 0.8%), and diversity is 0.78 to 0.84 against real's 0.90. The LLMs reuse
+one house template per style. The dream loop halves the gap to real on appearance (one-shot 0.434 to dream-caption
+0.223) and gets geometry to canon_oriented's level, but adds no diversity (dream-caption's twin rate 0.285 vs
+one-shot 0.406, both far past the gate). Ungated, dream-caption would sit beside the 5M learned arms, behind 20M.
+Untested: a diversity rider (`--variation`) or temperature to break the template.
+
+## T126. A function pillar for BlockScore: it never binds, and held out it does not beat MV-KID (2026-11-11)
+
+`outputs/run_20261111_021115_function_pillar` (notes §92). FD (five walk-through measures, W1 / robust
+spread) as a pillar: z = (FD − FD_REAL) / 0.019 (sd of 200 real-vs-ref draws, n = 256); e = fraction
+of the way to Random-Voxels (FD 4.09). Spearman over 40 generators / agreement on the 40 reversed pairs.
+
+| variant | vs FD (circular) | LOMO mean ρ | build split ρ | build+measure split ρ |
+|---|---|--:|--:|--:|
+| MV-KID | 0.67 / 33 | 0.42 | 0.66 | 0.43 |
+| V-KID | 0.16 / 7 | −0.14 | 0.15 | 0.23 |
+| BS2 = max(MV, V) | 0.17 / 4 | −0.11 | 0.17 | 0.22 |
+| function pillar | 1.00 / 40 | 0.41 | 0.97 | 0.30 |
+| BS+F (z) | 0.17 / 4 | −0.11 | 0.17 | 0.22 |
+| e3 = max(MV, V, F) e | 0.19 / 7 | −0.18 | 0.18 | 0.39 |
+
+Function is the worst pillar for 0/40 (z), 2/40 (e). Leaderboard order unchanged (draft Table 4 with
+function columns in the drafts dir). Probes: Fill z 58.6, Hollow z 26.5 but reach-only 0.7 (enterable
+0.95 = real), Shuffle/Monochrome occupancy-only 0.0. Weight sweep: F binds on 35/40 at w = 4, held-out ρ
+then 0.39 to 0.41.
+
+## T127. Main-figure data: MV-KID vs V-KID effect size per leaderboard arm (2026-11-11)
+
+`outputs/run_20261111_021721_main_figure_effect_sizes`. e with half-sampling 95% CIs (B = 400), FD
+colour; Fill 0.029 / 0.78, Hollow 0.023 / 0.60, VOXEL-AR clean 0.38 / 0.62, null 95th pct MV 0.032.
+Figures `fig_effect_plane.*`, `fig_rank_scatter_40.*` (PDF, SVG with live text, PNG) in the drafts dir.
+
+## T128. BrickGPT effect-size ratio: "2.2" depends on the anchor; the direction holds (2026-11-11)
+
+`outputs/run_20261111_022236_brickgpt_ratio_robustness`. V-KID exact; MV-KID via OSMesa CPU render (all
+arms, one protocol) and cached EGL split features.
+
+| anchor | ratio e_V / e_MV [95%] |
+|---|---|
+| SINGLE-MODE pool[0], card (EGL) | 2.18 |
+| SINGLE-MODE pool[0], OSMesa | 2.37 [1.82, 3.22] |
+| RANDOM-VOXELS (LEGO), OSMesa | 3.17 [2.46, 4.31] |
+| CHUNK-DELETE-20, OSMesa | 1.58 [1.07, 2.31] |
+| SINGLE-MODE from each of 253 builds (EGL) | median 2.28, 95% [1.64, 3.23], min 1.53 |
+
+## T129. Training-seed variance: half the significant design decisions are inside seed noise (2026-11-11)
+
+`outputs/run_20261111_022723_training_seed_variance`. Seeds: recanon_s0/s1 + canon_oriented,
+recanon20m_s0/s1, recanon_wcpre_s0/s1 (n = 256). σ_total 13.0 MV floors [7.8, 37.4], 36.4 V floors
+[21.8, 104.7] (df 4); sampling-only control 6.2 / 15.6. Decisions (Holm over 34): MV-significant
+20 → 10, V 7 → 2; verdicts agree 6 → 2, MV-only 14 → 8, V-only 1 → 0. Reversed pairs beyond the 95%
+seed band on both metrics: 28/40 (Bonferroni-780: 4). Without the world-crop pair σ_V = 11.0 and all
+V decisions stand.
+
+## T130. Leak bins under the deployed renderer, paired test (2026-11-11)
+
+`outputs/run_20261111_023229_leak_bins_deployed`. Spearman leak vs DINO shift: deployed 0.656
+(0.767 with deployed leak), atlas fixed 0.959. Bins (atlas-fixed leak, deployed features), z [half-
+sampling 95%], paired p, Holm: none −0.10 [−0.50, 0.28]; q1 +0.02; q2 +0.13; q3 +0.29 [−0.46, 0.95]
+p 0.11; q4 −1.49 [−3.31, 0.37] p 0.012, Holm 0.060. Binned by deployed leak: all |z| ≤ 0.26, p ≥ 0.15.
+
+## T131. Table 4 rank intervals with the m-of-n rescale and floor Monte-Carlo error (2026-11-11)
+
+`outputs/run_20261111_024303_rank_intervals_rescaled`. z ranks (rescaled + floor MC): REAL 1,
+VOXEL-AR contaminated 2, clean 3, VOXEL-AR-U 4–5, MATERIAL-SHUFFLE 4–7, PATCH-STITCH 5–7, FILL 5–8,
+MONOCHROME 7–9, TRAIN-COPY+NOISE 8–9, RANDOM-VOXELS 10. Flips Shuffle/Patch 0.29, Patch/Fill 0.41
+(unrescaled 0.19/0.19). Floor MC factor 95% [0.81, 1.16]. e2: VOXEL-AR clean ties Shuffle (3–4).
+Ungated: Dream-Cubed 2–3 (z), 2 (e2).
+
+## T132. Gate audit from stored ladders: S6 blocking, G1 dropped, diversity bar, twin margin (2026-11-11)
+
+`outputs/run_20261111_024632_gate_audit_stored`. S6 (Fill > 3 sd) blocking: Minecraft render passes
+KID, MMD-RBF → none; LEGO render KID, 1−density → none; geometry V-KID class unchanged; ablation set
+60 → 59 (connected parts alone drops). Without G1: 1 of 112 verdicts changes (rand25_17). Diversity bar
+10 since commit 16b95f8 (2026-09-07). Fill twin rate 0.0664 [0.039, 0.098] vs bar 0.0678.
+
+## T133. Fill-Interior under MV-KID: one test, one interval (2026-11-11)
+
+`outputs/run_20261111_024856_fill_interior_inference`. Δ = +0.35 floors; paired swap p 0.057; unpaired
+label (Holm family) 0.87. 95% CI paired fixed ref [−0.23, +0.94]; random ref [−0.40, +1.10]; unpaired SE
+[−3.44, +4.15]. TOST ±2 floors: equivalent with either paired SE, not with the unpaired SE. Direct paired
+MMD vs source: e 0.018, p < 1e-4 (Hollow 0.007, p 0.002). e vs ref 0.029, Hoeffding [0.00, 0.058]
+(half-sampling [0.00, 0.08]).
+
+## T134. GPT-4o judge with position removed (2026-11-11)
+
+`outputs/run_20261111_015408_vlm_judge_debias` (no new calls; records of `run_20261102_214026_vlm_judge`). House-cluster bootstrap 95%.
+
+| pair | view | agree | raw | order-consistent (pairs) | BT + position |
+|---|---|--:|--:|---|---|
+| real vs Fill | exterior | 0.13 | 0.53 | 0.71 [0.46, 0.92] (17) | 0.61 [0.48, 0.78] |
+| real vs Hollow | exterior | 0.11 | 0.52 | 0.64 [0.38, 0.90] (14) | 0.57 [0.45, 0.71] |
+| both | exterior | 0.12 | 0.52 | 0.68 [0.50, 0.84] (31), p 0.07 | 0.59 [0.50, 0.70] |
+| real vs Fill | roof off | 0.54 | 0.70 | 0.87 [0.78, 0.94] (69) | 0.70 [0.65, 0.76] |
+| real vs Hollow | roof off | 0.53 | 0.73 | 0.94 [0.85, 1.00] (34) | 0.80 [0.72, 0.90] |
+| both | roof off | 0.54 | 0.71 | 0.89 [0.83, 0.95] (103) | 0.73 [0.68, 0.78] |
+
+System BT + position: ranks unchanged (real 6th of 11), Spearman MV 0.77, BS 0.59, V 0.17. Weakens "at chance" to "uninformative, leaning real"; the cutaway contrast holds.
+
+## T135. BlockScore worst pillar at n=128 vs n=256; effect-size BlockScore (2026-11-11)
+
+`outputs/run_20261111_015636_blockscore_pillar_stability`. Worst pillar: 0 of 13 shared arms change. Spearman BS(128) vs BS(256) 0.98. Effect-size BlockScore (max of appearance and geometry as fractions of Random-Voxels): Spearman with z BlockScore 0.96 (n=256), 0.90 (n=128); n=128 vs 256 0.99; submissions 0.56 / 0.62 / 0.69 / 0.71 in z order. Worst pillar differs from z for Patch-Stitch, Hollow-Box, Single-Mode, Dream-Cubed (geometry in e). Five pillars in e: Spearman 0.61, palette dominates material/parametric controls.
+
+## T136. Near-twin gate audit (2026-11-11)
+
+`outputs/run_20261111_015843_twin_gate_audit`. Bar 0.068 (n=256). Real held-out draws (12 at n=128, 12 at n=256, test/val/test+val): mean 0.003 / 0.008, max 0.023, 0 over bar. 40 rank-flip generators: 6 gated (classic-matched 0.316, dream 0.301, dream-caption 0.211, rft_m2b_sft_s1_lcc26_rsel_t0.7 0.109, llm_control 0.070, m2b_sft_s1_t0.7 0.070); 22 of 35 learned at 0, max 0.109. IoU 0.95: Dream-Cubed 0.191, templates 0.638, real and learned <= 0.016. Board without the gate: Dream-Cubed 2 (165.71), contaminated AR 3, gabled 11, shell_box 12. **Contradicts "every model we trained reads 0.000"** (two T=0.7 voxel-AR arms exceed the bar). The bar/floor predate Dream-Cubed (2026-09-07); the statistic and IoU 0.8 postdate its audit.
+
+## T137. Colour-free Uni3D / ULIP-2 on interior-inclusive points through the gates (2026-11-11)
+
+`outputs/run_20261111_024010_uni3d_colorfree_gates` (bench_headtohead ladder + board; colour rows reproduce tab:headtohead).
+
+| row | Fill | Hollow | Shuffle | Mono | max rot | gates | board Fill | rho V | rho MV |
+|---|--:|--:|--:|--:|--:|---|--:|--:|--:|
+| V-KID | +111.4 | +71.0 | 0 | 0 | 0 | pass | +444.4 | 1 | 0.27 |
+| Uni3D all, grey | +20.6 | +10.3 | +0.6 | -0.2 | 1.2 | G6 | +30.4 | 0.75 | 0.49 |
+| Uni3D vol, grey | +43.5 | +11.8 | +0.2 | +0.0 | 1.7 | G6 | +102.2 | 0.81 | 0.45 |
+| ULIP-2 all, grey | +6.0 | +3.3 | -0.0 | +0.0 | 0.2 | **pass** | +13.5 | 0.72 | 0.45 |
+| ULIP-2 vol, grey | +16.7 | +11.0 | -0.2 | -0.6 | 0.6 | **pass** | +57.8 | 0.73 | 0.47 |
+
+**Contradicts "only V-KID passes every gate"**: colour-free ULIP-2 passes on both samplers, at 8 to 33 times smaller Fill separation on the board.
+
+## T138. Objaverse 568-object probe, seed 1, CPU-only rerun (2026-11-11, running)
+
+`outputs/run_20261111_022342_mesh_probe3d_568_s1cpu`, `scripts/run_mesh_probe_3d_cpuonly.py --objects 600 --n 170 --seed 1 --device cpu --workers 4 --emd-workers 8 --emd-from outputs/run_20261106_231005_mesh_probe3d_568_s1/emd.npz`. Same design as T109 (seed 0); OSMesa renderer and CPU DINOv2, so no GPU. Voxel rows: unit longest side, 32 cells per unit (surface cells + Fill's solid points), visibility on a 48-per-unit grid. A waiter (`scripts/mesh_probe_seed_compare.py`) writes `seed_compare.md` (s0 vs s1 per row) as soon as `embeddings.npz` exists (3D-encoder rows) and again when `results.json` lands (all rows). Seed 0 took about a day end to end on this machine.
+
+**Addendum (2026-11-11): the same arms against the shells of the real houses.** The geometry
+descriptor sees interiors (sealed and open interior ratios, the player's room, the 2x2x2 occupancy
+patterns of a filled volume), and a facade arm has none by construction. To separate the generator's
+error from the representation's, `scripts/facade_shell_reference.py` scores each arm's descriptor
+against the card's reference set reduced to its six-face shell (`facade.shell`, all faces), with the
+standardizer refit on the shells. Same estimator, same arms, same n; the two columns are on
+different scales and only order within a column is comparable.
+
+| arm, T=0.7 | geom_kid against real houses (the card) | geom_kid against their six-face shells |
+|---|---|---|
+| real test houses | -0.07 | 18.20 |
+| real@facades6 (ceiling) | 13.76 | -0.08 |
+| patchwork | 27.72 | 17.14 |
+| grammar control | 19.01 | 11.26 |
+| constrained | 16.47 | 5.39 |
+| best-of-4 | 13.50 | 8.16 |
+| constrained best-of-4 | 13.88 | 3.95 |
+| RFT | 15.45 | 9.08 |
+| constrained RFT | 15.44 | 4.34 |
+| constrained best-of-4 on RFT | 14.79 | 11.42 |
+
+Three things the card could not show. The representation gap is the larger of the two: real houses
+are 18 from their own shells, and the ceiling is 14 from real houses, while the best generator is 4
+from the shells. The order of the arms changes: against real houses best-of-4 beats constrained
+decoding (13.5 against 16.5), against the shells constrained decoding beats best-of-4 (5.4 against
+8.2), and the same holds for RFT against constrained RFT (9.1 against 4.3). Free decoding's face
+disagreement fills volume behind the faces that the full-house reference reads as interior, so the
+card rewarded facade arms for an artefact and charged the consistent shells for being hollow.
+And the disqualified arm is bad geometry as well as duplicated geometry: 11.4 against the shells,
+the grammar control's level. Reading: for developing the facade generator the shell column is the
+right number, and it says the generator's remaining shell error is about a third of what it was
+before the rule; for the leaderboard the full-house column stays the number, because the goal is
+a solid enterable house and the ceiling arm exists to keep the representation's cost visible.

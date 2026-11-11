@@ -25,7 +25,7 @@ EMPTY_SCORE = -4.0
 
 #: Rewards a rung may train or select on from the command line: non-pillar and
 #: constructible without arguments. ``composite`` is reached through ``--weights``.
-CLI_REWARDS = ("face_solidity", "lcc26", "novelty_penalty")
+CLI_REWARDS = ("face_solidity", "lcc26", "novelty_penalty", "face_door", "face_solidity_door")
 
 #: Separates a signal name from its weight in ``trained_on_signals`` tokens
 #: (``lcc26@0.5``). Shell-, path- and override-safe: no ``:`` (train specs, arm
@@ -68,6 +68,50 @@ class FaceSolidity:
             st = face_stats(s)
             out[i] = st["lcc"] - (st["face_jumps"] + st["face_holes"] + st["face_lone"] + st["dust_blocks"])
         return _finite(out, EMPTY_SCORE)
+
+
+#: Door blocks (wooden and iron), as in ``blockgen.eval.traversal.DOOR_IDS``.
+DOOR_IDS = (64, 71, 193, 194, 195, 196, 197)
+
+
+class FaceDoor:
+    """1 when a door block is the first hit of some side-face ray, else 0.
+
+    A property of the faces, not of the walk: it reads the four side projections
+    only and never runs the player model, so it is not the traversal pillar (whose
+    enterable share is measured by the bench and is the transfer to report). Real
+    houses_32 builds show a door on at least one side 86% of the time.
+    """
+    name = "face_door"
+    pillar = False
+
+    def score(self, structs: Sequence[Structure]) -> np.ndarray:
+        out = np.zeros(len(structs))
+        for i, s in enumerate(structs):
+            ids = s.block_ids
+            if not (ids != 0).any():
+                continue
+            for axis in (0, 2):
+                for rev in (False, True):
+                    a = np.moveaxis(ids, axis, 0)
+                    a = a[::-1] if rev else a
+                    occ = a != 0
+                    first = np.take_along_axis(a, occ.argmax(0)[None], 0)[0]
+                    if np.isin(first[occ.any(0)], DOOR_IDS).any():
+                        out[i] = 1.0
+                        break
+                if out[i]:
+                    break
+        return out
+
+
+class FaceSolidityDoor:
+    """``face_solidity + face_door``: solid, readable faces, and a visible door when one is on offer."""
+    name = "face_solidity_door"
+    pillar = False
+
+    def score(self, structs: Sequence[Structure]) -> np.ndarray:
+        return FaceSolidity().score(structs) + FaceDoor().score(structs)
 
 
 class LCC26:
@@ -230,6 +274,8 @@ REWARDS: Dict[str, Callable[..., Reward]] = {
     "face_solidity": FaceSolidity,
     "lcc26": LCC26,
     "novelty_penalty": NoveltyPenalty,
+    "face_door": FaceDoor,
+    "face_solidity_door": FaceSolidityDoor,
     "composite": Composite,
     **{name: (lambda name=name, **kw: PillarSignal(name)) for name in PILLAR_SIGNALS},
 }

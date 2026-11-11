@@ -61,7 +61,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 MODES = ("none", "before", "after", "both")
 FORMATS = ("json", "prose")
-CONTROLS = ("none", "shuffled")
+CONTROLS = ("none", "shuffled", "deranged")
+#: Controls that show another prompt's caption in place of the arm's own.
+SWAP_CONTROLS = ("shuffled", "deranged")
+#: Donor map for ``deranged``: prompt -> the caption of a prompt from a different category.
+DONORS_FILE = Path(__file__).resolve().parents[2] / "configs" / "agentic" / "prompts" / "caption_donors_test.json"
 CAPTION_KEYS = ("primary", "all")
 
 #: Literal tags that open the two turns. Stable on purpose: the mock:auto LLM
@@ -607,7 +611,7 @@ def refresh(ep: Any) -> None:
             rec = {**rec, "key": key, "version": dv.version}
             _write(ep, f"dreams/{_slug(key)}_v{dv.version}.caption.json", json.dumps(rec, indent=1))
         st.latest[key] = dv.digest
-        if st.cfg.caption_control == "shuffled" and key not in st.shown:
+        if st.cfg.caption_control in SWAP_CONTROLS and key not in st.shown:
             st.shown[key] = _shuffled(ep, key, rec)
     write_md(ep)
 
@@ -688,9 +692,32 @@ def library_caption(prompt: str) -> Dict[str, Any]:
     return {"caption": cap, "text": render_fields(cap), "source": f"library:{i}"}
 
 
+_DONORS: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+def _donor(prompt: str) -> Optional[Dict[str, Any]]:
+    """``deranged``: the precomputed cross-category donor caption for ``prompt``."""
+    global _DONORS
+    if _DONORS is None:
+        try:
+            _DONORS = json.loads(DONORS_FILE.read_text(encoding="utf-8")).get("donors", {})
+        except (OSError, ValueError):
+            _DONORS = {}
+    d = _DONORS.get(prompt)
+    return dict(d) if d and d.get("text") else None
+
+
 def _shuffled(ep: Any, key: str, own: Dict[str, Any]) -> Dict[str, Any]:
-    """The caption shown in place of ``own``: the latest one from another prompt
-    of this arm, else a library caption. Picked once per episode and key."""
+    """The caption shown in place of ``own``. ``shuffled``: the latest one from
+    another prompt of this arm, else a library caption. ``deranged``: the donor in
+    :data:`DONORS_FILE` (a prompt of a different category), else a library caption.
+    Picked once per episode and key."""
+    st = state(ep)
+    if st is not None and st.cfg.caption_control == "deranged":
+        out = _donor(ep.prompt) or library_caption(ep.prompt)
+        ep.trace.event("describe_shuffled", key=key, source=out["source"],
+                       own_digest=own.get("digest"))
+        return out
     others = [(p, r) for p, r in _pool(ep).get(key, []) if p != ep.prompt and r.get("text")]
     if others:
         p, r = others[-1]
@@ -713,7 +740,7 @@ def shown_captions(ep: Any) -> List[Tuple[str, str]]:
         return []
     out = []
     for key, digest in st.latest.items():
-        rec = (st.shown.get(key) if st.cfg.caption_control == "shuffled"
+        rec = (st.shown.get(key) if st.cfg.caption_control in SWAP_CONTROLS
                else st.captions.get(digest))
         if rec and rec.get("text"):
             out.append((key, rec["text"]))

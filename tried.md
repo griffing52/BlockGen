@@ -151,6 +151,7 @@ first filed as T79, is now T88 (notes §74, first filed as §66).
 | FIND | Constrained decoding of the RFT model | BlockScore 552 vs 553, geom tie, mv_dino_kid 0.182 to 0.147 separated, components 17.6 to 10.4; the fine-tune had already bought most of the shell | T122 |
 | NEG | Constrained best-of-4 on the RFT model (three solidity levers stacked) | DQ for self-duplication: twin rate 0.27 (real 0.01); 37% of kept builds at face_solidity >= 0.99 (one lever 1.8%, two 7.3%); solid single-material monoliths, mv_dino_kid back to 0.304; the reward saturates and its optimum is a filled box | T122 |
 | FIND | Facade geometry pillar at the six-face ceiling (constrained best-of-4, best-of-4, ceiling in one group) | BlockScore of the facade track is bounded by the empty interior, not the generator; next lever = interior stage, and a counterweighted reward before more selection | T122 |
+| FIND | geom_kid of facade arms against the shells of the real houses (scripts/facade_shell_reference.py) | Representation gap dominates (real vs own shells 18.2, ceiling vs real 13.8, best generator vs shells 4.0); order flips: constrained 5.4 beats best-of-4 8.2 against shells where the card says 16.5 vs 13.5, because face disagreement fills volume the full-house reference reads as interior; development metric = shell column, leaderboard = full-house column | T122 addendum |
 | FIND | Pooled-face probe (fixed hierarchy f=16 to 1 on real faces) | Windows survive only to f=2; pooled levels smoother than real | T75 |
 | NEG | Fixed-pooling face cascade (NCM/VAR recipe, six runs) | Depth residual learned, block residual not; no window ever; coarse levels memorise; blobs match face statistics better than any AR arm | T88, notes §74 |
 | FIND | Face statistics as a quality signal | Gameable by smoothness; a distribution metric on faces is needed | T88 |
@@ -199,6 +200,19 @@ first filed as T79, is now T88 (notes §74, first filed as §66).
 | WIN | V-KID robustness: leave-family-out, random subsets, generic orbit-averaged descriptors, global terms | Every family and 20/20 random halves pass; random 3D CNN and raw 3^3 rows pass every gate; global terms leave Patch-Stitch 4th of 9 | T105, notes §82 |
 | FIND | Functional ground truth (player enterability, reached floor/rooms, roof, connectivity) on the 76 MV-KID/V-KID reversed pairs | Real ranks first and FILL/HOLLOW are caught, but it sides with MV-KID on 60 of 76 (V-KID 21%; non-facade 1 of 38); Spearman with MV-KID 0.67 vs V-KID 0.16 | T114, notes §87 |
 | FIND | Functional ground truth rebased on the 40 exact-permutation reversed pairs; 34 decisions re-tested exactly | Sides with MV-KID 33 of 40 (non-facade 18 of 18); decisions agree 6, MV-only 14, V-only 1 (which FD reverses) | T123, notes §91 |
+| FIND | GPT-4o judge reanalysed with position removed (order-consistent pairs, BT with a position term) | Exterior 0.68 [0.50, 0.84] on 31 decided pairs, roof off 0.89; contrast holds, exterior is uninformative rather than chance | T134 |
+| FIND | BlockScore worst pillar at n=128 vs 256; effect-size BlockScore | 0 of 13 arms change pillar; effect-size form ranks with the z form (rho 0.96) | T135 |
+| FIND | Near-twin gate on 24 real draws and 40 generators, IoU 0.8/0.9/0.95 | 0 real false positives; gates 3 agentic, 1 LLM and 2 T=0.7 voxel-AR arms; Dream-Cubed DQ at every threshold | T136 |
+| FIND | Uni3D / ULIP-2 on grey (colour-free) interior-inclusive points | ULIP-2 passes every gate (Fill +6 to +17 floors vs V-KID +111); Uni3D fails yaw invariance | T137 |
+| OPEN | Objaverse 568-object probe, seed 1, CPU-only rerun from emd.npz | running | T138, notes §93 |
+| NEG | Walk-through FD as a sixth BlockScore pillar (noise floors and effect size), with measure-split, door-free, leave-one-out and build-split guards | Never binds (0/40 z, 2/40 e); BS+F = BS, rho with FD 0.17; held out the pillar ties MV-KID (0.41 vs 0.42) and every max with V-KID is below 0 | T126 |
+| FIND | Effect-size plane (MV e vs V e, FD colour) for the leaderboard and 40-generator rank scatter | Every generator above the diagonal; FD does not follow the V axis; figures drafted | T127 |
+| FIND | BrickGPT V/MV effect-size ratio under other anchors, with a CI (OSMesa CPU render) | 2.2 is anchor-dependent (1.6 to 3.2; CI [1.8, 3.2]); ratio > 1 under every anchor | T128 |
+| FIND | Training-seed error term from three same-recipe seed groups | sigma 13 MV / 36 V floors; MV-significant decisions 20 to 10, V 7 to 2; 28/40 reversed pairs clear the band | T129 |
+| FIND | Leak-dose bins rescored under the deployed renderer, paired test, rescaled CIs | rho 0.66 (0.96 only with atlas fixed); no bin survives Holm; top quartile -1.5 floors toward real (p 0.012) | T130 |
+| FIND | Table 4 rank intervals with m-of-n rescale and floor MC error | New ties VOXEL-AR-U/Shuffle and Monochrome/Train-copy+noise; flips 0.29/0.41 | T131 |
+| FIND | Gate audit: interior sensitivity blocking, G1 dropped | S6 removes every render metric and connected-parts; G1 changes 1 of 112 verdicts | T132 |
+| FIND | Fill-Interior MV-KID inference unified (paired vs unpaired, TOST with matching SE, direct MMD) | Paired p 0.057, CI [-0.23, 0.94] floors, equivalent at 2 floors; direct paired MMD detects e 0.018 | T133 |
 | TOOL | BlockLab, phone queue, run identity, leaderboard protocol | Curation, 2AFC, standings | notes §29, §31, §49 |
 
 ## 11. External generators and the LEGO twin
