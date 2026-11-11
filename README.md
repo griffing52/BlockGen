@@ -1,4 +1,15 @@
-# BlockGen
+<div align="center">
+
+# BlockGen: Generating Discrete Voxel Structures
+
+**Griffin Galimi**<sup>1</sup>
+
+<sup>1</sup>University of California, Los Angeles
+
+![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+
+</div>
 
 Generative models for discrete 3D **buildable** structures — Minecraft voxel builds today,
 LEGO brick assemblies next. The research thesis: *guaranteed-buildable generation with
